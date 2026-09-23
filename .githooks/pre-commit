@@ -1,0 +1,5 @@
+#!/bin/sh
+# memory-kit: regenerate the views, check the vault strictly and stage what the kit rewrote.
+# The check refuses a commit whose staged files differ from the work tree (it reads the work tree).
+command -v node >/dev/null 2>&1 || { echo "memory-kit: node not found, check skipped" >&2; exit 0; }
+node system/memory.mjs check --pre-commit || exit 1

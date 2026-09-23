@@ -1,0 +1,5 @@
+# memory-kit v1 · source 553226564269 · content 6974009d7813 · as-of 2026-09-23 · DO NOT EDIT
+# path	type	status	updated	tier	description	names	stems
+sectors/core/_core.md	sector	active	2026-09-23	warm	Your profile, how to work with you, people, tools, memory.	Core|core|profile|about me|preferences|people|tools|memory|how to work	core profil me prefer peopl tool memori work your with
+state.md	hub	active	2026-09-23	warm	Hand-over between sessions: what is going on now and what comes next. Agents rewrite it at the end of every session.	State	state hand over between session go now come next agent rewrit end everi
+waiting.md	hub	active	2026-09-23	warm	Questions only the owner can answer, each with a recommended answer. Agents add items; the owner answers.	Waiting for you	wait question onli owner can answer each with recommend agent add item

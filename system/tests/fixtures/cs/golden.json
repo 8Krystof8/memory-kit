@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "questions": [
+    { "id": "c01", "q": "kdy se odevzdává maturitní práce", "expect": ["maturita-rezervacni-aplikace"], "category": "extraction", "sector": null },
+    { "id": "c02", "q": "kdo vlastní pekárnu", "expect": ["mira-fenclova", "pekarna-u-pristavu"], "category": "extraction", "sector": null },
+    { "id": "c03", "q": "formát čísla faktury", "expect": ["cislovani-faktur"], "category": "extraction", "sector": null },
+    { "id": "c04", "q": "jak zacit s novym klientem", "expect": ["postup-noveho-klienta"], "category": "extraction", "sector": null },
+    { "id": "c05", "q": "jak citovat zdroje v maturitní práci", "expect": ["citace-zdroju"], "category": "extraction", "sector": null },
+    { "id": "c06", "q": "kdo je vedouci maturitni prace", "expect": ["oto-brindl"], "category": "extraction", "sector": null },
+    { "id": "c07", "q": "co dělá Ada ve studiu", "expect": ["ada-kvicalova"], "category": "extraction", "sector": null },
+    { "id": "c08", "q": "kterou tiskárnu používáme", "expect": ["dodavatele-tisku"], "category": "extraction", "sector": null },
+    { "id": "c09", "q": "co jsme změnili na sezení k cenám", "expect": ["2026-09-15-sezeni-k-cenam"], "category": "multi-session", "sector": null },
+    { "id": "c10", "q": "jak pokračuje web pekárny", "expect": ["redesign-webu-pekarny"], "category": "multi-session", "sector": null },
+    { "id": "c11", "q": "otázky na konzultaci k maturitě", "expect": ["2026-09-18-sezeni-k-maturite", "oto-brindl"], "category": "multi-session", "sector": null },
+    { "id": "c12", "q": "predelana sablona nabidky", "expect": ["2026-09-15-sezeni-k-cenam"], "category": "multi-session", "sector": null },
+    { "id": "c13", "q": "kdy je ústní zkouška", "expect": ["harmonogram-zkousek"], "category": "temporal", "sector": null },
+    { "id": "c14", "q": "kdy se obnovuje smlouva na hosting", "expect": ["hosting-pekarny"], "category": "temporal", "sector": null },
+    { "id": "c15", "q": "co jsme rozhodli v červnu o cenách", "expect": ["2026-06-02-balicky-s-pevnou-cenou"], "category": "temporal", "sector": null },
+    { "id": "c16", "q": "od kdy nepracujeme o vikendech", "expect": ["2026-08-18-o-vikendech-nepracujeme"], "category": "temporal", "sector": null },
+    { "id": "c17", "q": "jak teď fakturujeme klientům", "expect": ["2026-06-02-balicky-s-pevnou-cenou"], "category": "knowledge-update", "sector": null },
+    { "id": "c18", "q": "co obsahuje balíček prémium", "expect": ["rozsah-balicku"], "category": "knowledge-update", "sector": null },
+    { "id": "c19", "q": "je knihovna brezovka jeste klient", "expect": ["knihovna-brezovka"], "category": "knowledge-update", "sector": null },
+    { "id": "c20", "q": "jake tema maturitni prace jsme vybrali", "expect": ["2026-04-15-tema-maturitni-prace"], "category": "knowledge-update", "sector": null },
+    { "id": "c25", "q": "termín odevzdání práce", "expect": ["maturita-rezervacni-aplikace"], "category": "extraction", "sector": null },
+    { "id": "c21", "q": "dárek k výročí svatby", "expect": [], "category": "absent", "sector": null },
+    { "id": "c22", "q": "recept na narozeninový dort", "expect": [], "category": "absent", "sector": null },
+    { "id": "c23", "q": "očkování psa", "expect": [], "category": "absent", "sector": null },
+    { "id": "c24", "q": "kotviště pro plachetnici", "expect": [], "category": "absent", "sector": null }
+  ]
+}
