@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "questions": [
+    { "id": "q01", "q": "when is the thesis due", "expect": ["thesis-project"], "category": "extraction", "sector": null },
+    { "id": "q02", "q": "who owns harbor bakery", "expect": ["mira-fenwick", "harbor-bakery"], "category": "extraction", "sector": null },
+    { "id": "q03", "q": "invoice number format", "expect": ["invoice-numbering"], "category": "extraction", "sector": null },
+    { "id": "q04", "q": "steps to onboard a new client", "expect": ["onboarding-checklist"], "category": "extraction", "sector": null },
+    { "id": "q05", "q": "how do I cite sources in the thesis", "expect": ["citation-style"], "category": "extraction", "sector": null },
+    { "id": "q06", "q": "who supervises my thesis", "expect": ["otto-brindle"], "category": "extraction", "sector": null },
+    { "id": "q07", "q": "what does Ada do at the studio", "expect": ["ada-quill"], "category": "extraction", "sector": null },
+    { "id": "q08", "q": "which print shop do we use", "expect": ["print-suppliers"], "category": "extraction", "sector": null },
+    { "id": "q09", "q": "what did we change in the pricing session", "expect": ["2026-09-15-pricing-session"], "category": "multi-session", "sector": null },
+    { "id": "q10", "q": "progress on the bakery website", "expect": ["website-redesign"], "category": "multi-session", "sector": null },
+    { "id": "q11", "q": "questions prepared for the thesis consultation", "expect": ["2026-09-18-thesis-session", "otto-brindle"], "category": "multi-session", "sector": null },
+    { "id": "q12", "q": "reworked offer template", "expect": ["2026-09-15-pricing-session"], "category": "multi-session", "sector": null },
+    { "id": "q13", "q": "when is the oral exam", "expect": ["exam-schedule"], "category": "temporal", "sector": null },
+    { "id": "q14", "q": "when does the hosting contract renew", "expect": ["hosting-provider"], "category": "temporal", "sector": null },
+    { "id": "q15", "q": "what did we decide in June about prices", "expect": ["2026-06-02-fixed-price-packages"], "category": "temporal", "sector": null },
+    { "id": "q16", "q": "since when do we stop working weekends", "expect": ["2026-08-18-no-work-on-weekends"], "category": "temporal", "sector": null },
+    { "id": "q17", "q": "how do we bill clients now", "expect": ["2026-06-02-fixed-price-packages"], "category": "knowledge-update", "sector": null },
+    { "id": "q18", "q": "what the premium package includes", "expect": ["pricing"], "category": "knowledge-update", "sector": null },
+    { "id": "q19", "q": "is birchwood library still a client", "expect": ["birchwood-library"], "category": "knowledge-update", "sector": null },
+    { "id": "q20", "q": "which thesis topic did we choose", "expect": ["2026-04-15-thesis-topic"], "category": "knowledge-update", "sector": null },
+    { "id": "q25", "q": "thesis submission deadline", "expect": ["thesis-project"], "category": "extraction", "sector": null },
+    { "id": "q21", "q": "wedding anniversary gift", "expect": [], "category": "absent", "sector": null },
+    { "id": "q22", "q": "birthday cake recipe", "expect": [], "category": "absent", "sector": null },
+    { "id": "q23", "q": "dog vaccination record", "expect": [], "category": "absent", "sector": null },
+    { "id": "q24", "q": "sailing boat mooring", "expect": [], "category": "absent", "sector": null }
+  ]
+}

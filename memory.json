@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "initialized": false,
+  "lang": "en",
+  "mode": "github",
+  "roots": [
+    { "id": "main", "path": ".", "privacy": "github" }
+  ],
+  "profile": "sectors/core/profile.md",
+  "agents": ["claude-code", "codex", "gemini-cli", "cursor", "chatgpt", "claude-app"],
+  "budgets": {},
+  "search": { "log": false, "n": 5 },
+  "eval": { "golden": "system/tests/golden.json", "min": 0.9 },
+  "cleanup": { "provider": "none" }
+}

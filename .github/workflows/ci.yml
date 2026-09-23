@@ -1,0 +1,82 @@
+# memory-kit CI (docs/architecture.md, section 15.4). CI never commits.
+#
+# Job "kit" tests the kit itself. It runs only in the public kit repository: a private vault made
+# from this template skips it, because private repositories have limited Actions minutes.
+# Job "vault" checks a vault. In the public kit it runs on every push; in a private vault only on
+# the nightly schedule and on manual runs. Pushes from phones cannot run the pre-commit hook, so
+# the nightly lenient check is what catches their problems.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 2 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # A vault made from this template must stay private. In a public repository whose memory.json is
+  # set up ("initialized": true) this job fails at once, so the owner sees it on the first push.
+  public-guard:
+    if: ${{ github.event_name != 'schedule' && github.event.repository.private == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: A set-up personal vault is never public
+        run: |
+          node -e '
+            const cfg = JSON.parse(require("fs").readFileSync("memory.json", "utf8"));
+            if (cfg.initialized === true) {
+              console.error("memory-kit: this repository is PUBLIC but holds a set-up personal vault (memory.json initialized: true). Make it private now: Settings > General > Danger Zone > Change visibility.");
+              process.exit(1);
+            }'
+
+  kit:
+    # Scheduled events carry no repository payload, so the kit job never runs on the schedule.
+    if: ${{ github.event_name != 'schedule' && github.event.repository.private == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Unit and integration tests
+        run: node --test "system/tests/**/*.test.mjs"
+      - name: The kit itself passes the strict check
+        run: node system/memory.mjs check --strict
+
+  vault:
+    if: >-
+      ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'push' && github.event.repository.private == false) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Check the vault (lenient, like phone pushes)
+        run: node system/memory.mjs check --lenient
+      - name: Search smoke test
+        run: node system/memory.mjs search "memory" --json

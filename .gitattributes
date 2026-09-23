@@ -1,0 +1,21 @@
+# Text is stored with LF everywhere (the kit reads CRLF too, but writes LF).
+* text=auto eol=lf
+
+# Binary attachments
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.pdf binary
+
+# Append-only logs merge without conflicts
+system/usage/*.log merge=union
+
+# Generated views (never edited by hand)
+_ai/** linguist-generated=true
+.ignore linguist-generated=true
+home.md linguist-generated=true
+domu.md linguist-generated=true
