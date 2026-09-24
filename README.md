@@ -22,8 +22,12 @@ the kit depends on none of them.
 - **Any language, Czech built in.** Folder names, frontmatter keys, types, statuses and CLI aliases
   come from a language pack. English and Czech ship with the kit. Czech gets a Snowball stemmer and
   grep patterns that match with or without accents.
-- **No dependencies.** You need Node 22 or newer and git, and nothing else. It works in cloud
-  containers too.
+- **In every AI tool.** Agents that run commands use the CLI. Apps such as Claude Desktop, VS Code
+  or Zed get the memory through its built-in MCP server, added with one command.
+- **Safe updates.** One command updates the kit, keeps a backup, checks the result and undoes
+  itself when a check fails. Your notes are never touched.
+- **No dependencies.** You need Node 22 or newer and git, and nothing else. It works on Windows,
+  macOS and Linux, and in cloud containers too.
 
 ## Start in 5 minutes
 
@@ -52,11 +56,39 @@ gh repo create my-memory --private --template 8Krystof8/memory-kit --clone
 cd my-memory
 node system/init.mjs --questions    # prints the questions and their defaults
 node system/init.mjs --mode github --lang en --sectors core,work,school --yes
-git add -A && git commit -m "Set up memory" && git push
+git add -A
+git commit -m "Set up memory"
+git push
 ```
 
 Without `--yes`, `init` prints its plan and changes nothing. If memory is already set up, it refuses
-to run.
+to run. Run the commands one at a time: they work the same in bash, zsh and PowerShell.
+
+## Switch it on in your AI tools
+
+Claude Code, Codex, Gemini CLI and Cursor need nothing when you open the vault itself: they read
+`AGENTS.md` (through `CLAUDE.md` or `GEMINI.md`) and load the memory at the start of a session.
+
+To have the memory in every other project, and in apps that cannot run commands, run one command in
+the vault. It adds the memory's MCP server to the app's settings and keeps everything else there:
+
+| tool | command |
+|---|---|
+| Claude Code | `node system/memory.mjs connect claude-code` |
+| Claude Desktop | `node system/memory.mjs connect claude-desktop` |
+| Codex, and the ChatGPT desktop app | `node system/memory.mjs connect codex` |
+| Gemini CLI | `node system/memory.mjs connect gemini-cli` |
+| Cursor | `node system/memory.mjs connect cursor` |
+| VS Code | `node system/memory.mjs connect vscode` |
+| Windsurf, Zed, LM Studio, Cline, Copilot CLI, Junie | `node system/memory.mjs connect windsurf` (or `zed`, `lm-studio`, `cline`, `copilot-cli`, `junie`) |
+| ChatGPT on the web | no command: connect GitHub in ChatGPT and paste `_ai/profile.md` into its instructions ([how](docs/integrations/chatgpt.md)) |
+| Claude on the web and phone | no command: open a Claude Code session on the vault, or use a project with `_ai/profile.md` ([how](docs/integrations/claude-app.md)) |
+
+Then restart the app, allow the server when it asks, and ask its AI to "call memory_start". The app
+can search and read your notes and save new captures to `inbox/`; it never changes existing notes,
+and local sectors stay hidden. `node system/memory.mjs connect --list` shows which apps are
+connected. Where each app keeps its settings, and what to do when it does not work:
+[docs/integrations/mcp.md](docs/integrations/mcp.md).
 
 ## How it works
 
@@ -142,7 +174,7 @@ besides Node.
 
 | command | what it does |
 |---|---|
-| `start [--sectors a,b]` | prints the start view (what the SessionStart hook shows) |
+| `start [--sectors a,b] [--format text\|gemini-hook\|json]` | prints the start view (what the SessionStart hook shows); `gemini-hook` and `json` are for hooks and programs |
 | `search "query" [--sector s] [--type t] [--status s\|any] [--n 5] [--all] [--local] [--json]` | full-text search, one line per result with a snippet; local sectors only counted unless `--local` |
 | `search --rg "words"` | prints an accent-safe regex for `rg -i` |
 | `search --duplicates "title" ["description"]` | finds an existing note before you add a new one |
@@ -151,9 +183,14 @@ besides Node.
 | `check [--generate] [--strict\|--lenient]` | validates the vault; `--generate` first normalizes notes (LF, NFC) and rebuilds `home.md`, `_ai/` and `.ignore` |
 | `sync [--no-push]` | `git pull --rebase`, resolves conflicts that touch only generated files, pushes; never forces; does nothing in mode `local` |
 | `eval [--file path]` | runs your golden questions and prints hit@3 |
+| `doctor [--json] [--fix]` | checks the setup: Node, memory.json, kit files, git hooks, roots, connected apps; says how to fix each problem |
+| `upgrade [--yes] [--rollback]` | updates the kit to the newest version: shows the plan first, keeps a backup, verifies, rolls back on failure |
+| `connect <app>` · `connect --list` | adds the memory to an AI app's MCP settings (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI and more) |
+| `mcp [--read-only] [--local]` | the MCP server the apps start (stdio); you do not run it yourself |
 
 Every command also accepts the canonical English names. A language pack adds aliases: in Czech,
-`hledej` means `search`, `kontrola` means `check`, `novy` means `new` and `sektor` means `sector`.
+`hledej` means `search`, `kontrola` means `check`, `novy` means `new`, `sektor` means `sector`,
+`doktor` means `doctor`, `aktualizuj` means `upgrade` and `pripoj` means `connect`.
 Exit codes: 0 ok, 1 a problem was found, 2 a usage error, 3 an internal error.
 
 ```text
@@ -168,6 +205,76 @@ $ node system/memory.mjs search "hourly billing"
 (The examples in these docs use the fictional test vault of a design studio called "Linden Studio".
 The output above is shortened.)
 
+## Health check
+
+When something does not work, run this first:
+
+```sh
+node system/memory.mjs doctor
+```
+
+It checks Node.js, `memory.json`, the kit files, the git hooks, the private folder, the generated
+views and the connected apps. Every line is one check, and every problem comes with the command
+that fixes it:
+
+```text
+memory-kit doctor · kit 0.1.1 · /home/you/my-memory
+✓ node.version         Node.js 22.22.2 (the kit needs 22.5.0 or newer)
+✓ config.memory_json   memory.json is valid (language en, mode github)
+! git.hooks_path       core.hooksPath is not set, so git never runs .githooks/pre-commit
+                       fix: node system/memory.mjs doctor --fix (or: git config core.hooksPath .githooks)
+✓ mcp.clients          connected in: Cursor, Codex
+16 ok · 1 warn · 0 fail
+```
+
+(The output above is shortened.) `doctor` also works when `memory.json` is broken, and it changes
+nothing. `doctor --fix` repairs the two things that are safe to repair by itself: an unset git
+hook path, and a pre-commit hook file with the wrong line endings or without its executable bit
+(when it changes the file's content, it keeps a copy of the old one).
+`doctor --json` prints the report for scripts.
+
+## Update to a new version
+
+One command updates the kit:
+
+```sh
+node system/memory.mjs upgrade
+node system/memory.mjs upgrade --yes
+```
+
+The first command downloads the newest kit and prints what would change. Nothing changes yet. The
+second applies it. Then commit with the two commands `upgrade` prints (`git add -A`, then
+`git commit -m "…"`).
+
+What it promises:
+
+- Your notes, `memory.json`, golden questions and local sectors stay as they are.
+- A kit file you changed is never overwritten silently: code stops the upgrade, and for config and
+  docs the new version is saved next to yours for you to compare.
+- Every file it touches is backed up in `.memory-kit/backups/` first.
+- It checks the result with the vault's own `check`, `start`, `search` and golden questions, and
+  puts every file back by itself when a check fails.
+
+`node system/memory.mjs upgrade --rollback` undoes the last upgrade, also an interrupted one. If
+you changed a file since, it stops and names the file; `--rollback --force` then saves your version
+in the backup before it restores.
+
+A vault made from 0.1.0 has no `upgrade` command yet. The new kit upgrades it once from outside;
+the three commands are in [docs/upgrading.md](docs/upgrading.md#upgrading-a-vault-made-from-010).
+After that the command above is enough.
+
+## For developers
+
+Other programs can use the memory without an agent:
+
+- the **JavaScript API** in `system/api.mjs`: `openMemory(root)` with `start`, `search`, `read`,
+  `recent`, `inbox` and `check`;
+- the **JSON output** of the CLI (`--json`), described by JSON schemas in `system/schema/`;
+- the **MCP server**, `node system/memory.mjs mcp`.
+
+All three share one stability promise (`api_version` 1). See [docs/api.md](docs/api.md). To work
+on the kit itself, read [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## What is in the repository
 
 ```
@@ -178,12 +285,16 @@ state.md  waiting.md                   hubs for session hand-over and questions 
 sectors/core/_core.md                  the first sector (init adds the ones you choose)
 inbox/  journal/  archive/  attachments/
 _ai/  .ignore                          generated for agents; never edit
-system/                                the CLI, language packs, templates, tests
+system/                                the CLI, the JS API, language packs, templates, schemas, tests
+system/kit.json                        the kit's version and the hash of every kit file (for upgrade)
 .agents/skills/memory/                 skill in the open Agent Skills format
 .claude/                               SessionStart hook and the memory-searcher subagent
 .githooks/pre-commit  .github/workflows/ci.yml
 docs/                                  these docs (not notes)
 ```
+
+`.memory-kit/` appears after the first `upgrade`, `connect` or `doctor --fix`. It holds their
+backups on this computer and is never committed.
 
 With `--lang cs`, `init` renames the folders and files to their Czech names: `sektory/`, `denik/`,
 `archiv/`, `prilohy/`, `domu.md`, `stav.md` and `ceka.md`.
@@ -194,6 +305,7 @@ With `--lang cs`, `init` renames the folders and files to their Czech names: `se
   it falls back to a pure-JavaScript engine automatically. Agents without Node can still grep the
   catalog.
 - **git.** A GitHub account is needed only for modes `github` and `combined`.
+- **Windows, macOS or Linux.** Every command works the same in bash, zsh and PowerShell.
 - Optional: [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`). Claude Code, Codex and Cursor
   already use it.
 - Any markdown editor you like, or none: GitHub shows every note and the home page.
@@ -206,18 +318,22 @@ With `--lang cs`, `init` renames the folders and files to their Czech names: `se
 | privacy, local sectors, secrets | [docs/privacy.md](docs/privacy.md) |
 | the memory on iPhone and Android | [docs/phone.md](docs/phone.md) |
 | how search works, Czech, golden questions | [docs/search.md](docs/search.md) |
-| routines, checks, budgets, upgrades, roadmap | [docs/maintenance.md](docs/maintenance.md) |
+| routines, checks, budgets, troubleshooting, roadmap | [docs/maintenance.md](docs/maintenance.md) |
+| updating the kit, backups, rollback, releases | [docs/upgrading.md](docs/upgrading.md) |
+| AI apps over MCP: every app, its settings file, troubleshooting | [docs/integrations/mcp.md](docs/integrations/mcp.md) |
 | Claude Code · Codex · Gemini CLI · Cursor · ChatGPT · Claude app | [docs/integrations/](docs/integrations/) |
+| JavaScript API, JSON output and schemas, MCP tools | [docs/api.md](docs/api.md) |
 | the implementation contract | [docs/architecture.md](docs/architecture.md) |
 | contributing, adding a language | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | changes | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Status
 
-Version 0.1.0 is phase 1: the structure, checks, generated views, search, templates, sectors,
-setup, adapters and CI. The nightly cleanup by a cheap model, a local model for private sectors, an
-MCP server and embeddings are on the [roadmap](docs/maintenance.md#roadmap-not-built-yet). Their
-safety rules are already written down.
+Version 0.1.0 was phase 1: the structure, checks, generated views, search, templates, sectors,
+setup, adapters and CI. Version 0.1.1 adds `upgrade`, `doctor`, the MCP server with `connect`, the
+JavaScript API, JSON schemas and support for Windows and macOS. The nightly cleanup by a cheap
+model, a local model for private sectors, a remote MCP server and embeddings are on the
+[roadmap](docs/maintenance.md#roadmap-not-built-yet). Their safety rules are already written down.
 
 ## License
 

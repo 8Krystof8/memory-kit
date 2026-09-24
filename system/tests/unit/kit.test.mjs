@@ -106,19 +106,27 @@ describe('adapters (9.3 to 9.6)', () => {
     assert.match(agent.body, /1500 tokens/);
   });
 
-  test('the SessionStart hook prints the start file', () => {
+  test('the SessionStart hook prints the start file (shell form with a braced, quoted placeholder)', () => {
     const settings = JSON.parse(read('.claude/settings.json'));
     const entries = settings.hooks.SessionStart;
-    const entry = entries.find((e) => /startup/.test(e.matcher) && /resume/.test(e.matcher) && /compact/.test(e.matcher));
+    const entry = entries.find((e) => e.matcher === 'startup|resume|clear|compact');
     assert.ok(entry, JSON.stringify(entries));
-    assert.ok(entry.hooks.some((h) => h.type === 'command' && /system\/memory\.mjs"? start$/.test(h.command)));
+    // No `args` (exec form): Claude Code before 2.1.139 drops it and runs a bare `node` that reads
+    // the hook input JSON as a script. The braces let Claude Code 2.1.198+ rewrite the placeholder
+    // for PowerShell; sh, bash and Git Bash expand it on every version.
+    assert.deepEqual(entry.hooks, [{
+      type: 'command', command: 'node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start',
+    }]);
   });
 
   test('the pre-commit hook runs the strict pre-commit check (it stages the generated views)', () => {
     const hook = read('.githooks/pre-commit');
     assert.ok(hook.startsWith('#!/bin/sh\n'));
     assert.ok(!hook.includes('\r'), 'LF only');
-    assert.match(hook, /node system\/memory\.mjs check --pre-commit \|\| exit 1/);
+    assert.match(hook, /^"\$node_bin" system\/memory\.mjs check --pre-commit \|\| exit 1$/m);
+    for (const place of ['git config --get memorykit.node', '/opt/homebrew/bin/node', '/usr/local/bin/node', '.volta/bin/node', '$NVM_BIN/node']) {
+      assert.ok(hook.includes(place), `looks for node in ${place}`);
+    }
   });
 
   test('the pre-commit hook is executable', { skip: process.platform === 'win32' && 'no file modes on Windows' }, () => {

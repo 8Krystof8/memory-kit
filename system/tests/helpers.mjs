@@ -44,11 +44,15 @@ const SKIP_NAMES = new Set(['.git', 'node_modules', '.cache', '.trash']);
 
 const created = [];
 
-/** A fresh temporary folder; removed by removeTmpDirs() unless MEMORY_KEEP_TMP is set. */
+/**
+ * A fresh temporary folder, as its canonical path (links resolved; on Windows also 8.3 names
+ * such as RUNNER~1, which git reports in full); removed by removeTmpDirs() unless
+ * MEMORY_KEEP_TMP is set.
+ */
 export function tmpDir(label = 'test') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `memory-kit-${label}-`));
   created.push(dir);
-  return fs.realpathSync(dir);
+  return fs.realpathSync.native(dir);
 }
 
 /** Pass to node:test `after()` in every file that creates temporary folders. */
@@ -57,7 +61,8 @@ export function removeTmpDirs() {
     if (created.length) process.stderr.write(`kept temporary folders:\n${created.join('\n')}\n`);
     return;
   }
-  for (const dir of created.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  // Retries: on Windows a git process or the virus scanner can still hold a file for a moment.
+  for (const dir of created.splice(0)) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -177,6 +182,7 @@ function runNode(script, args, { env, cwd, input } = {}) {
     input,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
+    windowsHide: true,
   });
   if (res.error) throw res.error;
   return { code: res.status, stdout: res.stdout, stderr: res.stderr, signal: res.signal };

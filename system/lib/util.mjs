@@ -1,10 +1,13 @@
-// Small shared helpers: canonical tables, dates, text measures, file and git access.
+// Small shared helpers: canonical tables, dates, text measures, file and git access, and the
+// portability rules (home folder, Windows names, letter case, NFC, reparse points).
 // Nothing here reads the clock except todayLocal(), which only new/sector/init/sync may call.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
+import { renameRetry, writeAtomic } from './fsafe.mjs';
 
 export const ATOMIC_TYPES = ['decision', 'fact', 'insight'];
 
@@ -198,6 +201,23 @@ export function readTextIfExists(abs) {
   }
 }
 
+/**
+ * Replaces a file atomically (fsafe.writeAtomic) and keeps the permission bits of the file it
+ * replaces, so a rewrite never changes a mode git records. Creates parent folders. On Windows a
+ * mode only carries the read-only flag, which must not be copied onto the temporary file.
+ */
+export function replaceFile(abs, data) {
+  let mode;
+  if (process.platform !== 'win32') {
+    try {
+      mode = fs.statSync(abs).mode & 0o777;
+    } catch {
+      /* a new file gets the default mode */
+    }
+  }
+  writeAtomic(abs, data, mode === undefined ? {} : { mode });
+}
+
 /** Writes text (NFC, LF, one trailing newline expected from the caller) only when bytes differ. */
 export function writeIfChanged(abs, text) {
   const next = Buffer.from(String(text), 'utf8');
@@ -207,8 +227,7 @@ export function writeIfChanged(abs, text) {
   } catch (err) {
     if (err.code !== 'ENOENT') throw err;
   }
-  fs.mkdirSync(path.dirname(abs), { recursive: true });
-  fs.writeFileSync(abs, next);
+  replaceFile(abs, next);
   return true;
 }
 
@@ -234,25 +253,200 @@ export function isFile(abs) {
   }
 }
 
-/** Expands '~/' and resolves a path against base. */
-export function resolvePath(base, p) {
+// ---------------------------------------------------------------------------------------------
+// Paths across operating systems
+
+/** The path module of a platform: path.win32 for 'win32', path.posix for any other. */
+export function pathFor(platform = process.platform) {
+  return platform === 'win32' ? path.win32 : path.posix;
+}
+
+/**
+ * The user's home folder as Node reports it: HOME on macOS and Linux, USERPROFILE (then the
+ * profile folder) on Windows, where cmd, PowerShell and most apps do not set HOME at all.
+ */
+export function homeDir() {
+  return os.homedir();
+}
+
+const TILDE = /^~(?:[\\/]|$)/;
+
+/**
+ * '~', '~/rest' or '~\rest' as an absolute path under home; null for any other path.
+ * The one expansion used by memory.json readers (resolvePath) and by init, which writes '~/…'.
+ */
+export function expandHome(p, { home, pathMod = path } = {}) {
   const s = String(p);
-  if (s === '~' || s.startsWith('~/')) return path.join(process.env.HOME || '', s.slice(1));
-  return path.resolve(base, s);
+  if (!TILDE.test(s)) return null;
+  return pathMod.resolve(home ?? homeDir(), s.slice(2));
+}
+
+/** Expands a leading '~' (expandHome) or resolves p against base with path.resolve. */
+export function resolvePath(base, p, { home, pathMod = path } = {}) {
+  return expandHome(p, { home, pathMod }) ?? pathMod.resolve(base, String(p));
+}
+
+/**
+ * True when p is absolute only on another operating system, so it cannot name a folder here:
+ * a drive letter ('D:/x', 'D:x'), a UNC path or a leading backslash on macOS and Linux; a
+ * leading single slash or backslash ('/home/x', '\x') on Windows, where it would silently mean
+ * the root of the current drive.
+ */
+export function isForeignAbsolute(p, platform = process.platform) {
+  const s = String(p);
+  if (platform === 'win32') return /^[\\/](?![\\/])/.test(s);
+  return /^[A-Za-z]:/.test(s) || s.startsWith('\\');
+}
+
+/** A path compared the way the platform's file system compares names (letter case, NFC). */
+function foldPath(p, platform) {
+  if (platform === 'darwin') return p.normalize('NFC').toLowerCase();
+  if (platform === 'win32') return p.toLowerCase();
+  return p;
+}
+
+/**
+ * True when target is base itself or lies under it. Letter case is ignored on Windows and macOS
+ * (their usual file systems ignore it), and on macOS NFC and NFD spellings are equal too.
+ */
+export function insidePath(base, target, { platform = process.platform, pathMod = pathFor(platform) } = {}) {
+  const rel = pathMod.relative(foldPath(String(base), platform), foldPath(String(target), platform));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${pathMod.sep}`) && !pathMod.isAbsolute(rel));
+}
+
+/**
+ * The real path of p when it exists; otherwise the real path of its nearest existing ancestor
+ * plus the rest. Symlinks, junctions, subst drives and 8.3 names then compare equal.
+ */
+export function realpathLoose(p) {
+  let cur = path.resolve(String(p));
+  const rest = [];
+  for (;;) {
+    try {
+      const real = fs.realpathSync.native(cur);
+      return rest.length ? path.join(real, ...rest.reverse()) : real;
+    } catch {
+      const parent = path.dirname(cur);
+      if (parent === cur) return path.resolve(String(p));
+      rest.push(path.basename(cur));
+      cur = parent;
+    }
+  }
+}
+
+// Device names Windows reserves in every folder, with or without an extension (NUL.txt is NUL).
+// Git for Windows refuses to check them out (core.protectNTFS), so they must never be committed.
+const RESERVED_NAMES = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³]|conin\$|conout\$)$/i;
+// Characters Windows forbids in names; a backslash is a separator there.
+const WINDOWS_BAD_CHARS = /[<>:"|?*\\\u0000-\u001f]/;
+
+/** True for con, prn, aux, nul, com1-9, lpt1-9, conin$ and conout$, any case, any extension. */
+export function isReservedName(segment) {
+  const stem = String(segment).split('.')[0].replace(/ +$/, '');
+  return RESERVED_NAMES.test(stem);
+}
+
+/**
+ * Why a file or folder name cannot exist on Windows: 'reserved' (a device name), 'char' (a
+ * forbidden character) or 'end' (a trailing dot or space, which Windows drops); null when fine.
+ */
+export function windowsNameProblem(segment) {
+  const s = String(segment);
+  if (isReservedName(s)) return 'reserved';
+  if (WINDOWS_BAD_CHARS.test(s)) return 'char';
+  if (/[. ]$/.test(s)) return 'end';
+  return null;
+}
+
+// Files the operating system drops into folders by itself (thumbnails, folder settings).
+const OS_JUNK = new Set(['desktop.ini', 'thumbs.db', 'ehthumbs.db', 'ehthumbs_vista.db', '.ds_store', 'icon\r']);
+
+/** True for desktop.ini, Thumbs.db, ehthumbs.db, .DS_Store and the macOS 'Icon\r' file. */
+export function isOsJunk(name) {
+  return OS_JUNK.has(String(name).toLowerCase());
+}
+
+/**
+ * 'dir', 'file', 'link' or 'other' for a directory entry. Windows marks every reparse point
+ * (junctions, but also deduplicated or cloud files) as a link in readdir, so a link is confirmed
+ * with lstat, which reports only real symlinks and junctions, before it is skipped.
+ */
+export function direntKind(dirAbs, dirent, { lstat = fs.lstatSync } = {}) {
+  if (dirent.isSymbolicLink()) {
+    try {
+      const st = lstat(path.join(dirAbs, dirent.name));
+      if (st.isSymbolicLink()) return 'link';
+      return st.isDirectory() ? 'dir' : st.isFile() ? 'file' : 'other';
+    } catch {
+      return 'other';
+    }
+  }
+  return dirent.isDirectory() ? 'dir' : dirent.isFile() ? 'file' : 'other';
+}
+
+/** Names in a folder ([] when unreadable), cached per folder when a Map is given. */
+function dirNames(abs, cache) {
+  if (cache?.has(abs)) return cache.get(abs);
+  let names;
+  try {
+    names = fs.readdirSync(abs);
+  } catch {
+    names = [];
+  }
+  cache?.set(abs, names);
+  return names;
+}
+
+function findPath(root, rel, same, cache) {
+  let disk = '';
+  for (const seg of String(rel).split('/')) {
+    if (!seg) return null;
+    const names = dirNames(disk ? path.join(root, ...disk.split('/')) : root, cache);
+    const hit = names.includes(seg) ? seg : names.find((n) => same(n, seg));
+    if (hit === undefined) return null;
+    disk = disk ? `${disk}/${hit}` : hit;
+  }
+  return disk || null;
+}
+
+const nfc = (s) => s.normalize('NFC');
+
+/**
+ * The on-disk spelling of rel under root when every segment exists with exactly that name, else
+ * null. NFC and NFD spellings match (macOS writes NFD names); letter case must match, so on
+ * Windows and macOS a file named State.md never passes for state.md, as on Linux and in git.
+ */
+export function resolveExact(root, rel, cache) {
+  return findPath(root, rel, (a, b) => nfc(a) === nfc(b), cache);
+}
+
+/** True when rel exists under root with exactly this letter case (see resolveExact). */
+export function existsExact(root, rel, cache) {
+  return resolveExact(root, rel, cache) !== null;
+}
+
+/** Like resolveExact, but letter case is ignored: finds State.md for state.md on any system. */
+export function resolveCaseless(root, rel, cache) {
+  return findPath(root, rel, (a, b) => nfc(a).toLowerCase() === nfc(b).toLowerCase(), cache);
 }
 
 // ---------------------------------------------------------------------------------------------
 // Git
 
-/** Runs git in root. Throws on failure unless allowFail; never uses a shell. */
-export function git(root, args, { allowFail = false, input } = {}) {
+/**
+ * Runs git in root. Throws on failure unless allowFail; never uses a shell and never opens a
+ * console window on Windows. env holds variables merged over process.env.
+ */
+export function git(root, args, { allowFail = false, input, env } = {}) {
   try {
     const stdout = execFileSync('git', args, {
       cwd: root,
       encoding: 'utf8',
       input,
+      env: env ? { ...process.env, ...env } : undefined,
       stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       maxBuffer: 64 * 1024 * 1024,
+      windowsHide: true,
     });
     return { ok: true, stdout, stderr: '', code: 0 };
   } catch (err) {
@@ -268,15 +462,84 @@ export function git(root, args, { allowFail = false, input } = {}) {
   }
 }
 
+/**
+ * Where root stands in git: 'top' (the top level of a work tree), 'nested' (inside one), 'none'
+ * (no repository) or 'error' (root has a .git entry but git fails: git missing, safe.directory).
+ * Asks git for the way up (--show-cdup, empty at the top) instead of comparing paths, which
+ * differ in letter case, 8.3 names or subst drives on Windows and through symlinks on macOS.
+ */
+export function gitRepoState(root) {
+  const res = git(root, ['rev-parse', '--is-inside-work-tree', '--show-cdup'], { allowFail: true });
+  if (res.ok) {
+    // 'true' then the way up ('' at the top); a .git folder or a bare repository prints 'false'.
+    const [inside, cdup = ''] = res.stdout.split(/\r?\n/);
+    if (inside.trim() !== 'true') return { state: 'none', detail: '' };
+    return { state: cdup.trim() === '' ? 'top' : 'nested', detail: '' };
+  }
+  let dotGit = false;
+  try {
+    fs.lstatSync(path.join(root, '.git'));
+    dotGit = true;
+  } catch {
+    /* no .git entry */
+  }
+  return { state: dotGit ? 'error' : 'none', detail: res.stderr.trim() };
+}
+
 /** True when root is the top level of a git work tree (not merely inside a parent repo). */
 export function isGitRepo(root) {
-  const res = git(root, ['rev-parse', '--show-toplevel'], { allowFail: true });
-  if (!res.ok) return false;
+  return gitRepoState(root).state === 'top';
+}
+
+/** True when abs names a file system entry (a dangling link counts). */
+function entryExists(abs) {
   try {
-    return fs.realpathSync(res.stdout.trim()) === fs.realpathSync(root);
+    fs.lstatSync(abs);
+    return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * Stages a move done outside git: the old paths and the tracked files that arrived at their new
+ * place, in one git add, so the index gets the whole move or nothing (never the deletions
+ * alone). A tracked file already deleted before the move stays a staged deletion; git add
+ * would refuse the whole list if it named that file at its new place. Literal pathspecs: a
+ * file name may contain * or [. -f: git mv keeps a tracked file tracked even where an ignore
+ * rule matches its new place.
+ */
+function stageMove(root, fromRel, toRel, tracked) {
+  const moved = tracked
+    .map((rel) => (rel === fromRel ? toRel : `${toRel}${rel.slice(fromRel.length)}`))
+    .filter((rel) => entryExists(path.join(root, ...rel.split('/'))));
+  const specs = [fromRel, ...moved];
+  return git(root, ['--literal-pathspecs', 'add', '-A', '-f', '--pathspec-from-file=-', '--pathspec-file-nul'], {
+    allowFail: true, input: `${specs.join('\0')}\0`,
+  }).ok;
+}
+
+/**
+ * Moves fromRel to toRel inside root (POSIX rels). With useGit the move goes through git mv, so
+ * git sees a rename; when git mv fails (a file held open on Windows, a tracked file already
+ * deleted, git missing) the folder is renamed with retries and the files git tracked are staged
+ * at their new place. Returns 'git', 'rename', or 'unstaged' when the folder moved but git could
+ * not stage it (another git program holds the index): the index is then untouched and
+ * `git add -A` stages the move. The caller checks that toRel does not exist yet.
+ */
+export function movePath(root, fromRel, toRel, { useGit = false } = {}) {
+  const from = path.join(root, ...fromRel.split('/'));
+  const to = path.join(root, ...toRel.split('/'));
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  let tracked = [];
+  if (useGit) {
+    if (git(root, ['mv', '--', fromRel, toRel], { allowFail: true }).ok) return 'git';
+    const listed = git(root, ['ls-files', '-z', '--', fromRel], { allowFail: true });
+    tracked = listed.ok ? listed.stdout.split('\0').filter(Boolean) : [];
+  }
+  renameRetry(from, to);
+  if (tracked.length && !stageMove(root, fromRel, toRel, tracked)) return 'unstaged';
+  return 'rename';
 }
 
 // ---------------------------------------------------------------------------------------------

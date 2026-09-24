@@ -7,21 +7,24 @@ import path from 'node:path';
 import { formatFindings, runChecks } from '../check.mjs';
 import { writeGenerated } from '../generate.mjs';
 import { loadVault } from '../vault.mjs';
-import { checkToday, git, isGitRepo, parseCli, usageError } from '../util.mjs';
+import { checkToday, git, isGitRepo, parseCli, replaceFile, usageError } from '../util.mjs';
 
 export const usage = 'check [--generate] [--strict|--lenient] [--today YYYY-MM-DD] [--json] [--pre-commit]';
 
 /**
  * Rewrites notes with CRLF line ends, a BOM or text that is not NFC. None of this changes what a
  * note says: git stores LF anyway, and NFC only merges combining accents into one character, which
- * rg and every grep then find. Returns the rewritten notes as [{root, rel}].
+ * rg and every grep then find. The rewrite is atomic (an interrupted run never leaves half a
+ * note) and lands on the note's own file (note.path). Returns the rewritten notes as [{root, rel}].
  */
 export function normalizeNotes(vault) {
   const out = [];
   for (const n of vault.notes) {
     if (!n.crlf && !n.bom && n.nfc) continue;
     try {
-      fs.writeFileSync(n.path, n.text.normalize('NFC'));
+      // A replace by rename would pass a read-only note; the owner made it read-only on purpose.
+      fs.accessSync(n.path, fs.constants.W_OK);
+      replaceFile(n.path, n.text.normalize('NFC'));
       out.push({ root: n.root, rel: n.rel });
     } catch {
       /* read-only file: check still reports it */
@@ -121,8 +124,9 @@ export async function run(argv, cfg) {
     // normalized staged notes (they equalled the work tree, so nothing unstaged sneaks in).
     const add = [cfg.dirs.ai, cfg.files.ignore, cfg.files.home];
     if (generated?.files?.includes('.gitignore')) add.push('.gitignore');
-    const stagedSet = new Set(staged);
-    for (const n of normalized) if (n.root === 'main' && stagedSet.has(n.rel)) add.push(n.rel);
+    // Notes are known by their NFC rel; git lists the name as stored (NFD on some disks).
+    const stagedByNfc = new Map(staged.map((rel) => [rel.normalize('NFC'), rel]));
+    for (const n of normalized) if (n.root === 'main' && stagedByNfc.has(n.rel)) add.push(stagedByNfc.get(n.rel));
     const present = add.filter((rel) => fs.existsSync(path.join(cfg.root, ...rel.split('/'))));
     if (present.length) {
       const res = git(cfg.root, ['add', '-A', '--', ...present], { allowFail: true });

@@ -5,12 +5,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   CANON_KEYS, CANON_PRIVACY, CANON_STATES, CANON_STATUSES, CANON_TIERS, CANON_TYPES,
-  interpolate, isDir, resolvePath,
+  insidePath, interpolate, isDir, isForeignAbsolute, realpathLoose, resolvePath,
 } from './util.mjs';
 
 export class ConfigError extends Error {
   code = 'CONFIG';
 }
+
+/** The memory.json "version" (data layout) this code reads. */
+export const DATA_VERSION = 1;
 
 // Section 3.1. Arrays are [warn, hard]. memory.json may lower a value, never raise it.
 export const DEFAULT_BUDGETS = Object.freeze({
@@ -141,6 +144,10 @@ export const CODE_DEFAULTS = Object.freeze({
   'check.FM_DATE': 'bad date in {key}: {value}',
   'check.FM_DATE_FUTURE': '{key} {value} is later than as-of {asOf}: a typo?',
   'check.NAME_FORMAT': 'file name must be lowercase-ascii-with-hyphens',
+  'check.NAME_PORTABLE': '"{name}" is a device name Windows reserves (con, prn, aux, nul, com1 to com9, lpt1 to lpt9), so git cannot check it out there; rename it',
+  'check.NAME_PORTABLE.char': '"{name}" contains a character Windows forbids in names (< > : " | ? * \\ or a control character), so git cannot check it out there; rename it',
+  'check.NAME_PORTABLE.end': '"{name}" ends with a dot or a space, which Windows cannot keep; rename it',
+  'check.CASE_MISMATCH': 'the letter case differs from {expected}, so it counts as missing; rename it: git mv -f {actual} {expected}',
   'check.NAME_GENERIC': 'generic file name',
   'check.NAME_DUPLICATE': 'name also used by {other}',
   'check.DATED_NAME': 'must start with its date',
@@ -194,6 +201,8 @@ export const CODE_DEFAULTS = Object.freeze({
   'new.duplicate': 'refused: a similar note already exists (extend it, or pass --force)',
   'new.invalid': 'refused: {detail}',
   'new.no_local_root': 'sector {id} is local, but memory.json "roots" has no local root to put its notes in',
+  'new.foreign_root': 'sector {id} is local, but its local root "{path}" is an absolute path of another operating system; in memory.json "roots" write it relative to the vault or as ~/…',
+  'new.reserved': '"{name}" is a device name Windows reserves (con, prn, aux, nul, com1 to com9, lpt1 to lpt9); choose another name',
   'new.fill_description': 'Fill in {key} (one sentence: what it contains and when to look) before committing.',
   'sector.added': 'added sector {id} ({privacy}): {rel}',
   'sector.state': 'sector {id}: {state}',
@@ -201,6 +210,11 @@ export const CODE_DEFAULTS = Object.freeze({
   'sector.no_local_root': 'refused: a local sector needs a local root in memory.json "roots" (privacy "local"); add one, or pass --privacy github',
   'sector.exists': 'refused: sector {id} already exists',
   'sector.invalid': 'refused: invalid sector id "{id}" (lowercase ascii with hyphens, max 24 chars)',
+  'sector.reserved': 'refused: "{id}" is a device name Windows reserves (con, prn, aux, nul, com1 to com9, lpt1 to lpt9); choose another sector id',
+  'sector.foreign_root': 'refused: the local root "{path}" is an absolute path of another operating system; in memory.json "roots" write it relative to the vault or as ~/…',
+  'sector.move_failed': 'refused: could not move {dir} ({detail}). Close editors, terminals and sync apps that use files in it, then run the command again.',
+  'sector.move_back_failed': 'could not move {from} back to {to} ({detail}); move it back by hand before you try again.',
+  'sector.unstaged': 'git could not stage the move to {dir}/ (another git program may be using the repository); run git add -A before you commit.',
   'sector.unknown': 'refused: no sector {id}',
   'sector.conflict': 'refused: {rel} already exists',
   'sector.unchanged': 'sector {id} is already {state}',
@@ -212,6 +226,7 @@ export const CODE_DEFAULTS = Object.freeze({
   'sector.regenerate_failed': 'regenerating _ai/ failed: {detail}. Run node system/memory.mjs check --generate.',
   'sync.no_remote': 'no git remote: nothing to sync',
   'sync.no_git': 'not a git repository: nothing to sync',
+  'sync.git_error': 'git cannot use this repository, so nothing was synced: {detail}',
   'sync.local_mode': 'mode local: nothing leaves this computer, so sync does nothing; a commit is enough',
   'sync.conflict': 'conflict outside the generated files: {files}. Rebase aborted; resolve it by hand.',
   'sync.regenerated': 'regenerated the generated files after a conflict',
@@ -309,7 +324,15 @@ function mergeBudgets(raw, warnings) {
   return out;
 }
 
+/**
+ * The roots of memory.json. A local root path may be relative to the vault, '~/…' or absolute.
+ * A path that is absolute only on another operating system (D:/… read on a Mac, /home/… read on
+ * Windows) is kept as unavailable here (exists false, foreign true, path as written) and never
+ * resolved as a relative path, which would land inside the repository. A local root inside the
+ * repository is refused: its notes would be committed.
+ */
 function parseRoots(rawRoots, root, warnings) {
+  const platform = process.platform;
   const main = { id: 'main', path: root, privacy: 'github', exists: true };
   if (rawRoots === undefined) return [main];
   if (!Array.isArray(rawRoots) || rawRoots.length === 0) {
@@ -330,7 +353,17 @@ function parseRoots(rawRoots, root, warnings) {
       warnings.push(`root "${id}": privacy must be "local"; treated as local`);
     }
     ids.add(id);
-    const abs = resolvePath(root, r.path);
+    const given = str(r.path);
+    if (isForeignAbsolute(given, platform)) {
+      warnings.push(`root "${id}": "${given}" is an absolute path of another operating system; the root is not available on this machine`);
+      roots.push({ id, path: given, privacy: 'local', exists: false, foreign: true });
+      continue;
+    }
+    // A relative path written on Windows ('..\private') means the same folder everywhere.
+    const abs = resolvePath(root, platform === 'win32' ? given : given.replace(/\\/g, '/'));
+    if (insidePath(realpathLoose(root), realpathLoose(abs))) {
+      throw new ConfigError(`memory.json "roots"[${i + 1}] ("${given}") lies inside the repository, so its local notes would be committed; use a folder outside it, for example ../${path.basename(root)}-private`);
+    }
     roots.push({ id, path: abs, privacy: 'local', exists: isDir(abs) });
   }
   return roots;
@@ -342,8 +375,11 @@ export function loadConfig(root, { lang: langOverride } = {}) {
   const raw = readJson(path.join(absRoot, 'memory.json'), 'memory.json');
   const warnings = [];
 
-  if (raw.version !== undefined && raw.version !== 1) {
-    throw new ConfigError(`memory.json "version" must be 1, got ${JSON.stringify(raw.version)}`);
+  if (raw.version !== undefined && raw.version !== DATA_VERSION) {
+    if (Number.isInteger(raw.version) && raw.version > DATA_VERSION) {
+      throw new ConfigError(`memory.json "version" is ${raw.version}, but this kit reads data version ${DATA_VERSION}: the vault is newer than this kit. Update the kit first: node system/memory.mjs upgrade`);
+    }
+    throw new ConfigError(`memory.json "version" must be ${DATA_VERSION}, got ${JSON.stringify(raw.version)}`);
   }
   const lang = langOverride ?? str(raw.lang) ?? 'en';
   const enPack = loadPack(absRoot, 'en');
@@ -445,7 +481,7 @@ export function loadConfig(root, { lang: langOverride } = {}) {
 
   const cfg = {
     root: absRoot,
-    version: 1,
+    version: DATA_VERSION,
     initialized: raw.initialized === true,
     lang,
     mode,

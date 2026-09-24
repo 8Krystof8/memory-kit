@@ -1,0 +1,676 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Krystof8/memory-kit/schema/memory.schema.json",
+  "title": "memory.json",
+  "description": "Settings of a memory-kit vault, data version 1 (docs/architecture.md, section 3). Every key may be left out: the kit then uses the default shown here. A file that passes this schema loads without a config error or warning, except for what only the disk can tell: the language pack must exist, and a local root must lie outside the repository and have a unique id. Unknown top-level keys are kept by init and ignored by the kit.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Data layout version; this kit reads 1. A vault with a higher number needs a newer kit (node system/memory.mjs upgrade). Missing means 1.",
+      "type": "integer",
+      "const": 1,
+      "default": 1
+    },
+    "initialized": {
+      "description": "False in the kit repository; init sets it to true once the vault is set up.",
+      "type": "boolean",
+      "default": false
+    },
+    "lang": {
+      "description": "Language of names, keys and messages: a folder under system/lang/ (en, cs).",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "default": "en"
+    },
+    "mode": {
+      "description": "Where the memory lives: github (a private repository), local (this computer only) or combined (a repository plus a local root for private sectors).",
+      "enum": ["github", "local", "combined"],
+      "default": "github"
+    },
+    "roots": {
+      "description": "Roots of the vault. The first is always the repository itself; further roots hold the notes of local (private) sectors outside the repository. Missing means only the main root.",
+      "type": "array",
+      "minItems": 1,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/mainRoot"
+        }
+      ],
+      "items": {
+        "$ref": "#/$defs/localRoot"
+      },
+      "default": [
+        {
+          "id": "main",
+          "path": ".",
+          "privacy": "github"
+        }
+      ]
+    },
+    "profile": {
+      "description": "Vault-relative path of the owner profile note, or null for no profile section.",
+      "type": ["string", "null"],
+      "minLength": 1,
+      "default": null
+    },
+    "agents": {
+      "description": "AI tools the owner uses. Informational: every adapter is installed anyway.",
+      "type": "array",
+      "items": {
+        "enum": ["claude-code", "codex", "gemini-cli", "cursor", "chatgpt", "claude-app"]
+      },
+      "default": ["claude-code", "codex", "gemini-cli", "cursor", "chatgpt", "claude-app"]
+    },
+    "budgets": {
+      "$ref": "#/$defs/budgets"
+    },
+    "search": {
+      "description": "Search settings.",
+      "type": "object",
+      "properties": {
+        "log": {
+          "description": "Append every query to system/usage/search.log.",
+          "type": "boolean",
+          "default": false
+        },
+        "n": {
+          "description": "Default number of results.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 5
+        }
+      },
+      "default": {
+        "log": false,
+        "n": 5
+      }
+    },
+    "eval": {
+      "description": "Settings of eval (the golden questions).",
+      "type": "object",
+      "properties": {
+        "golden": {
+          "description": "Vault-relative path of the golden questions file.",
+          "type": "string",
+          "pattern": "\\S",
+          "default": "system/tests/golden.json"
+        },
+        "min": {
+          "description": "Minimum hit@3 for eval to pass.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.9
+        }
+      },
+      "default": {
+        "golden": "system/tests/golden.json",
+        "min": 0.9
+      }
+    },
+    "cleanup": {
+      "description": "The cleanup is on the roadmap; this version has none.",
+      "type": "object",
+      "properties": {
+        "provider": {
+          "const": "none",
+          "default": "none"
+        }
+      },
+      "default": {
+        "provider": "none"
+      }
+    },
+    "kit": {
+      "description": "Settings of the kit itself.",
+      "type": "object",
+      "properties": {
+        "source": {
+          "description": "Where upgrade fetches new kit versions: a git URL or a folder. Missing means the source named in system/kit.json.",
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "mainRoot": {
+      "description": "The repository itself, always first.",
+      "type": "object",
+      "required": ["id", "path", "privacy"],
+      "properties": {
+        "id": {
+          "const": "main"
+        },
+        "path": {
+          "enum": [".", "./"]
+        },
+        "privacy": {
+          "const": "github"
+        }
+      }
+    },
+    "localRoot": {
+      "description": "A folder outside the repository with the notes of local sectors.",
+      "type": "object",
+      "required": ["id", "path", "privacy"],
+      "properties": {
+        "id": {
+          "description": "Unique name of the root.",
+          "type": "string",
+          "pattern": "\\S",
+          "not": {
+            "const": "main"
+          }
+        },
+        "path": {
+          "description": "Relative to the vault, ~/… or absolute; must lie outside the repository.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "privacy": {
+          "const": "local"
+        }
+      }
+    },
+    "budgets": {
+      "description": "Lower limits than the defaults (docs/architecture.md, section 3.1). A budget can only be lowered: the kit clamps a higher value and warns. Missing keys keep their defaults.",
+      "type": "object",
+      "properties": {
+        "start_bytes": {
+          "description": "[warn, hard] for the bytes of the whole _ai/start.md; one number sets both. May be lowered, never raised above [7500, 8500].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 7500
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 7500
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 8500
+                }
+              ]
+            }
+          ],
+          "default": [7500, 8500]
+        },
+        "hook_bytes": {
+          "description": "Limit of the bytes of the whole start command output. May be lowered, never raised above 9500.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 9500,
+          "default": 9500
+        },
+        "agents_lines": {
+          "description": "[warn, hard] for the lines of AGENTS.md; one number sets both. May be lowered, never raised above [120, 150].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 120
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 120
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 150
+                }
+              ]
+            }
+          ],
+          "default": [120, 150]
+        },
+        "agents_chars": {
+          "description": "[warn, hard] for the characters of AGENTS.md; one number sets both. May be lowered, never raised above [6500, 8000].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 6500
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 6500
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 8000
+                }
+              ]
+            }
+          ],
+          "default": [6500, 8000]
+        },
+        "claude_lines": {
+          "description": "[warn, hard] for the lines of CLAUDE.md; one number sets both. May be lowered, never raised above [25, 40].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 25
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 25
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 40
+                }
+              ]
+            }
+          ],
+          "default": [25, 40]
+        },
+        "index_lines": {
+          "description": "[warn, hard] for the lines of one _ai/index-<id>.md; one number sets both. May be lowered, never raised above [100, 120].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 120
+                }
+              ]
+            }
+          ],
+          "default": [100, 120]
+        },
+        "index_chars": {
+          "description": "Limit of the characters of one _ai/index-<id>.md. May be lowered, never raised above 12000.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 12000,
+          "default": 12000
+        },
+        "state_lines": {
+          "description": "[warn, hard] for the lines of the state file; one number sets both. May be lowered, never raised above [100, 120].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 120
+                }
+              ]
+            }
+          ],
+          "default": [100, 120]
+        },
+        "now_lines": {
+          "description": "Limit of the lines of the Now section of the state file. May be lowered, never raised above 15.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 15,
+          "default": 15
+        },
+        "waiting_open": {
+          "description": "[warn, hard] for the open items in the waiting file; one number sets both. May be lowered, never raised above [15, 20].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 15
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 15
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 20
+                }
+              ]
+            }
+          ],
+          "default": [15, 20]
+        },
+        "description_chars": {
+          "description": "[warn, hard] for the characters of a note description; one number sets both. May be lowered, never raised above [160, 200].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 160
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 160
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 200
+                }
+              ]
+            }
+          ],
+          "default": [160, 200]
+        },
+        "atomic_lines": {
+          "description": "[warn, hard] for the lines of a decision, fact or insight; one number sets both. May be lowered, never raised above [80, 150].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 80
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 80
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 150
+                }
+              ]
+            }
+          ],
+          "default": [80, 150]
+        },
+        "document_lines": {
+          "description": "[warn, hard] for the lines of a note of any other type; one number sets both. May be lowered, never raised above [250, 400].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 250
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 250
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 400
+                }
+              ]
+            }
+          ],
+          "default": [250, 400]
+        },
+        "document_chars_warn": {
+          "description": "Limit of the characters of any note (a warning above it). May be lowered, never raised above 16000.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 16000,
+          "default": 16000
+        },
+        "document_bytes_hard": {
+          "description": "Limit of the bytes of any note (an error above it). May be lowered, never raised above 30000.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 30000,
+          "default": 30000
+        },
+        "line_chars": {
+          "description": "[warn, hard] for the characters of one line of a note; one number sets both. May be lowered, never raised above [800, 1000].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 800
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 800
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000
+                }
+              ]
+            }
+          ],
+          "default": [800, 1000]
+        },
+        "inbox_days": {
+          "description": "[warn, hard] for the age of an inbox item in days (warnings only); one number sets both. May be lowered, never raised above [5, 7].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 5
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 7
+                }
+              ]
+            }
+          ],
+          "default": [5, 7]
+        },
+        "sectors_on": {
+          "description": "[warn, hard] for the sectors in state on; one number sets both. May be lowered, never raised above [8, 10].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 8
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10
+                }
+              ]
+            }
+          ],
+          "default": [8, 10]
+        },
+        "attachment_kb": {
+          "description": "[warn, hard] for the kilobytes of one attachment; one number sets both. May be lowered, never raised above [300, 500].",
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 300
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 300
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 500
+                }
+              ]
+            }
+          ],
+          "default": [300, 500]
+        },
+        "attachments_total_mb": {
+          "description": "Limit of the megabytes of the whole attachments folder. May be lowered, never raised above 100.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 100
+        },
+        "profile_chars": {
+          "description": "Limit of the characters of _ai/profile.md after its first line. May be lowered, never raised above 1500.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1500,
+          "default": 1500
+        },
+        "catalog_row_chars": {
+          "description": "Limit of the characters of one _ai/catalog.tsv row. May be lowered, never raised above 600.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 600,
+          "default": 600
+        },
+        "hot_total": {
+          "description": "Limit of the notes in the hot layer. May be lowered, never raised above 20.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20,
+          "default": 20
+        },
+        "hot_days": {
+          "description": "Limit of the days a changed note stays hot. May be lowered, never raised above 14.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 14,
+          "default": 14
+        },
+        "hot_max_default": {
+          "description": "Limit of the hot notes of a sector whose manifest sets no hot_max. May be lowered, never raised above 5.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 5
+        },
+        "cold_days": {
+          "description": "Limit of the days without a change after which a note is cold. May be lowered, never raised above 120.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 120,
+          "default": 120
+        },
+        "index_desc_chars": {
+          "description": "Limit of the description characters shown in a sector index. May be lowered, never raised above 120.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 120,
+          "default": 120
+        },
+        "start_desc_chars": {
+          "description": "Limit of the description characters shown in _ai/start.md. May be lowered, never raised above 80.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 80,
+          "default": 80
+        }
+      },
+      "additionalProperties": false,
+      "default": {}
+    }
+  }
+}

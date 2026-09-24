@@ -1,4 +1,4 @@
-<!-- kit:start v0.1.0 · systémová část: spravuje ji memory-kit, při aktualizaci se nahradí -->
+<!-- kit:start v0.1.1 · systémová část: spravuje ji memory-kit, při aktualizaci se nahradí -->
 # Paměť: pravidla pro AI agenty
 Toto repo je dlouhodobá paměť: jediným zdrojem pravdy jsou poznámky v markdownu s YAML hlavičkou.
 Lidé ji čtou v jakémkoli editoru markdownu nebo na GitHubu, začínají vygenerovaným `domu.md`; agenti přes

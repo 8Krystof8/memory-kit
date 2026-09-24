@@ -7,10 +7,11 @@ import path from 'node:path';
 import { verifyStamp } from './fingerprint.mjs';
 import { GenBudgetError, buildContext, expectedFiles, extractSearchBlock, gitignoreText, resolveAsOfInfo } from './generate.mjs';
 import { listTextFiles, scanFiles } from './secrets.mjs';
-import { extractSection, resolveLink, waitingOpen } from './vault.mjs';
+import { extractSection, localFolderTest, resolveLink, waitingOpen } from './vault.mjs';
 import {
   ATOMIC_TYPES, CANON_PRIVACY, CANON_STATES, CANON_STATUSES, CANON_TYPES, NAME_RE, SECTOR_ID_MAX,
-  bytes, chars, cmp, daysBetween, isDate, lineCount,
+  bytes, chars, cmp, daysBetween, existsExact, insidePath, isDate, lineCount, normalizeText,
+  resolveCaseless, windowsNameProblem,
 } from './util.mjs';
 
 export const RULES = [
@@ -32,6 +33,7 @@ export const RULES = [
   { code: 'FM_DATE', kind: 'data', desc: 'updated, created, valid_until or review_on is not a real date' },
   { code: 'FM_DATE_FUTURE', kind: 'warn', desc: 'updated or created later than as-of (a typo moves time)' },
   { code: 'NAME_FORMAT', kind: 'data', desc: 'file name not lowercase ascii with hyphens' },
+  { code: 'NAME_PORTABLE', kind: 'system', desc: 'file, folder or sector name Windows cannot hold (con, aux, nul, com1…, forbidden character, trailing dot)' },
   { code: 'NAME_GENERIC', kind: 'data', desc: 'generic file name' },
   { code: 'NAME_DUPLICATE', kind: 'data', desc: 'same name twice in all roots' },
   { code: 'DATED_NAME', kind: 'data', desc: 'decision or journal name without its date' },
@@ -71,6 +73,7 @@ export const RULES = [
   { code: 'GEN_ORPHAN', kind: 'warn', desc: 'file in _ai/ that no generator produces' },
   { code: 'GITIGNORE_LOCAL', kind: 'warn', desc: '.gitignore block for local sectors missing or outdated' },
   { code: 'ROOT_MISSING', kind: 'warn', desc: 'configured local root not found' },
+  { code: 'CASE_MISMATCH', kind: 'warn', desc: 'hub, manifest, export, rules file or top folder whose name differs only in letter case' },
   { code: 'LOCAL_UNKNOWN_SECTOR', kind: 'warn', desc: 'local-root note in a sector that is not a local sector' },
 ];
 
@@ -138,14 +141,20 @@ const at = (note, line) => ({ rel: note.rel, root: note.root, line: line ?? 0 })
 
 function checkConfig(c, cfg) {
   for (const w of cfg.warnings) c.add('CONFIG', { rel: cfg.files.config }, { detail: w }, { level: 'warn' });
+  // A root written for another operating system already has its CONFIG warning.
   for (const r of cfg.roots.slice(1)) {
-    if (!r.exists) c.add('ROOT_MISSING', { rel: cfg.files.config }, { path: path.relative(cfg.root, r.path).split(path.sep).join('/') || r.path });
+    if (!r.exists && !r.foreign) c.add('ROOT_MISSING', { rel: cfg.files.config }, { path: path.relative(cfg.root, r.path).split(path.sep).join('/') || r.path });
   }
 }
 
 function checkSecrets(c, cfg, vault, notesOnly) {
-  const rels = notesOnly ? vault.inputs.map((i) => i.rel) : listTextFiles(cfg.root);
-  for (const f of scanFiles(cfg.root, rels)) c.add('SECRET', { rel: f.rel, line: f.line }, { rule: f.rule, preview: f.preview });
+  // Findings carry the NFC rel (start.md alerts are generated); files are read by their disk names.
+  const byDisk = notesOnly
+    ? new Map(vault.inputs.map((i) => [i.disk ?? i.rel, i.rel]))
+    : new Map(listTextFiles(cfg.root).map((rel) => [rel, rel.normalize('NFC')]));
+  for (const f of scanFiles(cfg.root, [...byDisk.keys()])) {
+    c.add('SECRET', { rel: byDisk.get(f.rel) ?? f.rel, line: f.line }, { rule: f.rule, preview: f.preview });
+  }
 }
 
 function localSectorDirs(cfg, vault) {
@@ -159,13 +168,20 @@ function localSectorDirs(cfg, vault) {
 
 function checkLocalInGit(c, cfg, vault, notesOnly) {
   const locals = localSectorDirs(cfg, vault);
-  if (!locals.length) return;
+  // The rule that keeps such files out of search, the start view and _ai/ (a sector a local root
+  // holds counts too), so everything left out is also reported and the owner moves it.
+  const hidden = localFolderTest(cfg);
   const rels = notesOnly ? vault.inputs.map((i) => i.rel) : [...new Set([...vault.files.map((f) => f.rel), ...vault.inputs.map((i) => i.rel)])];
   for (const rel of rels.sort(cmp)) {
+    let found = false;
     for (const l of locals) {
       const prefix = l.prefixes.find((p) => rel.startsWith(p));
-      if (prefix && !l.allowed.has(rel.slice(prefix.length))) c.add('LOCAL_IN_GIT', { rel });
+      if (prefix && !l.allowed.has(rel.slice(prefix.length))) {
+        c.add('LOCAL_IN_GIT', { rel });
+        found = true;
+      }
     }
+    if (!found && hidden(rel)) c.add('LOCAL_IN_GIT', { rel });
   }
 }
 
@@ -303,17 +319,12 @@ function checkTime(c, cfg, n, asOf, asOfSource) {
   }
 }
 
-const inside = (base, p) => {
-  const rel = path.relative(base, p);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-};
-
 /** A '../' path that leaves the main root and lands in a local root (a private file by path). */
 function pointsIntoLocalRoot(cfg, n, target) {
   if (!target.startsWith('../') && !target.startsWith('..\\')) return false;
   const absTarget = path.resolve(cfg.root, n.dir || '.', target);
-  if (inside(cfg.root, absTarget)) return false;
-  return cfg.roots.some((r) => r.id !== 'main' && inside(r.path, absTarget));
+  if (insidePath(cfg.root, absTarget)) return false;
+  return cfg.roots.some((r) => r.id !== 'main' && !r.foreign && insidePath(r.path, absTarget));
 }
 
 function checkLinks(c, cfg, vault, n, locals) {
@@ -404,7 +415,7 @@ function checkSectors(c, cfg, vault) {
     const dir = `${sectorsDir}/${id}`;
     if (!NAME_RE.test(id) || id.length > SECTOR_ID_MAX) c.add('SECTOR_ID', { rel: dir });
     const manifestRel = `${dir}/_${id}.md`;
-    if (!vault.byRel.has(manifestRel) && !fs.existsSync(path.join(cfg.root, ...manifestRel.split('/'))) && withNotes(`${dir}/`)) {
+    if (!vault.byRel.has(manifestRel) && !existsExact(cfg.root, manifestRel) && withNotes(`${dir}/`)) {
       c.add('SECTOR_NO_MANIFEST', { rel: dir }, { id });
     }
   }
@@ -455,6 +466,55 @@ function checkSectors(c, cfg, vault) {
     if (seen.has(key)) continue;
     seen.add(key);
     c.add('LOCAL_UNKNOWN_SECTOR', at(n), { id: n.sector });
+  }
+}
+
+/**
+ * Names Git for Windows refuses to check out (reserved device names, forbidden characters, a
+ * trailing dot or space): every path segment of the vault's files, notes and sector folders,
+ * reported once at the first bad segment.
+ */
+function checkPortable(c, cfg, vault) {
+  const { sectors, archive } = cfg.dirs;
+  const seen = new Set();
+  const visit = (root, rel) => {
+    const parts = rel.split('/');
+    for (let i = 0; i < parts.length; i++) {
+      const problem = windowsNameProblem(parts[i]);
+      if (!problem) continue;
+      const at = parts.slice(0, i + 1).join('/');
+      if (seen.has(`${root}:${at}`)) return;
+      seen.add(`${root}:${at}`);
+      const key = problem === 'reserved' ? 'check.NAME_PORTABLE' : `check.NAME_PORTABLE.${problem}`;
+      c.add('NAME_PORTABLE', { rel: at, root }, { name: parts[i].replace(/[\u0000-\u001f]/g, '?') }, { key });
+      return;
+    }
+  };
+  for (const f of vault.files) visit('main', f.rel);
+  for (const n of vault.notes) visit(n.root, n.rel);
+  for (const id of vault.sectorDirs) visit('main', `${sectors}/${id}`);
+  for (const id of vault.archiveSectorDirs ?? []) visit('main', `${archive}/${sectors}/${id}`);
+}
+
+/**
+ * Fixed names whose letter case differs on disk (State.md for state.md, _Work.md for _work.md).
+ * Windows and macOS would open them anyway, Linux and git would not, so the kit treats them as
+ * missing everywhere and says how to rename them.
+ */
+function checkCase(c, cfg, vault) {
+  const { sectors, journal, inbox, archive, attachments } = cfg.dirs;
+  const f = cfg.files;
+  const expected = [sectors, journal, inbox, archive, attachments, f.state, f.waiting, f.agents, f.claude, f.gemini];
+  const sectorFiles = (dir, id) => expected.push(`${dir}/_${id}.md`, `${dir}/_${id}${cfg.exportSuffix}.md`);
+  for (const id of vault.sectorDirs) sectorFiles(`${sectors}/${id}`, id);
+  for (const id of vault.archiveSectorDirs ?? []) sectorFiles(`${archive}/${sectors}/${id}`, id);
+  const cache = new Map();
+  for (const rel of expected) {
+    if (existsExact(cfg.root, rel, cache)) continue;
+    const actual = resolveCaseless(cfg.root, rel, cache);
+    if (actual === null) continue;
+    const shown = actual.normalize('NFC');
+    c.add('CASE_MISMATCH', { rel: shown }, { expected: rel, actual: shown });
   }
 }
 
@@ -515,7 +575,9 @@ async function checkGenerated(c, cfg, vault, today) {
   for (const [rel, text] of expected) {
     let current = null;
     try {
-      current = fs.readFileSync(path.join(cfg.root, ...rel.split('/')), 'utf8');
+      // A BOM or CRLF (a checkout with core.autocrlf and no eol=lf rule) is not a hand edit;
+      // check --generate writes the LF bytes back.
+      current = normalizeText(fs.readFileSync(path.join(cfg.root, ...rel.split('/')), 'utf8')).text;
     } catch {
       /* missing */
     }
@@ -569,6 +631,8 @@ export async function runChecks(cfg, vault, { strict = true, only, skip, notesOn
     if (c.on('AGENTS_MARKERS', 'AGENTS_SIZE', 'ADAPTER_IMPORT', 'CLAUDE_SIZE')) checkAdapters(c, cfg, vault);
     checkNotes(c, cfg, vault, asOf, source);
     checkSectors(c, cfg, vault);
+    if (c.on('NAME_PORTABLE')) checkPortable(c, cfg, vault);
+    if (c.on('CASE_MISMATCH')) checkCase(c, cfg, vault);
     checkHubs(c, cfg, vault);
     if (c.on('ATTACHMENT_SIZE')) checkAttachments(c, cfg, vault);
     if (!only && c.on(...GEN_CODES)) await checkGenerated(c, cfg, vault, today);

@@ -84,7 +84,7 @@ Markers in front of the path:
 | `--n 5` | number of results (default from `memory.json`, `search.n`, max 20) |
 | `--all` | everything: archive, sleeping and off sectors, the inbox |
 | `--local` | also show notes of local sectors (open them only when the owner asks) |
-| `--json` | the full result as JSON (no timing), for scripts |
+| `--json` | the full result as JSON (no timing), for scripts; its shape is `system/schema/search-result.schema.json`, and the JS API and the MCP tool `memory_search` return the same ([api.md](api.md)) |
 | `--rg` | print an accent-safe regex instead of searching (see below) |
 | `--duplicates` | look for an existing note before adding one (see below) |
 | `--engine fts5\|scan` | force an engine |
@@ -92,7 +92,10 @@ Markers in front of the path:
 **Default scope:** notes in sectors that are on, the journal, and the hub files (`state.md`,
 `waiting.md`; the generated `home.md` is not a note). Notes of local sectors match but are not
 shown: one line `(+2 in local sectors: not shown. Open them only when the owner asks now: add
---local)` says how many there are, because an agent may open them only when the owner asks. Notes
+--local)` says how many there are, because an agent may open them only when the owner asks. A
+note saved by mistake into a local sector's folder of the main vault (`LOCAL_IN_GIT`) counts there
+too, and `--local` never lists it: it belongs in the private folder
+([privacy.md](privacy.md#where-local-content-can-still-show-up)). Notes
 with status `replaced` are left out: a replaced decision is history, and its successor comes up instead. To see the history,
 use `--status any`:
 

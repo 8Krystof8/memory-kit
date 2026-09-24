@@ -1,15 +1,17 @@
 // Generators of the AI view: _ai/start.md, _ai/index-<id>.md, _ai/catalog.tsv, _ai/profile.md and
 // .ignore (docs/architecture.md, section 8). Deterministic: no clock, no randomness, no mtimes, no
-// git. Only notes of the main root are ever used.
+// git. Only notes of the main root are ever used, and never private content left in a local
+// sector's main-root folder (loadVault marks it misplacedLocal; check reports it as LOCAL_IN_GIT).
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { headerLine, parseHeader, sourceFingerprint, stamp } from './fingerprint.mjs';
+import { renameRetry, unlinkRetry } from './fsafe.mjs';
 import { extractSection, resolveLink, waitingItems, waitingOpen } from './vault.mjs';
 import {
-  CANON_TYPES, bytes, chars, cmp, daysBetween, fenceTracker, isDate, lineCount, monthDay, truncate, uniq,
-  writeIfChanged,
+  CANON_TYPES, bytes, chars, cmp, daysBetween, fenceTracker, isDate, lineCount, monthDay, replaceFile,
+  truncate, uniq, writeIfChanged,
 } from './util.mjs';
 
 export class GenBudgetError extends Error {
@@ -27,6 +29,9 @@ const START = '_ai/start.md';
 const CATALOG = '_ai/catalog.tsv';
 const PROFILE = '_ai/profile.md';
 const CATALOG_COLUMNS = '# path\ttype\tstatus\tupdated\ttier\tdescription\tnames\tstems';
+
+/** A note the generated views may show: of the main root and not private content of a local sector. */
+const shared = (n) => n.root === 'main' && n.misplacedLocal !== true;
 
 // ---------------------------------------------------------------------------------------------
 // Inputs
@@ -66,7 +71,7 @@ export function resolveAsOfInfo(cfg, vault, today) {
   }
   const dates = [];
   for (const n of vault.notes) {
-    if (n.root !== 'main' || n.area === 'inbox') continue;
+    if (!shared(n) || n.area === 'inbox') continue;
     const own = [n.data.updated, n.data.created].filter(isDate).sort(cmp);
     if (own.length) dates.push(own[own.length - 1]);
   }
@@ -126,7 +131,7 @@ export function computeHot(cfg, vault, asOf, onlySectors = null) {
     }
   }
   const candidates = vault.notes.filter((n) =>
-    n.root === 'main' && n.area === 'sector' && onSectors.has(n.sector) && !n.isManifest && !n.isExport
+    shared(n) && n.area === 'sector' && onSectors.has(n.sector) && !n.isManifest && !n.isExport
     && !INACTIVE.has(n.data.status) && n.rel !== cfg.profile
     && (!onlySectors || onlySectors.has(n.sector)));
   const hot = candidates.filter((n) => {
@@ -171,7 +176,7 @@ export async function buildContext(cfg, vault, { today } = {}) {
 
   const inboxPrefix = `${cfg.dirs.inbox}/`;
   const counts = {
-    notes: vault.notes.filter((n) => n.root === 'main' && (n.area === 'sector' || n.area === 'journal') && !n.isManifest && !n.isExport).length,
+    notes: vault.notes.filter((n) => shared(n) && (n.area === 'sector' || n.area === 'journal') && !n.isManifest && !n.isExport).length,
     sectors: vault.sectors.filter((s) => s.state !== 'off').length,
     inbox: vault.inputs.filter((i) => i.rel.startsWith(inboxPrefix) && i.rel.endsWith('.md')).length,
     waiting: waitingOpen(cfg, vault.byRel.get(cfg.files.waiting)),
@@ -242,7 +247,7 @@ function startSectors(vault, filter) {
 
 function profileLead(cfg, vault) {
   const note = cfg.profile ? vault.byRel.get(cfg.profile) : null;
-  return note ? note.lead.map((l) => oneLine(l)).filter(Boolean) : [];
+  return note && shared(note) ? note.lead.map((l) => oneLine(l)).filter(Boolean) : [];
 }
 
 function nowLines(cfg, vault) {
@@ -350,7 +355,7 @@ function sectorRulesLine(cfg, sector) {
 }
 
 function indexedNotes(vault, sector, asOf) {
-  return vault.notes.filter((n) => n.root === 'main' && n.rel.startsWith(`${sector.dir}/`) && !n.archived
+  return vault.notes.filter((n) => shared(n) && n.rel.startsWith(`${sector.dir}/`) && !n.archived
     && !n.isManifest && !n.isExport && !INACTIVE.has(n.data.status)
     && CANON_TYPES.includes(n.data.type) && n.data.type !== 'sector' && n.data.type !== 'hub'
     && !(n.data.type === 'fact' && isExpired(n, asOf)));
@@ -390,18 +395,18 @@ export function renderSectorIndex(cfg, vault, ctx, sectorId) {
   for (const n of [sector.manifest, ...notes]) {
     for (const link of n.links) {
       const target = resolveLink(vault, link.target, n);
-      if (!target || target.root !== 'main' || target.archived || !target.sector || target.sector === sector.id) continue;
+      if (!target || !shared(target) || target.archived || !target.sector || target.sector === sector.id) continue;
       cross.add(`${n.name} → ${target.sector}/${target.name}`);
     }
   }
   const crossLines = [...cross].sort(cmp).slice(0, 15);
 
-  const own = vault.notes.filter((n) => n.root === 'main' && n.rel.startsWith(`${sector.dir}/`) && !n.archived && !n.isManifest && !n.isExport);
+  const own = vault.notes.filter((n) => shared(n) && n.rel.startsWith(`${sector.dir}/`) && !n.archived && !n.isManifest && !n.isExport);
   const outside = t('index.outside', {
     replaced: own.filter((n) => n.data.status === 'replaced').length,
     rejected: own.filter((n) => n.data.status === 'rejected').length,
     expired: own.filter((n) => n.data.type === 'fact' && !INACTIVE.has(n.data.status) && isExpired(n, asOf)).length,
-    archived: vault.notes.filter((n) => n.root === 'main' && n.archived && n.sector === sector.id && !n.isManifest && !n.isExport).length,
+    archived: vault.notes.filter((n) => shared(n) && n.archived && n.sector === sector.id && !n.isManifest && !n.isExport).length,
   });
 
   const head = [`# ${t('index.title', { sector: sector.id, notes: sector.notes, dir: sector.dir })}`];
@@ -485,7 +490,7 @@ export function renderCatalog(cfg, vault, ctx) {
   const stop = new Set([...cfg.stopwords].map(fold));
   const useful = (s) => s && [...s].length > 1 && !stop.has(s);
   const notes = vault.notes
-    .filter((n) => n.root === 'main' && n.area !== 'inbox' && n.origArea !== 'inbox')
+    .filter((n) => shared(n) && n.area !== 'inbox' && n.origArea !== 'inbox')
     .sort((a, b) => cmp(a.rel, b.rel));
   for (const n of notes) {
     const d = n.data;
@@ -584,7 +589,7 @@ export function renderHome(cfg, vault, ctx) {
   }
 
   const githubLive = new Set(live.filter((s) => s.privacy === 'github').map((s) => s.id));
-  const shown = (n) => n.root === 'main' && !n.archived && !n.isManifest && !n.isExport
+  const shown = (n) => shared(n) && !n.archived && !n.isManifest && !n.isExport
     && !INACTIVE.has(n.data.status) && CANON_TYPES.includes(n.data.type)
     && ((n.area === 'sector' && githubLive.has(n.sector)) || n.area === 'journal');
   const byDate = (key) => (a, b) => cmp(b.data[key] ?? '', a.data[key] ?? '') || cmp(a.rel, b.rel);
@@ -670,7 +675,8 @@ export function syncGitignore(cfg, vault) {
   }
   const next = gitignoreText(cfg, vault, current);
   if (next === null) return false;
-  fs.writeFileSync(abs, next);
+  // Atomic: a half-written .gitignore would drop the block that keeps local notes out of git.
+  replaceFile(abs, next);
   return true;
 }
 
@@ -710,7 +716,7 @@ function keepHandWrittenHome(cfg, written) {
   let rel = `${cfg.dirs.archive}/${base}-hand-written.md`;
   for (let i = 2; fs.existsSync(path.join(cfg.root, ...rel.split('/'))); i++) rel = `${cfg.dirs.archive}/${base}-hand-written-${i}.md`;
   fs.mkdirSync(path.join(cfg.root, cfg.dirs.archive), { recursive: true });
-  fs.renameSync(abs, path.join(cfg.root, ...rel.split('/')));
+  renameRetry(abs, path.join(cfg.root, ...rel.split('/')));
   written.push(rel);
 }
 
@@ -741,7 +747,7 @@ export async function writeGenerated(cfg, vault, { today } = {}) {
   for (const name of names) {
     const rel = `${cfg.dirs.ai}/${name}`;
     if (/^index-.+\.md$/.test(name) && !files.has(rel)) {
-      fs.unlinkSync(path.join(aiDir, name));
+      unlinkRetry(path.join(aiDir, name));
       removed.push(rel);
     }
   }

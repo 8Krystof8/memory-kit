@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Krystof8/memory-kit/schema/check-result.schema.json",
+  "title": "check --json",
+  "description": "What node system/memory.mjs check --json prints (docs/architecture.md, sections 10.3 and 11). Every finding is an error or a warning; in lenient mode data errors become warnings. check exits 1 when errors is not empty.",
+  "type": "object",
+  "required": ["mode", "errors", "warnings", "notes"],
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "enum": ["strict", "lenient"]
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/finding"
+          },
+          {
+            "properties": {
+              "severity": {
+                "const": "error"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/finding"
+          },
+          {
+            "properties": {
+              "severity": {
+                "const": "warning"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "notes": {
+      "description": "Notes checked, in every root.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "generated": {
+      "description": "Only with --generate: what the generator wrote and removed, or why it failed (then a GEN_BUDGET or GEN_FAILED finding follows).",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["written", "removed"],
+          "additionalProperties": false,
+          "properties": {
+            "written": {
+              "description": "Generated files written.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "removed": {
+              "description": "Stale generated files removed.",
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["error"],
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "description": "Only with --generate, when notes were rewritten to LF, NFC and no BOM.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["root", "rel"],
+        "additionalProperties": false,
+        "properties": {
+          "root": {
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "rel": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": ["code", "severity", "rel", "line", "msg"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "description": "Rule code (section 11), such as FM_REQUIRED.",
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "severity": {
+          "enum": ["error", "warning"]
+        },
+        "rel": {
+          "description": "The file or folder, relative to its root.",
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "description": "1-based line; 0 means the whole file.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "msg": {
+          "description": "The message in the language of the vault.",
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "description": "Id of the local root the file is in; absent for the main root.",
+          "type": "string",
+          "pattern": "\\S",
+          "not": {
+            "const": "main"
+          }
+        }
+      }
+    }
+  }
+}

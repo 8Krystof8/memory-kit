@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Krystof8/memory-kit/schema/kit.schema.json",
+  "title": "system/kit.json",
+  "description": "The manifest of a memory-kit release: its version, what it needs and the hash of every kit-owned file (docs/maintenance.md, \"Upgrading the kit\"). node system/tools/release.mjs writes it; upgrade and doctor read it. A hash is the sha256 of the text without a BOM, with LF line ends and in NFC (a binary file as it is). kit.json and kit-history.json themselves are not listed. #/$defs/history describes system/kit-history.json.",
+  "type": "object",
+  "required": ["name", "version", "data_version", "api_version", "node", "upgrade_from", "source", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "Name of the kit.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "version": {
+      "description": "Version of this release, the same as system/VERSION.",
+      "$ref": "#/$defs/version"
+    },
+    "data_version": {
+      "description": "The memory.json \"version\" (data layout) this release reads and writes.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "api_version": {
+      "description": "Version of the public JS API (system/api.mjs).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "node": {
+      "description": "Oldest Node.js version the release runs on.",
+      "$ref": "#/$defs/version"
+    },
+    "upgrade_from": {
+      "description": "Oldest installed version this release can upgrade.",
+      "$ref": "#/$defs/version"
+    },
+    "source": {
+      "description": "Where upgrade fetches new versions by default: a git URL or a folder.",
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "files": {
+      "description": "Every kit-owned file of the release by its repository-relative path.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/relPath"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/fileEntry"
+      }
+    }
+  },
+  "$defs": {
+    "version": {
+      "description": "A version x.y.z, optionally with -pre.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "sha256": {
+      "description": "A sha256 in lowercase hex.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "relPath": {
+      "description": "A repository-relative POSIX path: forward slashes, no leading or trailing slash, no empty, . or .. segments.",
+      "type": "string",
+      "pattern": "^(?!(?:.*/)?\\.{1,2}(?:/|$))(?:[^/\\\\\\x00]+/)*[^/\\\\\\x00]+$"
+    },
+    "fileEntry": {
+      "type": "object",
+      "required": ["sha256", "group"],
+      "additionalProperties": false,
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "group": {
+          "description": "Ownership group; it decides what upgrade does with the file.",
+          "enum": ["code", "tests", "docs", "config"]
+        }
+      }
+    },
+    "history": {
+      "title": "system/kit-history.json",
+      "description": "Every shipped hash of every kit-owned file, by release: { \"<version>\": { \"<path>\": \"<sha256>\" } }. upgrade treats a file of the vault as unmodified when its hash is one of them.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/version"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "$ref": "#/$defs/relPath"
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

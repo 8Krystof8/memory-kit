@@ -8,8 +8,8 @@ import { serialize, updateFrontmatter } from '../frontmatter.mjs';
 import { writeGenerated } from '../generate.mjs';
 import { loadVault } from '../vault.mjs';
 import {
-  NAME_RE, SECTOR_ID_MAX, checkToday, finalText, git, isDate, isGitRepo, parseCli,
-  readTextIfExists, splitList, todayLocal, toPosix, uniq, usageError,
+  NAME_RE, SECTOR_ID_MAX, checkToday, finalText, git, isDate, isGitRepo, isReservedName, movePath,
+  parseCli, readTextIfExists, replaceFile, splitList, todayLocal, toPosix, uniq, usageError,
 } from '../util.mjs';
 
 export const usage = 'sector add <id> [--privacy github|local] [--title …] [--description …] [--when …] [--not …] [--keywords a,b,c] | sector sleep|wake|off <id> | sector list';
@@ -18,7 +18,7 @@ export class SectorError extends Error {
   code = 'SECTOR';
   constructor(reason, message) {
     super(message);
-    this.reason = reason; // 'invalid' | 'exists' | 'no_local_root' | 'unknown' | 'conflict'
+    this.reason = reason; // 'invalid' | 'exists' | 'no_local_root' | 'unknown' | 'conflict' | 'locked'
   }
 }
 
@@ -70,6 +70,7 @@ export async function addSector(cfg, {
 }) {
   const sid = String(id ?? '').trim();
   if (!NAME_RE.test(sid) || sid.length > SECTOR_ID_MAX) throw new SectorError('invalid', cfg.t('sector.invalid', { id: sid }));
+  if (isReservedName(sid)) throw new SectorError('invalid', cfg.t('sector.reserved', { id: sid }));
   const canonPrivacy = cfg.canon('privacy', String(privacy ?? 'github'));
   if (!canonPrivacy) throw new SectorError('invalid', `refused: unknown privacy "${privacy}" (github or local)`);
   const day = today ?? todayLocal();
@@ -79,6 +80,9 @@ export async function addSector(cfg, {
   if (vault.sectorById.has(sid)) throw new SectorError('exists', cfg.t('sector.exists', { id: sid }));
   const localRoot = cfg.roots.find((r) => r.id !== 'main' && r.privacy === 'local');
   if (canonPrivacy === 'local' && !localRoot) throw new SectorError('no_local_root', cfg.t('sector.no_local_root'));
+  if (canonPrivacy === 'local' && localRoot.foreign) {
+    throw new SectorError('no_local_root', cfg.t('sector.foreign_root', { path: localRoot.path }));
+  }
 
   const { sectors, inbox } = cfg.dirs;
   const dir = `${sectors}/${sid}`;
@@ -142,16 +146,39 @@ function isTracked(root, rel) {
   return res.ok && res.stdout.trim() !== '';
 }
 
-/** Moves a folder; git mv when it holds tracked files. Refuses to overwrite. */
-function moveDir(cfg, root, fromRel, toRel) {
-  const from = path.join(root, ...fromRel.split('/'));
-  const to = path.join(root, ...toRel.split('/'));
-  if (!fs.existsSync(from)) return false;
-  if (fs.existsSync(to)) throw new SectorError('conflict', cfg.t('sector.conflict', { rel: toRel }));
-  fs.mkdirSync(path.dirname(to), { recursive: true });
-  if (isTracked(root, fromRel)) git(root, ['mv', '--', fromRel, toRel]);
-  else fs.renameSync(from, to);
-  return true;
+/**
+ * Moves the sector folder fromRel to toRel in each root that has it: the local roots first, the
+ * main root (git mv for tracked content, see movePath) last. Renames retry while Windows reports
+ * a file in use; when a move still fails, the moves already done are undone, so the manifest and
+ * the local notes never end up split, and SectorError('locked') says what to close.
+ * The caller has checked that toRel exists in none of the roots. Returns { main: true when the
+ * main root's folder moved, unstaged: the moved folders git could not stage }.
+ */
+function moveSectorDirs(cfg, roots, fromRel, toRel) {
+  const shown = (root, rel) => (root === cfg.root ? rel : toPosix(path.relative(cfg.root, path.join(root, ...rel.split('/')))));
+  const done = [];
+  const unstaged = [];
+  for (const root of [...roots.slice(1), roots[0]]) {
+    if (!fs.existsSync(path.join(root, ...fromRel.split('/')))) continue;
+    const useGit = isTracked(root, fromRel);
+    try {
+      if (movePath(root, fromRel, toRel, { useGit }) === 'unstaged') unstaged.push(shown(root, toRel));
+      done.push({ root, useGit });
+    } catch (err) {
+      const lines = [cfg.t('sector.move_failed', { dir: shown(root, fromRel), detail: err?.code ?? err?.message ?? err })];
+      for (const prev of done.reverse()) {
+        try {
+          movePath(prev.root, toRel, fromRel, { useGit: prev.useGit });
+        } catch (back) {
+          lines.push(cfg.t('sector.move_back_failed', {
+            from: shown(prev.root, toRel), to: shown(prev.root, fromRel), detail: back?.code ?? back?.message ?? back,
+          }));
+        }
+      }
+      throw new SectorError('locked', lines.join('\n'));
+    }
+  }
+  return { main: done.some((d) => d.root === roots[0]), unstaged };
 }
 
 /** Sets a sector state; off moves the folder into the archive, on/sleep move it back. */
@@ -170,6 +197,7 @@ export async function setSectorState(cfg, id, state, { today } = {}) {
   const inArchive = sector.dir === archiveDir;
   const wantArchive = target === 'off';
   let moved = false;
+  let unstaged = [];
   if (inArchive !== wantArchive) {
     const [from, to] = wantArchive ? [liveDir, archiveDir] : [archiveDir, liveDir];
     // The local content follows the manifest into or out of the local root's archive.
@@ -180,19 +208,20 @@ export async function setSectorState(cfg, id, state, { today } = {}) {
         throw new SectorError('conflict', cfg.t('sector.conflict', { rel: to }));
       }
     }
-    moved = moveDir(cfg, roots[0], from, to);
-    for (const root of roots.slice(1)) moveDir(cfg, root, from, to);
+    ({ main: moved, unstaged } = moveSectorDirs(cfg, roots, from, to));
   }
   const dir = wantArchive ? archiveDir : liveDir;
   const rel = `${dir}/_${sector.id}.md`;
-  if (sector.state === target && !moved) return { rel, moved: false, unchanged: true };
+  // unstaged: folders that moved while git could not stage the move (git add -A stages them).
+  const extra = unstaged.length ? { unstaged } : {};
+  if (sector.state === target && !moved) return { rel, moved: false, unchanged: true, ...extra };
 
   const abs = path.join(cfg.root, ...rel.split('/'));
   const text = fs.readFileSync(abs, 'utf8');
   const k = cfg.keys;
   const next = updateFrontmatter(text, { [k.state]: cfg.local('state', target), [k.updated]: day }, { order: cfg.keyOrder });
-  if (next !== text) fs.writeFileSync(abs, next);
-  return { rel, moved };
+  if (next !== text) replaceFile(abs, next);
+  return { rel, moved, ...extra };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -273,6 +302,7 @@ export async function run(argv, cfg) {
       const vars = { id, state: cfg.local('state', state), dir: path.posix.dirname(res.rel) };
       const key = res.unchanged ? 'sector.unchanged' : res.moved ? 'sector.moved' : 'sector.state';
       process.stdout.write(`${cfg.t(key, vars)}\n`);
+      for (const dir of res.unstaged ?? []) process.stderr.write(`${cfg.t('sector.unstaged', { dir })}\n`);
       if (res.unchanged) return 0;
     }
   } catch (err) {

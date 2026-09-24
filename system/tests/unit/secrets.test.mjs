@@ -11,7 +11,7 @@ import { KIT_ROOT, plantSecret, removeTmpDirs, tmpDir, writeFile } from '../help
 
 after(removeTmpDirs);
 
-const HAS_GIT = spawnSync('git', ['--version']).status === 0;
+const HAS_GIT = spawnSync('git', ['--version'], { windowsHide: true }).status === 0;
 const rep = (s, n) => s.repeat(Math.ceil(n / s.length)).slice(0, n);
 
 // One sample per rule id, built from pieces.
@@ -135,7 +135,7 @@ describe('scanned files (12.2)', () => {
 
   test('inside git: tracked and untracked files, ignored ones left out', { skip: !HAS_GIT && 'git is not installed' }, () => {
     const root = makeTree();
-    spawnSync('git', ['init', '-q'], { cwd: root });
+    spawnSync('git', ['init', '-q'], { cwd: root, windowsHide: true });
     writeFile(root, '.gitignore', 'data/c.tsv\n');
     const files = listTextFiles(root);
     assert.ok(files.includes('notes/a.md'));

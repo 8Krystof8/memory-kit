@@ -1,7 +1,8 @@
 # The Claude app (claude.ai on the web, desktop and phone)
 
 The Claude chat app is not Claude Code. On its own it cannot run commands or read your repository.
-You have four ways to connect it, from the lightest to the most complete.
+You have four ways to connect it today (the first three from the lightest to the most complete, the
+fourth only in the desktop app), and a fifth is planned.
 
 ## 1. A profile in project instructions
 
@@ -32,12 +33,22 @@ memory, file the inbox, or answer questions with citations.
 If you run Claude Code on your own computer, its Remote Control feature (where available) lets you
 drive that local session from the app. Files, including a private folder, stay on the computer.
 
-## 4. Later: a remote MCP connector
+## 4. Claude Desktop on your computer: the local MCP server
 
-The roadmap MCP server ([maintenance.md](../maintenance.md#mcp-server)) would give the app live,
-read-only search over the `github` sectors and an inbox-only write tool through a custom connector.
-Custom connectors work on the web, on desktop and in the mobile app. The server would require
-OAuth, never an unauthenticated URL.
+The Claude Desktop app can start the memory's MCP server on the same computer:
+`node system/memory.mjs connect claude-desktop` adds it to `claude_desktop_config.json` (on Windows
+also the Microsoft Store build's own copy of that file) and keeps your other servers. Quit Claude
+Desktop completely (on Windows from the tray icon) and start it again; a new chat then lists
+`memory-kit` among its tools. This works only in the desktop app, because the server runs on your
+computer. More in [mcp.md](mcp.md).
+
+## 5. Later: a remote MCP connector
+
+Claude on the web and in the mobile apps reaches only remote MCP servers, from Anthropic's cloud,
+so it cannot start the local server. A remote variant is on the roadmap
+([maintenance.md](../maintenance.md#remote-mcp-server)): live, read-only search over the `github`
+sectors and an inbox-only write tool through a custom connector, which works on the web, on desktop
+and in the mobile app. It will require OAuth, never an unauthenticated URL.
 
 ## The app's own memory
 

@@ -11,7 +11,7 @@ import { removeTmpDirs, tmpDir } from '../helpers.mjs';
 
 after(removeTmpDirs);
 
-const HAS_GIT = spawnSync('git', ['--version']).status === 0;
+const HAS_GIT = spawnSync('git', ['--version'], { windowsHide: true }).status === 0;
 
 describe('canonical tables', () => {
   test('types follow table 4.4 order', () => {

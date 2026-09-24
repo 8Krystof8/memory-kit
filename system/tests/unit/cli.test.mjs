@@ -3,15 +3,90 @@
 
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from '../../lib/frontmatter.mjs';
+import { isOsJunk } from '../../lib/util.mjs';
 import {
-  TODAY, checkJson, describeFindings, exists, fixtureVault, hashGenerated, readFile, removeTmpDirs,
-  runCli, writeFile,
+  KIT_ROOT, TODAY, checkJson, copyKit, describeFindings, exists, fixtureVault, hashGenerated, plantSecret,
+  readFile, removeTmpDirs, runCli, tmpDir, writeFile,
 } from '../helpers.mjs';
 
 after(removeTmpDirs);
+
+const HAS_GIT = spawnSync('git', ['--version'], { windowsHide: true }).status === 0;
+// Variables that would change what a spawned command does.
+const SCRUBBED_ENV = ['MEMORY_SECTORS', 'MEMORY_SEARCH_ENGINE', 'NODE_TEST_CONTEXT', 'NODE_OPTIONS'];
+
+/** What a run did, comparable across the names that start it (doctor's checks when it prints JSON). */
+function outcome(res) {
+  try {
+    const out = JSON.parse(res.stdout);
+    return { code: res.code, checks: (out.checks ?? []).map((c) => `${c.id}:${c.status}`) };
+  } catch {
+    return { code: res.code, stdout: res.stdout, stderr: res.stderr };
+  }
+}
+
+/** `mcp <args>` with `messages` as its whole stdin: {code, replies (parsed stdout lines), stderr}. */
+function mcpSession(root, args, messages) {
+  const env = { ...process.env };
+  for (const key of SCRUBBED_ENV) delete env[key];
+  const res = spawnSync(process.execPath, [path.join(root, 'system', 'memory.mjs'), 'mcp', ...args, '--root', root], {
+    cwd: root,
+    env,
+    input: messages.map((m) => `${JSON.stringify(m)}\n`).join(''),
+    encoding: 'utf8',
+    timeout: 60000,
+    windowsHide: true,
+  });
+  if (res.error) throw res.error;
+  return { code: res.status, replies: res.stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line)), stderr: res.stderr };
+}
+
+/** sha256 of every file under dir, by POSIX rel path. */
+function snapshot(dir) {
+  const out = {};
+  const walk = (rel) => {
+    for (const e of fs.readdirSync(path.join(dir, ...rel.split('/').filter(Boolean)), { withFileTypes: true })) {
+      const child = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(child);
+      else out[child] = createHash('sha256').update(fs.readFileSync(path.join(dir, ...child.split('/')))).digest('hex');
+    }
+  };
+  walk('');
+  return out;
+}
+
+/** A copy of this kit one patch version newer, with kit.json rebuilt by its own release tool. */
+function newerKit() {
+  const dir = copyKit(path.join(tmpDir('cli-next'), 'kit'));
+  const [major, minor, patch] = readFile(dir, 'system/VERSION').trim().split('.').map(Number);
+  const version = `${major}.${minor}.${patch + 1}`;
+  writeFile(dir, 'system/VERSION', `${version}\n`);
+  const res = spawnSync(process.execPath, [path.join(dir, 'system', 'tools', 'release.mjs'), '--root', dir], {
+    cwd: dir, encoding: 'utf8', windowsHide: true,
+  });
+  assert.equal(res.status, 0, `${res.stdout}${res.stderr}`);
+  return { dir, version };
+}
+
+/** Environment of a fake home, so connect sees no MCP client config of this machine. */
+function homeEnv(home) {
+  const env = {
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: path.join(home, 'AppData', 'Roaming'),
+    LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
+  };
+  for (const key of ['XDG_CONFIG_HOME', 'FLATPAK_XDG_CONFIG_HOME', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'GEMINI_CLI_HOME',
+    'COPILOT_HOME', 'CLINE_DIR', 'CLINE_DATA_DIR', 'CLINE_MCP_SETTINGS_PATH']) {
+    env[key] = undefined; // spawn leaves out variables whose value is undefined
+  }
+  return env;
+}
 
 /** A generated English fixture vault. */
 function generatedVault(lang = 'en') {
@@ -34,7 +109,7 @@ describe('memory.mjs', () => {
     for (const args of [['help'], ['--help'], []]) {
       const res = runCli(fx.root, args);
       assert.equal(res.code, 0, args.join(' '));
-      for (const cmd of ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval']) {
+      for (const cmd of ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp']) {
         assert.match(res.stdout, new RegExp(`node system/memory\\.mjs ${cmd}\\b`), cmd);
       }
     }
@@ -61,6 +136,51 @@ describe('memory.mjs', () => {
     const list = runCli(cs.root, ['sektor', 'seznam']);
     assert.equal(list.code, 0);
     assert.match(list.stdout, /^jadro · zapnuty · github · /m);
+  });
+
+  test('Czech help lists the aliases of doctor, upgrade and connect; mcp keeps its name', () => {
+    const cs = fixtureVault('cs');
+    const res = runCli(cs.root, ['napoveda']);
+    assert.equal(res.code, 0);
+    const line = res.stdout.split('\n').find((l) => l.startsWith('aliases (cs): '));
+    assert.ok(line, res.stdout);
+    const pairs = line.slice('aliases (cs): '.length).split(', ');
+    for (const pair of ['doktor=doctor', 'aktualizuj=upgrade', 'pripoj=connect', 'napoveda=help']) assert.ok(pairs.includes(pair), pair);
+    assert.ok(!pairs.some((p) => p.endsWith('=mcp')), line);
+    for (const cmd of ['doctor', 'upgrade', 'connect', 'mcp']) assert.match(res.stdout, new RegExp(`node system/memory\\.mjs ${cmd}\\b`), cmd);
+  });
+
+  test('doktor runs doctor', () => {
+    const cs = fixtureVault('cs');
+    const usage = runCli(cs.root, ['doktor', '--help']);
+    assert.equal(usage.code, 0, usage.stderr);
+    assert.match(usage.stdout, /^usage: node system\/memory\.mjs doctor\b/);
+    assert.deepEqual(outcome(runCli(cs.root, ['doktor', '--json'])), outcome(runCli(cs.root, ['doctor', '--json'])));
+  });
+
+  test('a broken memory.json: doctor, upgrade and mcp still start, also under their Czech names and flags', () => {
+    const cs = fixtureVault('cs');
+    writeFile(cs.root, 'memory.json', '{ "lang": "cs", ');
+    const check = runCli(cs.root, ['kontrola']);
+    assert.equal(check.code, 3, 'other commands need memory.json');
+    assert.match(check.stderr, /config error/);
+    assert.equal(runCli(cs.root, ['napoveda']).code, 0);
+    assert.deepEqual(outcome(runCli(cs.root, ['doktor', '--json'])), outcome(runCli(cs.root, ['doctor', '--json'])));
+    for (const name of ['aktualizuj', 'upgrade']) {
+      const res = runCli(cs.root, [name, '--help']);
+      assert.equal(res.code, 0, `${name}: ${res.stderr}`);
+      assert.match(res.stdout, /^usage: node system\/memory\.mjs upgrade\b/, name);
+    }
+    // --jen-cteni reaches mcp as --read-only: the server offers no memory_inbox.
+    const session = mcpSession(cs.root, ['--jen-cteni'], [
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'cli-test', version: '1.0.0' } } },
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+    ]);
+    assert.equal(session.code, 0, session.stderr);
+    const byId = new Map(session.replies.map((r) => [r.id, r]));
+    assert.equal(byId.get(1)?.result?.protocolVersion, '2025-06-18', JSON.stringify(session.replies));
+    assert.deepEqual(byId.get(2)?.result?.tools?.map((t) => t.name).sort(), ['memory_read', 'memory_recent', 'memory_search', 'memory_start']);
   });
 
   test('--root is honoured from any working directory', () => {
@@ -90,6 +210,18 @@ describe('start (10.4)', () => {
     assert.equal(res.code, 0);
     assert.equal(res.stdout.trimEnd().split('\n').pop(), '(_ai/ is stale: this view was rendered on the fly; the next commit regenerates it)');
     assert.deepEqual(hashGenerated(v.root), before, 'start never writes');
+  });
+
+  test('a CRLF checkout of start.md with a BOM is still the fresh view, printed with LF', () => {
+    const v = generatedVault();
+    const lf = readFile(v.root, '_ai/start.md');
+    writeFile(v.root, '_ai/start.md', `﻿${lf.replace(/\n/g, '\r\n')}`);
+    const res = runCli(v.root, ['start', '--today', TODAY]);
+    assert.equal(res.code, 0);
+    assert.equal(res.stdout, lf);
+    const json = JSON.parse(runCli(v.root, ['start', '--format', 'json', '--today', TODAY]).stdout);
+    assert.equal(json.stale, false);
+    assert.equal(json.text, lf);
   });
 
   test('--sectors narrows the view', () => {
@@ -147,6 +279,44 @@ describe('check (10.3)', () => {
     for (const args of [['--strict', '--lenient'], ['--today', '2026-02-30'], ['--bogus'], ['extra']]) {
       assert.equal(runCli(fx.root, ['check', ...args]).code, 2, args.join(' '));
     }
+  });
+
+  test('a vault without git: the local .memory-kit/ folder (backups) is not scanned for secrets', () => {
+    const fx = fixtureVault('en');
+    const { github } = plantSecret();
+    writeFile(fx.root, '.memory-kit/backups/connect/cursor-20260920-120000.json', `{"env": {"TOKEN": "${github}"}}\n`);
+    const clean = checkJson(fx.root, ['--today', TODAY]);
+    assert.ok(!clean.codes.has('SECRET'), describeFindings(clean));
+    writeFile(fx.root, 'notes.txt', `token ${github}\n`);
+    const leak = checkJson(fx.root, ['--today', TODAY]);
+    assert.deepEqual(leak.errors.filter((f) => f.code === 'SECRET').map((f) => f.rel), ['notes.txt']);
+  });
+
+  test('a file forced into git under .memory-kit/ is scanned for secrets', { skip: !HAS_GIT && 'git is not installed' }, () => {
+    const fx = fixtureVault('en');
+    const git = (args) => spawnSync('git', args, { cwd: fx.root, encoding: 'utf8', windowsHide: true });
+    assert.equal(git(['init', '-q']).status, 0);
+    writeFile(fx.root, '.gitignore', '.memory-kit/\n');
+    const { github } = plantSecret();
+    writeFile(fx.root, '.memory-kit/backups/connect/cursor-20260920-120000.json', `{"env": {"TOKEN": "${github}"}}\n`);
+    assert.ok(!checkJson(fx.root, ['--today', TODAY]).codes.has('SECRET'), 'ignored by git: not scanned');
+    const add = git(['add', '-f', '.memory-kit/backups/connect/cursor-20260920-120000.json']);
+    assert.equal(add.status, 0, add.stderr);
+    const res = checkJson(fx.root, ['--today', TODAY]);
+    assert.deepEqual(res.errors.filter((f) => f.code === 'SECRET').map((f) => f.rel), ['.memory-kit/backups/connect/cursor-20260920-120000.json']);
+  });
+
+  test('OS files are skipped by the vault and kept out of git by the kit .gitignore', () => {
+    const names = ['.DS_Store', 'Thumbs.db', 'ehthumbs.db', 'ehthumbs_vista.db', 'desktop.ini'];
+    const ignored = readFile(KIT_ROOT, '.gitignore').split('\n');
+    for (const name of names) {
+      assert.ok(isOsJunk(name), `the vault walk skips ${name}`);
+      assert.ok(ignored.includes(name), `.gitignore lists ${name}`);
+    }
+    const fx = fixtureVault('en');
+    for (const name of names) writeFile(fx.root, `sectors/work/${name}`, '[.ShellClassInfo]\n');
+    const res = checkJson(fx.root, ['--today', TODAY]);
+    assert.deepEqual([...res.errors, ...res.warnings].filter((f) => names.some((n) => f.rel.endsWith(n))), []);
   });
 });
 
@@ -348,5 +518,83 @@ describe('search options (10.2, 13.1)', () => {
       ['x', '--n', '0'], ['x', '--engine', 'bogus'], ['--rg', '--duplicates', 'x'], ['x', '--bogus']]) {
       assert.equal(runCli(fx.root, ['search', ...args]).code, 2, args.join(' '));
     }
+  });
+
+  test('--lokalni is --local', () => {
+    const cs = fixtureVault('cs');
+    const res = runCli(cs.root, ['hledej', 'zubař', '--lokalni', '--json']);
+    assert.equal(res.code, 0, res.stderr);
+    const out = JSON.parse(res.stdout);
+    assert.deepEqual(out, JSON.parse(runCli(cs.root, ['search', 'zubař', '--local', '--json']).stdout));
+    assert.ok(out.results.some((r) => r.local), 'the local note is shown');
+  });
+});
+
+describe('upgrade and connect under their Czech names (0.1.1)', () => {
+  test('aktualizuj --nanecisto --odkud <newer kit>: the plan in Czech, nothing is written', () => {
+    const next = newerKit();
+    const cs = fixtureVault('cs');
+    const installed = readFile(cs.root, 'system/VERSION').trim();
+    const before = snapshot(cs.root);
+    const res = runCli(cs.root, ['aktualizuj', '--nanecisto', '--odkud', next.dir]);
+    assert.equal(res.code, 0, `${res.stdout}\n${res.stderr}`);
+    assert.match(res.stderr, new RegExp(`je memory-kit ${next.version.replace(/\./g, '\\.')}; aktualizaci převezme`));
+    const lines = res.stdout.trimEnd().split('\n');
+    assert.equal(lines[0], `aktualizace memory-kit ${installed} → ${next.version}`);
+    assert.ok(lines.includes('Jen plán, nic se nezměnilo. Provedeš ho takto:'), res.stdout);
+    assert.match(lines.at(-1), / upgrade --from .+ --yes$/);
+    assert.deepEqual(snapshot(cs.root), before, 'a dry run writes nothing');
+    assert.ok(!exists(cs.root, '.memory-kit'));
+
+    const json = JSON.parse(runCli(cs.root, ['aktualizuj', '--nanecisto', '--odkud', next.dir, '--json']).stdout);
+    assert.equal(json.result.dry_run, true);
+    assert.equal(json.plan.to, next.version);
+  });
+
+  test('aktualizuj --vratit: nothing to restore, said in Czech', () => {
+    const cs = fixtureVault('cs');
+    const res = runCli(cs.root, ['aktualizuj', '--vratit']);
+    assert.equal(res.code, 0, res.stderr);
+    assert.equal(res.stdout, 'není žádná záloha z aktualizace, kterou by šlo obnovit\n');
+  });
+
+  test('pripoj: --seznam, --nanecisto, --jmeno, --jen-cteni, --odebrat and --rozsah', () => {
+    const cs = fixtureVault('cs');
+    const home = tmpDir('cli-home');
+    const file = writeFile(home, '.cursor/mcp.json', '{}\n');
+    const env = homeEnv(home);
+    const run = (args) => runCli(cs.root, ['pripoj', ...args], { env });
+    const cursorRow = (res) => res.stdout.split('\n').find((l) => /^ {2}cursor /.test(l));
+
+    const list = run(['--seznam']);
+    assert.equal(list.code, 0, list.stderr);
+    const rows = list.stdout.trimEnd().split('\n');
+    assert.equal(rows[0], `MCP klienti pro ${cs.root}:`);
+    assert.equal(rows.at(-1), 'připojíš ho příkazem: node system/memory.mjs connect <klient>');
+    assert.match(cursorRow(list), /^ {2}cursor +nepřipojeno +Cursor · /);
+    assert.match(list.stdout, /^ {2}chatgpt +jen návod +ChatGPT · /m);
+    assert.doesNotMatch(list.stdout, /not connected|app not found|guidance only/);
+
+    const dry = run(['cursor', '--nanecisto', '--jmeno', 'poznamky', '--jen-cteni']);
+    assert.equal(dry.code, 0, dry.stderr);
+    assert.match(dry.stdout, /^Cursor: přidal by se záznam "poznamky" do /);
+    assert.match(dry.stdout, /\nzkouška nanečisto: nic se nezměnilo\n$/);
+    assert.equal(fs.readFileSync(file, 'utf8'), '{}\n');
+
+    const added = run(['cursor', '--jmeno', 'poznamky', '--jen-cteni']);
+    assert.equal(added.code, 0, added.stderr);
+    assert.match(added.stdout, /^Cursor: přidán záznam "poznamky" do /);
+    const entry = JSON.parse(fs.readFileSync(file, 'utf8')).mcpServers.poznamky;
+    assert.deepEqual(entry.args.slice(1), ['mcp', '--root', cs.root, '--read-only']);
+    assert.match(cursorRow(run(['--seznam'])), /^ {2}cursor +připojeno +Cursor · /);
+
+    const refused = run(['codex', '--rozsah', 'project']);
+    assert.equal(refused.code, 1);
+    assert.match(refused.stderr, /nemá projektové nastavení/);
+
+    const removed = run(['cursor', '--odebrat', '--jmeno', 'poznamky']);
+    assert.equal(removed.code, 0, removed.stderr);
+    assert.match(removed.stdout, /^Cursor: záznam "poznamky" odebrán z /);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).mcpServers, {});
   });
 });

@@ -5,7 +5,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { performance } from 'node:perf_hooks';
-import { loadVault } from '../vault.mjs';
+import { loadVault, localFolderNotes, withoutNotes } from '../vault.mjs';
 import {
   buildIndex,
   duplicates,
@@ -108,9 +108,19 @@ async function printRegex(words, cfg) {
   return 0;
 }
 
+/**
+ * The vault a search reads. loadVault marks private content left in a local sector's main-root
+ * folder as local, so it is only counted; with --local it is left out (its place is the local
+ * root, and the MCP server and the JS API never list it either).
+ */
+function searchVault(cfg, opts) {
+  const vault = loadVault(cfg, { roots: 'all' });
+  return opts.local ? withoutNotes(vault, localFolderNotes(cfg, vault)) : vault;
+}
+
 async function printSearch(words, opts, values, cfg) {
   const started = performance.now();
-  const vault = loadVault(cfg, { roots: 'all' });
+  const vault = searchVault(cfg, opts);
   const scope = narrowScope(vault, opts);
   if (typeof scope === 'string') return usageError(scope);
 
@@ -130,7 +140,7 @@ async function printSearch(words, opts, values, cfg) {
 
 async function printDuplicates(positionals, opts, values, cfg) {
   const [title, ...rest] = positionals;
-  const vault = loadVault(cfg, { roots: 'all' });
+  const vault = searchVault(cfg, opts);
   const index = await buildIndex(vault, cfg, { engine: values.engine });
   let res;
   try {
