@@ -44,23 +44,33 @@ jobs:
 
   kit:
     # Scheduled events carry no repository payload, so the kit job never runs on the schedule.
+    # Each command runs unchanged in bash (Linux, macOS) and in PowerShell (the Windows default):
+    # node --test expands the quoted glob itself. Git keeps each runner's own line-ending
+    # settings on purpose; .gitattributes decides what the checkout holds.
     if: ${{ github.event_name != 'schedule' && github.event.repository.private == false }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
         node: ['22', '24']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Full history: the upgrade tests build a real 0.1.0 vault from its release commit.
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
       - name: Unit and integration tests
         run: node --test "system/tests/**/*.test.mjs"
+      - name: system/kit.json matches the files (upgrades rely on it)
+        if: ${{ !cancelled() }}
+        run: node system/tools/release.mjs --check
       - name: The kit itself passes the strict check
+        if: ${{ !cancelled() }}
         run: node system/memory.mjs check --strict
 
   vault:

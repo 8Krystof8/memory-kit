@@ -1,8 +1,9 @@
 # ChatGPT
 
-ChatGPT cannot run the CLI, but it can read the repository through its GitHub connector. It can
-also know who you are from a short profile you paste into its instructions. It cannot write to the
-memory in phase 1.
+ChatGPT on the web cannot run the CLI, but it can read the repository through its GitHub
+connector. It can also know who you are from a short profile you paste into its instructions. It
+cannot write to the memory. The ChatGPT desktop app can do more: it starts the memory's MCP server
+on your computer ([the desktop app](#the-chatgpt-desktop-app-the-local-mcp-server)).
 
 ## 1. A profile in the instructions
 
@@ -56,16 +57,28 @@ as a convenience, not a source. When something should last, put it into the vaul
 
 ## Writing from ChatGPT
 
-Phase 1 has no write path for ChatGPT. The simple workflow:
+ChatGPT on the web has no write path into the memory. The simple workflow:
 
 1. Ask ChatGPT to draft a one-paragraph capture ("write this as a note for my inbox").
 2. Save it as a new file in `inbox/`, for example on github.com (**Add file → Create new file**,
    `inbox/2026-09-23-1030.md`) or in any git app ([phone.md](../phone.md)).
 3. The next agent session files it when you ask it to "file the inbox".
 
-The roadmap has an MCP server with an inbox-only write tool, and with `search` and `fetch` in the
-shape ChatGPT expects ([maintenance.md](../maintenance.md#mcp-server)). Whether your ChatGPT plan
-allows custom connectors with write access varies. Check before relying on it.
+A remote server with `search` and `fetch` in the shape ChatGPT expects is on the roadmap
+([maintenance.md](../maintenance.md#remote-mcp-server)). Whether your ChatGPT plan allows custom
+connectors with write access varies. Check before relying on it.
+
+## The ChatGPT desktop app: the local MCP server
+
+The ChatGPT desktop app shares its MCP settings with Codex. One command in the vault gives it the
+memory's MCP server, with search, read and a tool that saves new captures to the inbox:
+
+```sh
+node system/memory.mjs connect codex
+```
+
+Restart the app, then ask it to call `memory_start`. With `--read-only` it gets no write tool. This
+works only in the desktop app, because the server runs on your computer. More in [mcp.md](mcp.md).
 
 ## Privacy
 

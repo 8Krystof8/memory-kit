@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Krystof8/memory-kit/schema/doctor-result.schema.json",
+  "title": "doctor --json",
+  "description": "What node system/memory.mjs doctor --json prints: one entry per check of the installation (Node.js, config, kit files, adapters, git, roots, generated files, platform, MCP clients) and the number of checks per status. doctor exits 1 when a check failed.",
+  "type": "object",
+  "required": ["kit", "root", "checks", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "kit": {
+      "description": "The installed kit version (system/VERSION), or null when it cannot be read.",
+      "type": ["string", "null"]
+    },
+    "root": {
+      "description": "Absolute path of the vault.",
+      "type": "string",
+      "minLength": 1
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["ok", "warn", "fail"],
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "description": "Checks that passed.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "warn": {
+          "description": "Checks with a warning.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "fail": {
+          "description": "Checks that failed.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "required": ["id", "status", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Stable id of the check, such as node.version or kit.integrity.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)*$"
+        },
+        "status": {
+          "enum": ["ok", "warn", "fail"]
+        },
+        "message": {
+          "description": "What was found, in one line.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "fix": {
+          "description": "What to do about it: a command or a step. Absent or null when nothing needs doing.",
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

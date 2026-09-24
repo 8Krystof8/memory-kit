@@ -6,8 +6,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { parse } from './frontmatter.mjs';
 import {
-  CANON_PRIVACY, CANON_STATES, bytes, chars, cmp, fenceTracker, isDate, lineCount, normalizeText,
-  parseHeading, readTextIfExists, toPosix,
+  CANON_PRIVACY, CANON_STATES, bytes, chars, cmp, direntKind, fenceTracker, isDate, isDir, isOsJunk, lineCount,
+  normalizeText, parseHeading, readTextIfExists, resolveExact, toPosix,
 } from './util.mjs';
 
 const ARRAY_KEYS = new Set(['aliases', 'keywords', 'questions', 'links', 'sectors', 'used', 'changed', 'search_missed', 'replaces']);
@@ -247,8 +247,12 @@ function analyzeBody(cfg, bodyLines, startLine) {
 // ---------------------------------------------------------------------------------------------
 // Notes
 
-/** Parses one note. `text` may carry a BOM or CRLF; they are removed and reported. */
-export function parseNote(cfg, { rel, text, root = 'main', rootPath }) {
+/**
+ * Parses one note. `text` may carry a BOM or CRLF; they are removed and reported. `rel` is the
+ * NFC form that identifies the note; `diskRel` the on-disk spelling when it differs (an NFD name),
+ * used for note.path so that a rewrite lands on the same file.
+ */
+export function parseNote(cfg, { rel, text, root = 'main', rootPath, diskRel }) {
   const norm = normalizeText(text);
   const fm = parse(norm.text);
   const isMain = root === 'main';
@@ -286,7 +290,7 @@ export function parseNote(cfg, { rel, text, root = 'main', rootPath }) {
   const base = path.posix.basename(rel);
   const dir = path.posix.dirname(rel);
   const note = {
-    path: path.join(rootPath ?? cfg.root, ...rel.split('/')),
+    path: path.join(rootPath ?? cfg.root, ...(diskRel ?? rel).split('/')),
     rel,
     root,
     local: !isMain,
@@ -328,31 +332,61 @@ export function parseNote(cfg, { rel, text, root = 'main', rootPath }) {
 // ---------------------------------------------------------------------------------------------
 // Walking
 
-/** Every file under dir (rel to rootPath), skipping dot entries and symlinks; sorted. */
-function walk(rootPath, relDir, out) {
+/**
+ * Every file under diskDir (rel to rootPath) as {rel, disk}: rel is the NFC spelling (identity,
+ * order, hashes and output are the same on every machine), disk the name on this disk for I/O.
+ * Skips dot entries, OS junk files and real symlinks; sorted by rel.
+ */
+function walk(rootPath, relDir, out, diskDir = relDir) {
+  const dirAbs = path.join(rootPath, ...diskDir.split('/'));
   let entries;
   try {
-    entries = fs.readdirSync(path.join(rootPath, ...relDir.split('/')), { withFileTypes: true });
+    entries = fs.readdirSync(dirAbs, { withFileTypes: true });
   } catch {
     return;
   }
-  entries.sort((a, b) => cmp(a.name, b.name));
-  for (const e of entries) {
-    if (e.name.startsWith('.') || e.isSymbolicLink()) continue;
-    const rel = `${relDir}/${e.name}`;
-    if (e.isDirectory()) walk(rootPath, rel, out);
-    else if (e.isFile()) out.push(rel);
+  const items = entries.map((e) => ({ e, name: e.name.normalize('NFC') }))
+    .sort((a, b) => cmp(a.name, b.name) || cmp(a.e.name, b.e.name));
+  for (const { e, name } of items) {
+    if (e.name.startsWith('.') || isOsJunk(e.name)) continue;
+    const kind = direntKind(dirAbs, e);
+    const rel = `${relDir}/${name}`;
+    const disk = `${diskDir}/${e.name}`;
+    if (kind === 'dir') walk(rootPath, rel, out, disk);
+    else if (kind === 'file') out.push({ rel, disk });
   }
 }
 
-function listDirs(abs) {
+/** walk() of a top folder of the vault, found only under its exact name (see resolveExact). */
+function walkArea(rootPath, dir, out, cache) {
+  const disk = resolveExact(rootPath, dir, cache);
+  if (disk !== null) walk(rootPath, dir, out, disk);
+}
+
+/** Folder names (NFC, sorted) under rel of root, found by their exact names. */
+function listDirs(root, rel, cache) {
+  const disk = resolveExact(root, rel, cache);
+  if (disk === null) return [];
+  const dirAbs = path.join(root, ...disk.split('/'));
   try {
-    return fs.readdirSync(abs, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !e.isSymbolicLink())
-      .map((e) => e.name)
+    return fs.readdirSync(dirAbs, { withFileTypes: true })
+      .filter((e) => !e.name.startsWith('.') && direntKind(dirAbs, e) === 'dir')
+      .map((e) => e.name.normalize('NFC'))
       .sort(cmp);
   } catch {
     return [];
+  }
+}
+
+/** Absolute path of rel's exact on-disk file under root, or null (see resolveExact). */
+function exactFile(root, rel, cache) {
+  const disk = resolveExact(root, rel, cache);
+  if (disk === null) return null;
+  const abs = path.join(root, ...disk.split('/'));
+  try {
+    return fs.statSync(abs).isFile() ? abs : null;
+  } catch {
+    return null;
   }
 }
 
@@ -379,31 +413,125 @@ function pickRoots(cfg, roots) {
   return cfg.roots.filter((r) => r.id === 'main');
 }
 
-/** Loads notes, sectors and generator inputs. Generators only use notes with root 'main'. */
+// ---------------------------------------------------------------------------------------------
+// Private content left in a local sector's main-root folder
+
+/**
+ * True when a sector's notes are private: a manifest of it in the main root (live or archived)
+ * says privacy local, or the main root has no readable manifest of it and a local root holds its
+ * folder. A manifest that says github is the owner's choice and wins over a local folder.
+ */
+export function sectorIsLocal(cfg, id, cache) {
+  let manifest = false;
+  for (const dir of [`${cfg.dirs.sectors}/${id}`, `${cfg.dirs.archive}/${cfg.dirs.sectors}/${id}`]) {
+    const rel = `${dir}/_${id}.md`;
+    const disk = resolveExact(cfg.root, rel, cache);
+    if (disk === null) continue;
+    try {
+      const note = parseNote(cfg, { rel, text: fs.readFileSync(path.join(cfg.root, ...disk.split('/')), 'utf8') });
+      if (note.data.privacy === 'local') return true;
+      manifest = true;
+    } catch {
+      /* an unreadable manifest decides nothing */
+    }
+  }
+  if (manifest) return false;
+  return cfg.roots.some((r) => r.id !== 'main' && r.exists && isDir(path.join(r.path, ...cfg.dirs.sectors.split('/'), id)));
+}
+
+/**
+ * A test of main-root rels: true for a file inside a local sector's folder (sectors/<id>/ or
+ * archive/sectors/<id>/) other than its manifest and export file. Such a file is private content
+ * that belongs in the local root (check reports it as LOCAL_IN_GIT, git ignores it), so it is only
+ * ever counted, never listed, shown, read or generated into _ai/. Sector answers are cached for
+ * the test's lifetime.
+ */
+export function localFolderTest(cfg, cache) {
+  const known = new Map();
+  const isLocal = (id) => {
+    if (!known.has(id)) known.set(id, sectorIsLocal(cfg, id, cache));
+    return known.get(id);
+  };
+  const prefixes = [`${cfg.dirs.sectors}/`, `${cfg.dirs.archive}/${cfg.dirs.sectors}/`];
+  return (rel) => {
+    const lower = rel.toLowerCase();
+    for (const prefix of prefixes) {
+      if (!lower.startsWith(prefix.toLowerCase())) continue;
+      const rest = rel.slice(prefix.length).split('/');
+      if (rest.length < 2) return false;
+      const id = rest[0];
+      if (!isLocal(id)) return false;
+      return !(rest.length === 2 && (rest[1] === `_${id}.md` || rest[1] === `_${id}${cfg.exportSuffix}.md`));
+    }
+    return false;
+  };
+}
+
+/** localFolderTest for one rel. */
+export function inLocalSectorFolder(cfg, rel) {
+  return localFolderTest(cfg)(rel);
+}
+
+/**
+ * The main-root notes of a vault that are private content of a local sector (see localFolderTest).
+ * loadVault marks them: misplacedLocal and local are true.
+ */
+export function localFolderNotes(cfg, vault) {
+  return vault.notes.filter((n) => n.root === 'main' && n.misplacedLocal === true);
+}
+
+/** A shallow copy of a vault without the given notes; inputs, files and sectors stay as they are. */
+export function withoutNotes(vault, drop) {
+  const gone = new Set(drop);
+  if (!gone.size) return vault;
+  const notes = vault.notes.filter((n) => !gone.has(n));
+  const byName = new Map();
+  for (const n of notes) {
+    const key = n.name.toLowerCase();
+    if (!byName.has(key)) byName.set(key, []);
+    byName.get(key).push(n);
+  }
+  const keep = (map) => new Map([...map].filter(([, n]) => !gone.has(n)));
+  return { ...vault, notes, byRel: keep(vault.byRel), byRootRel: keep(vault.byRootRel), byName };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Loading
+
+/**
+ * Loads notes, sectors and generator inputs. Generators only use notes with root 'main'.
+ * Fixed names (hubs, manifests, export files, AGENTS.md…) count only with their exact letter
+ * case, so Windows and macOS see the same vault as Linux and git (resolveExact).
+ * A main-root note in a local sector's folder (localFolderTest) gets misplacedLocal: true and
+ * local: true: search only counts it, and the generated views and the start view leave it out.
+ */
 export function loadVault(cfg, { includeArchive = true, includeInbox = true, roots = 'main' } = {}) {
   const notes = [];
   const files = [];
   const inputs = [];
   const { sectors: sectorsDir, journal, inbox, archive, attachments } = cfg.dirs;
+  const cache = new Map();
 
   for (const r of pickRoots(cfg, roots)) {
     const isMain = r.id === 'main';
-    const rels = [];
-    for (const d of [sectorsDir, journal, inbox, archive]) walk(r.path, d, rels);
+    const entries = [];
+    for (const d of [sectorsDir, journal, inbox, archive]) walkArea(r.path, d, entries, cache);
     if (isMain) {
       for (const hub of [cfg.files.state, cfg.files.waiting]) {
-        if (fs.existsSync(path.join(r.path, hub))) rels.push(hub);
+        const abs = exactFile(r.path, hub, cache);
+        if (abs) entries.push({ rel: hub, disk: relOf(r.path, abs) });
       }
       const attach = [];
-      walk(r.path, attachments, attach);
-      for (const rel of [...rels, ...attach]) files.push({ rel, size: fileSize(path.join(r.path, ...rel.split('/'))) });
+      walkArea(r.path, attachments, attach, cache);
+      for (const x of [...entries, ...attach]) files.push({ rel: x.rel, size: fileSize(path.join(r.path, ...x.disk.split('/'))) });
     }
-    for (const rel of rels.sort(cmp)) {
+    entries.sort((a, b) => cmp(a.rel, b.rel) || cmp(a.disk, b.disk));
+    for (const { rel, disk } of entries) {
       if (!rel.endsWith('.md')) continue;
       const info = classify(cfg, rel, isMain);
       if (!info) continue;
-      const abs = path.join(r.path, ...rel.split('/'));
-      if (isMain) inputs.push({ rel, sha256: sha256Text(abs) });
+      const abs = path.join(r.path, ...disk.split('/'));
+      if (isMain) inputs.push(disk === rel ? { rel, sha256: sha256Text(abs) } : { rel, sha256: sha256Text(abs), disk });
       if (info.area === 'inbox' && !includeInbox) continue;
       if (info.area === 'archive' && !includeArchive) continue;
       let text;
@@ -412,14 +540,23 @@ export function loadVault(cfg, { includeArchive = true, includeInbox = true, roo
       } catch {
         continue;
       }
-      notes.push(parseNote(cfg, { rel, text, root: r.id, rootPath: r.path }));
+      notes.push(parseNote(cfg, { rel, text, root: r.id, rootPath: r.path, ...(disk === rel ? {} : { diskRel: disk }) }));
+    }
+  }
+
+  // Private content left in a local sector's main-root folder (LOCAL_IN_GIT) is a local note.
+  const misplaced = localFolderTest(cfg, cache);
+  for (const n of notes) {
+    if (n.root === 'main' && misplaced(n.rel)) {
+      n.misplacedLocal = true;
+      n.local = true;
     }
   }
 
   // Non-note inputs of the generators (section 8.1).
   for (const rel of [cfg.files.agents, cfg.files.config, `system/lang/${cfg.lang}/pack.json`, cfg.files.version, cfg.files.lastCleanup]) {
-    const abs = path.join(cfg.root, ...rel.split('/'));
-    if (fs.existsSync(abs) && fs.statSync(abs).isFile()) inputs.push({ rel, sha256: sha256Text(abs) });
+    const abs = exactFile(cfg.root, rel, cache);
+    if (abs) inputs.push({ rel, sha256: sha256Text(abs) });
   }
   inputs.sort((a, b) => cmp(a.rel, b.rel));
 
@@ -437,8 +574,13 @@ export function loadVault(cfg, { includeArchive = true, includeInbox = true, roo
     byName.get(key).push(n);
   }
 
-  const sectorDirs = listDirs(path.join(cfg.root, sectorsDir));
-  const sectors = discoverSectors(cfg, notes, byRel, sectorDirs);
+  const sectorDirs = listDirs(cfg.root, sectorsDir, cache);
+  const archiveSectorDirs = listDirs(cfg.root, `${archive}/${sectorsDir}`, cache);
+  const sectors = discoverSectors(cfg, notes, byRel, sectorDirs, archiveSectorDirs, cache);
+  const readExact = (rel) => {
+    const abs = exactFile(cfg.root, rel, cache);
+    return abs ? readTextIfExists(abs) : null;
+  };
 
   return {
     cfg,
@@ -451,30 +593,32 @@ export function loadVault(cfg, { includeArchive = true, includeInbox = true, roo
     inputs,
     files,
     sectorDirs,
+    archiveSectorDirs,
     otherFiles: {
-      agents: readTextIfExists(path.join(cfg.root, cfg.files.agents)),
-      claude: readTextIfExists(path.join(cfg.root, cfg.files.claude)),
-      gemini: readTextIfExists(path.join(cfg.root, cfg.files.gemini)),
-      lastCleanup: readTextIfExists(path.join(cfg.root, ...cfg.files.lastCleanup.split('/'))),
+      agents: readExact(cfg.files.agents),
+      claude: readExact(cfg.files.claude),
+      gemini: readExact(cfg.files.gemini),
+      lastCleanup: readExact(cfg.files.lastCleanup),
     },
   };
 }
 
-function discoverSectors(cfg, notes, byRel, sectorDirs) {
+function discoverSectors(cfg, notes, byRel, sectorDirs, archiveSectorDirs, cache) {
   const { sectors: sectorsDir, archive } = cfg.dirs;
   const found = new Map();
   const candidates = [
     ...sectorDirs.map((id) => ({ id, dir: `${sectorsDir}/${id}` })),
-    ...listDirs(path.join(cfg.root, archive, sectorsDir)).map((id) => ({ id, dir: `${archive}/${sectorsDir}/${id}` })),
+    ...archiveSectorDirs.map((id) => ({ id, dir: `${archive}/${sectorsDir}/${id}` })),
   ];
   for (const { id, dir } of candidates) {
     if (found.has(id)) continue; // the live folder wins over an archived copy
     const rel = `${dir}/_${id}.md`;
     let manifest = byRel.get(rel);
     if (!manifest) {
-      const abs = path.join(cfg.root, ...rel.split('/'));
-      if (!fs.existsSync(abs)) continue;
-      manifest = parseNote(cfg, { rel, text: fs.readFileSync(abs, 'utf8') });
+      const abs = exactFile(cfg.root, rel, cache);
+      if (!abs) continue;
+      const diskRel = relOf(cfg.root, abs);
+      manifest = parseNote(cfg, { rel, text: fs.readFileSync(abs, 'utf8'), ...(diskRel === rel ? {} : { diskRel }) });
     }
     const d = manifest.data;
     const archived = dir.startsWith(`${archive}/`);
@@ -500,7 +644,7 @@ function discoverSectors(cfg, notes, byRel, sectorDirs) {
       cleanup: d.cleanup ?? 'none',
       notes: own.length,
       lastUpdated: dates.length ? dates[dates.length - 1] : null,
-      exportRel: byRel.has(exportRel) || fs.existsSync(path.join(cfg.root, ...exportRel.split('/'))) ? exportRel : null,
+      exportRel: byRel.has(exportRel) || exactFile(cfg.root, exportRel, cache) ? exportRel : null,
     });
   }
   return [...found.values()].sort((a, b) => cmp(a.id, b.id));

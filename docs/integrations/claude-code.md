@@ -8,11 +8,24 @@ loads the start file, a subagent for broad questions, and the pre-commit check t
 | file | what it does |
 |---|---|
 | `CLAUDE.md` | `@AGENTS.md` (imports the shared rules) plus two lines only for Claude Code |
-| `.claude/settings.json` | a SessionStart hook with matcher `startup\|resume\|compact` that runs `node "$CLAUDE_PROJECT_DIR/system/memory.mjs" start` |
+| `.claude/settings.json` | a SessionStart hook with matcher `startup\|resume\|clear\|compact` and the command `node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start` (see below why it has this form) |
 | `.claude/agents/memory-searcher.md` | a subagent for broad questions: tools Read, Grep, Glob and Bash; returns at most 1,500 tokens with `path:line` citations |
 | `.agents/skills/memory/SKILL.md` | a skill in the open Agent Skills format: run `start`, follow "How to search", read `AGENTS.md` before writing |
 | `.claude/skills/memory/SKILL.md` | the same skill, byte for byte, where Claude Code looks for project skills (a test keeps the two copies equal) |
 | `.githooks/pre-commit` | `check --generate --strict`; `start` sets `core.hooksPath` so it runs |
+
+The hook is a shell command with the placeholder in braces and the path in double quotes:
+
+```json
+"command": "node \"${CLAUDE_PROJECT_DIR}/system/memory.mjs\" start"
+```
+
+It runs on every Claude Code version under sh, bash and Git Bash, also with spaces in the path,
+and under PowerShell from Claude Code 2.1.198 on, which rewrites the braced placeholder for
+PowerShell. The kit does not use the exec form (`"command": "node"` with `"args"`): Claude Code
+before 2.1.139 ignores `args`, and the hook then fails. The hook of 0.1.0 wrote
+`$CLAUDE_PROJECT_DIR` without braces, which only a POSIX shell expands; `upgrade` replaces it with
+this one unless you changed the file.
 
 Claude Code reads `AGENTS.md` by itself only when there is no `CLAUDE.md`. The recommended pattern
 is a `CLAUDE.md` that imports it, which is what the kit ships. Keep `CLAUDE.md` short (≤ 25 lines,
@@ -21,8 +34,8 @@ comments, which Claude Code strips before they reach the context.
 
 ## Case 1: the session runs in the memory repository
 
-This works on the web and locally, and needs no setup. At startup, on resume and after compaction,
-the hook prints the start file. Its output is at most 9,500 bytes, because Claude Code shows hook
+This works on the web and locally, and needs no setup. At startup, on resume, after `/clear` and
+after compaction, the hook prints the start file. Its output is at most 9,500 bytes, because Claude Code shows hook
 output over 10,000 characters only as a short preview. The search rules are in context from the first message on. `AGENTS.md` is
 imported through `CLAUDE.md`.
 
@@ -30,7 +43,11 @@ If you do not see the start file, run `node system/memory.mjs start` yourself, o
 
 ## Case 2: you work in another project, memory is a second folder
 
-Most of the time you work in a code repository, and the memory is a separate one.
+Most of the time you work in a code repository, and the memory is a separate one. The examples
+keep it in `~/my-memory`, where `~` is your home folder. `cd ~/my-memory` works in bash, zsh and
+PowerShell. A `~` handed to a program, as in `claude --add-dir ~/my-memory`, is expanded only by
+bash and zsh: PowerShell on Windows before 7.6 (the built-in Windows PowerShell 5.1 too) and cmd
+pass it on unchanged, so in those shells write the full path, such as `C:/Users/you/my-memory`.
 
 **Locally:**
 
@@ -39,18 +56,20 @@ Most of the time you work in a code repository, and the memory is a separate one
    memory's `CLAUDE.md` (and with it `AGENTS.md`), set
    `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`.
 3. Add a SessionStart hook to the project's `.claude/settings.json`, or to `~/.claude/settings.json`
-   for every project:
+   for every project. Write the memory's absolute path in double quotes (`~` and `$HOME` are not
+   expanded in every shell Claude Code may use; on Windows write the path with forward slashes,
+   such as `C:/Users/you/my-memory/system/memory.mjs`):
 
    ```json
    {
      "hooks": {
        "SessionStart": [
          {
-           "matcher": "startup|resume|compact",
+           "matcher": "startup|resume|clear|compact",
            "hooks": [
              {
                "type": "command",
-               "command": "if [ -f \"$HOME/my-memory/system/memory.mjs\" ]; then node \"$HOME/my-memory/system/memory.mjs\" start; else echo 'Memory not found at ~/my-memory: clone it there, then run node ~/my-memory/system/memory.mjs start'; fi"
+               "command": "node \"/Users/you/my-memory/system/memory.mjs\" start"
              }
            ]
          }
@@ -59,13 +78,30 @@ Most of the time you work in a code repository, and the memory is a separate one
    }
    ```
 
+   If the memory is not at that path, the hook fails with node's "Cannot find module" message in
+   the session: clone it there, or fix the path.
+
 4. Tell Claude where the memory lives. One line in the project's `CLAUDE.md` is enough:
    `Memory: ~/my-memory. Run its commands and rg paths from that folder.`
 
-`node ~/my-memory/system/memory.mjs …` works from any working directory, because the script finds
-its vault from its own location, never from the current directory. The `rg` commands in the search
-rules use paths relative to the memory root (`_ai/catalog.tsv`, `sectors/`), so run them there or
-prefix the paths.
+**Or through MCP, in every project at once:** run these in the memory folder, one at a time:
+
+```sh
+cd ~/my-memory
+node system/memory.mjs connect claude-code
+```
+
+`connect` registers the memory's MCP server in your user scope (through
+`claude mcp add --scope user`, or by editing `~/.claude.json` when the `claude` command is not
+found). Every new session in any project then has the tools `memory_start`, `memory_search`,
+`memory_read`, `memory_recent` and `memory_inbox`; ask Claude to call `memory_start` first. Check
+with `claude mcp get memory-kit` or `/mcp`. Details in [mcp.md](mcp.md).
+
+With the memory's full path, `node /Users/you/my-memory/system/memory.mjs …` (on Windows
+`node C:/Users/you/my-memory/system/memory.mjs …`) works from any working directory, because the
+script finds its vault from its own location, never from the current directory. The `rg` commands
+in the search rules use paths relative to the memory root (`_ai/catalog.tsv`, `sectors/`), so run
+them there or prefix the paths.
 
 For the subagent, copy `.claude/agents/memory-searcher.md` to the project's `.claude/agents/` or to
 `~/.claude/agents/`, and put the memory's absolute path into its prompt.
@@ -86,7 +122,7 @@ name: memory-start
 description: Connects my long-term memory (a private git repository of markdown notes). Use at the start of every session and whenever I say "what did we decide", "search memory", "remember this", "how did we do", "do you know about".
 ---
 1. If ~/my-memory does not exist, get the memory repository into the session (add it, or clone it there).
-2. Run `node ~/my-memory/system/memory.mjs start` and follow its output, above all "How to search".
+2. In ~/my-memory, run `node system/memory.mjs start` and follow its output, above all "How to search".
 3. Before the first write, read ~/my-memory/AGENTS.md.
 ```
 
@@ -137,5 +173,8 @@ its own memory instead, add a line to the `## Personal rules` section of `AGENTS
 |---|---|
 | no start file at the beginning of a session | the hook did not run (a multi-repository session, or the hook is not in this project); run `node system/memory.mjs start` or use the skill |
 | the start file is shown only as a short preview | its output exceeded the hook limit; run `check` and look for `START_BUDGET` or `GEN_BUDGET` |
-| commits are not checked | `git config core.hooksPath .githooks`, or run `start` once |
+| commits are not checked | `git config core.hooksPath .githooks`, or run `start` once; `node system/memory.mjs doctor` shows the cause |
+| the hook fails on Windows with a path error | the hook of 0.1.0 writes `$CLAUDE_PROJECT_DIR` without braces, which PowerShell cannot expand (Claude Code uses PowerShell when Git Bash is missing). Use the kit's current hook, `node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start`, with Claude Code 2.1.198 or newer, or install Git for Windows (`doctor` reports it under `adapters`) |
+| the hook fails with `SyntaxError: Unexpected token ':'` from `[stdin]` | the hook is in exec form (`"args"`), and Claude Code before 2.1.139 ignores `args`, so node reads the hook's input as a script. Update Claude Code, or use the shell form above |
 | Claude greps `archive/` and finds nothing | `.ignore` hides it on purpose; use `search --all` or an explicit path |
+| node reports "Cannot find module" with a `~` folder in the path | the shell passed `~` on unchanged (PowerShell on Windows before 7.6, cmd); run the command in the memory folder, or write the full path |

@@ -32,7 +32,17 @@ version supports Agent Skills from `.agents/skills/`, it also finds the kit's `m
 - **Broad questions:** there is no `memory-searcher` subagent. The agent follows the protocol's
   limits itself: at most three searches, headers first, at most two whole files.
 
-## Later: MCP
+## MCP
 
-When the roadmap MCP server exists ([maintenance.md](../maintenance.md#mcp-server)), Cursor will
-connect to it through `.cursor/mcp.json`. Until then the CLI covers everything.
+Inside the vault the CLI covers everything. To reach the memory from other projects too, add its
+MCP server:
+
+```sh
+node system/memory.mjs connect cursor
+```
+
+It adds a `memory-kit` entry to `~/.cursor/mcp.json` and keeps every other server. Restart Cursor
+and allow the server when it asks; Cursor Settings > MCP lists it with its tools.
+`connect cursor --scope project` writes a portable entry (with `${workspaceFolder}`) into the
+vault's `.cursor/mcp.json` instead, for everyone who opens the vault. `connect cursor --remove`
+takes the entry out. More in [mcp.md](mcp.md).

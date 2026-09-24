@@ -1,8 +1,8 @@
 # Maintenance
 
 A memory stays useful only if it stays small, current and consistent. This page covers the routine
-(yours and the agents'), the checks and budgets that enforce it, how time works, upgrades, and the
-roadmap for automatic cleanup.
+(yours and the agents'), the checks and budgets that enforce it, how time works, upgrades, AI apps,
+what to do when something is off, and the roadmap for automatic cleanup.
 
 ## Contents
 
@@ -16,6 +16,7 @@ roadmap for automatic cleanup.
 - [The waiting file](#the-waiting-file)
 - [Sync and conflicts](#sync-and-conflicts)
 - [Upgrading the kit](#upgrading-the-kit)
+- [AI apps over MCP](#ai-apps-over-mcp)
 - [Troubleshooting](#troubleshooting)
 - [Roadmap (not built yet)](#roadmap-not-built-yet)
 
@@ -35,8 +36,10 @@ was meant to save.
 ### The agents'
 
 - **Start of a session:** `node system/memory.mjs start`. It prints `_ai/start.md` and sets
-  `core.hooksPath`. The Claude Code SessionStart hook runs it automatically, also after
-  compaction.
+  `core.hooksPath`. The Claude Code SessionStart hook runs it automatically, also after `/clear`
+  and compaction; Codex and Gemini CLI can do the same with an optional hook
+  ([codex.md](integrations/codex.md), [gemini-cli.md](integrations/gemini-cli.md)). Other apps
+  call `memory_start` through MCP.
 - **During the session:** write right after a decision, a correction by the owner, a dated fact or a
   lesson. The gate for every write is "Will the next agent behave better because of this?". If the
   answer is no, write nothing.
@@ -65,9 +68,9 @@ There are three kinds of rules:
 
 | kind | strict | lenient | examples |
 |---|---|---|---|
-| system | error | error | `SECRET`, `PRIVACY_LINK`, `LOCAL_IN_GIT`, `GEN_EDITED`, `AGENTS_MARKERS`, `ADAPTER_IMPORT` |
+| system | error | error | `SECRET`, `PRIVACY_LINK`, `LOCAL_IN_GIT`, `GEN_EDITED`, `AGENTS_MARKERS`, `ADAPTER_IMPORT`, `NAME_PORTABLE` |
 | data | error | warning | missing frontmatter keys, bad names, misplaced decisions, budgets over the hard limit |
-| warn | warning | warning | broken links, expired facts, old inbox items, stale generated files |
+| warn | warning | warning | broken links, expired facts, old inbox items, stale generated files, `CASE_MISMATCH` |
 
 Where each mode runs:
 
@@ -95,6 +98,8 @@ shows at the top of the start file.
 | `commit refused: … changed after git add` | the hook checks the files on disk; `git add` those files (or `git stash` the unstaged part), then commit again |
 | `NAME_FORMAT`, `NAME_GENERIC` | rename to lowercase ASCII with hyphens, a specific noun first (`invoice-numbering.md`, not `notes.md`); put the display name into the H1 and `aliases` |
 | `NAME_DUPLICATE` | names are unique across the vault, archive and private folder included; rename one |
+| `NAME_PORTABLE` | a file or folder name Windows cannot hold (`con`, `nul`, `com1`, …, a character such as `:` or `?`, a trailing dot or space); rename it, or git cannot check the vault out on Windows |
+| `CASE_MISMATCH` | a hub, manifest, export file, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` or top folder differs from its expected name only in letter case, so it counts as missing; rename it with `git mv -f <actual> <expected>` |
 | `DATED_NAME`, `DECISION_PLACE` | decisions are `<sector>/decisions/YYYY-MM-DD-name.md`, and nothing else lives there; `new decision` places them right |
 | `SECRET` | rotate the key, then remove it ([privacy.md](privacy.md#when-something-private-reached-git)) |
 | `PRIVACY_LINK` | remove the link from the github note; mention the fact through the export file instead |
@@ -279,59 +284,82 @@ nothing leaves the computer, even when a remote happens to exist.
 
 ## Upgrading the kit
 
-There is no upgrade command yet. Until there is, upgrade by hand. The kit's code and your data
-live in separate paths, so an upgrade replaces only kit-owned files.
-
-**Kit-owned (replaced on upgrade):** `system/memory.mjs`, `system/init.mjs`, `system/VERSION`,
-`system/lib/`, `system/lang/`, `system/templates/`, `system/tests/helpers.mjs`,
-`system/tests/unit/`, `system/tests/integration/`, `system/tests/fixtures/`, `.githooks/`,
-`.github/workflows/ci.yml`, `.agents/skills/memory/`, `.claude/agents/memory-searcher.md`, `docs/`,
-and the part of `AGENTS.md` between `<!-- kit:start` and `<!-- kit:end -->`.
-
-**Yours (never replaced):** all notes and hubs, `memory.json`, `system/tests/golden.json`,
-`system/cleanup/`, `system/usage/`, the `## Personal rules` section of `AGENTS.md`, `CLAUDE.md`,
-`.claude/settings.json` if you changed it, and `.gitignore` (the kit maintains only its marked block
-for local sectors). The home page is generated, so the next `check --generate` rebuilds it.
+One command updates the kit code in a vault. It never touches your notes, `memory.json`, golden
+questions or local sectors. Run the commands one at a time:
 
 ```sh
-git remote add kit https://github.com/8Krystof8/memory-kit.git    # once
-git fetch kit
-git checkout kit/main -- system/memory.mjs system/init.mjs system/VERSION system/lib system/lang \
-  system/templates system/tests/helpers.mjs system/tests/unit system/tests/integration \
-  system/tests/fixtures .githooks .github/workflows/ci.yml .agents/skills/memory .claude/skills/memory \
-  .claude/agents/memory-searcher.md docs
+node system/memory.mjs upgrade
+node system/memory.mjs upgrade --yes
+git add -A
+git commit -m "memory-kit 0.1.1 → 0.1.2"
 ```
 
-Then:
+The first command fetches the newest kit and prints the plan, changing nothing. The second applies
+it: it backs up every file it touches into `.memory-kit/backups/`, replaces only kit files you did
+not change, keeps the ones you changed (the new version goes next to them for comparison), checks
+the vault with its own `check`, `start`, `search` and golden questions, and puts everything back by
+itself when a check fails. `upgrade` prints the exact commit command for your versions.
+`node system/memory.mjs upgrade --rollback` undoes an upgrade.
 
-1. In `AGENTS.md`, replace everything from the `<!-- kit:start` line through the `<!-- kit:end -->`
-   line with the content of `system/templates/<lang>/kit/agents-system.md`. An agent can do this for
-   you.
-2. Read [CHANGELOG.md](../CHANGELOG.md) for files that were removed or renamed. `git checkout` adds
-   and overwrites files but never deletes them.
-3. `node system/memory.mjs check --generate --strict`, then `node system/memory.mjs eval` if you
-   have golden questions, then commit.
+A vault made from 0.1.0 has no `upgrade` command yet: the new kit upgrades it once from outside.
+[upgrading.md](upgrading.md) explains that, the ownership table (which files the kit replaces, keeps
+or never touches), backups, the lock, data migrations, version numbers and the release checklist
+for maintainers.
 
 The kit's own test suite checks invariants of the empty kit (for example that the root `AGENTS.md`
 equals the English template), so run it in the kit repository, not in your vault.
+
+## AI apps over MCP
+
+Apps that do not read `AGENTS.md` by themselves reach the memory through its MCP server, which is
+part of the dependency-free core. `connect` adds it to an app's settings:
+
+```sh
+node system/memory.mjs connect --list
+node system/memory.mjs connect claude-desktop
+node system/memory.mjs connect cursor --remove
+```
+
+The first command shows every app and whether it is connected, the second adds the memory to one
+app, the third takes it out again. The apps then get the tools `memory_start`, `memory_search`,
+`memory_read`, `memory_recent` and `memory_inbox`. Local sectors stay hidden, and the only write is
+a new file in `inbox/`.
+
+- The apps, where their settings live, restart notes and troubleshooting:
+  [integrations/mcp.md](integrations/mcp.md).
+- The tools in detail, the JavaScript API and the JSON output of the CLI: [api.md](api.md).
 
 ## Troubleshooting
 
 | symptom | cause and fix |
 |---|---|
+| anything odd, or before you ask for help | `node system/memory.mjs doctor` checks Node, `memory.json`, the kit files, git hooks, roots and connected apps, and prints a fix for each problem (`--json` for scripts). It works even when `memory.json` is broken. `doctor --fix` repairs two things by itself: an unset `core.hooksPath` and a pre-commit hook file with CRLF line endings, a byte order mark or no executable bit |
+| `memory: config error: …` (exit 3) on every command | `memory.json` or a language pack cannot be read; `node system/memory.mjs doctor` shows the cause and the fix |
+| `memory.json "version" is 2, but this kit reads data version 1: the vault is newer than this kit` | a newer kit already migrated this vault's data (on another computer, then pulled here); run `node system/memory.mjs upgrade` here too |
+| `upgrade` refuses: an earlier upgrade did not finish | an upgrade was interrupted; `node system/memory.mjs upgrade --rollback` ([upgrading.md](upgrading.md#an-interrupted-upgrade)). If it names files you changed since, `--rollback --force` restores them after saving your version in the backup |
+| `memory: internal error: …` on every command after an interrupted upgrade | the kit code is half old, half new; undo the upgrade with the copy of the upgrader in its backup: `node .memory-kit/backups/<id>/tool/rollback.mjs` (the line after the error names it; the id is also in `.memory-kit/upgrade.lock`; [upgrading.md](upgrading.md#the-recovery-tool)) |
+| `upgrade` refuses: an upgrade is running right now | another terminal or program is upgrading this vault; wait until it finishes (`--force` does not override this) |
 | `memory: start failed: … Run node system/memory.mjs check.` | `start` never fails a session; run `check` to see the real problem |
 | "Memory is not set up yet" at every start | `memory.json` has `"initialized": false`; say "set up memory" to an agent |
 | the start file ends with "(_ai/ is stale …)" | normal after phone pushes or manual edits; the next commit regenerates it |
-| the pre-commit hook does not run | `git config core.hooksPath .githooks` (`start` sets it; a fresh clone may not have it yet) |
-| `memory-kit: node not found, check skipped` on commit | the machine has no Node; commit from a machine with Node or rely on the nightly CI check |
+| the pre-commit hook does not run | `git config core.hooksPath .githooks` or `node system/memory.mjs doctor --fix` (`start` sets it; a fresh clone may not have it yet). On Windows, a hook file checked out with CRLF line endings does not run either: `doctor --fix` removes the CR bytes and keeps a copy of the old file in `.memory-kit/backups/doctor/` |
+| `memory-kit: node not found, check skipped` or `memory-kit: no Node.js 22 or newer found (…), check skipped` on commit | the hook uses the first Node.js 22 or newer it finds in `git config memorykit.node`, the `PATH`, Homebrew, `/usr/local`, Volta and nvm, and passes over older ones. GUI git clients (GitHub Desktop, Sourcetree, IDEs) often run hooks without your shell's `PATH`: pin a stable path once per clone, for example `git config memorykit.node /opt/homebrew/bin/node` (not a versioned Cellar path). `doctor` warns when a git app would find no Node.js or one that is too old, and prints the pin command. A machine without Node: commit elsewhere or rely on the nightly CI check |
+| `memory-kit: commit refused: <path> (v20…) is not Node.js 22 or newer` | the node you pinned, or the one on the `PATH`, is too old and the hook found no newer one: install a newer Node.js (the LTS version from nodejs.org), or pin one with `git config memorykit.node /path/to/node` |
+| the vault lies in OneDrive, Dropbox, iCloud Drive or Google Drive | sync apps lock files while git writes them and can damage `.git`; `doctor` warns about it. Move the vault to a normal folder: git and its remote already keep copies |
+| an AI app does not see the memory | [integrations/mcp.md](integrations/mcp.md#troubleshooting) |
+| `could not move …` or `cannot rename …` on Windows (`sector`, `init`) | an editor, terminal or sync app holds a file in that folder; close it and run the command again (`sector` moves back what it already moved; `init` runs again with the same answers) |
+| `git could not stage the move to …` (`sector`) | the folder moved, but another git program held the repository, so nothing was staged; run `git add -A` before the next commit |
+| a hub, manifest or `AGENTS.md` "missing" although you see it | its name differs only in letter case (`CASE_MISMATCH`); rename it with `git mv -f` |
 | search says `scan` instead of `fts5` | this Node lacks `node:sqlite` with FTS5; results are close, but upgrade Node to be sure |
 | an agent says "not in memory" but the note exists | it may be archived or in a sleeping sector: `search --all`; add the missed words to `keywords` |
 | `memory: internal error: …` (exit 3) | a bug; rerun with `MEMORY_DEBUG=1` for the stack trace and report it |
 
 ## Roadmap (not built yet)
 
-Phase 1 (this version) contains no model calls at all. The items below are designed but not
-implemented. Their rules are written down now so that they can be built without weakening the
+The kit (phase 1, up to this version) contains no model calls at all. The items below are designed
+but not implemented. Two items that used to be listed here are built since 0.1.1: the `upgrade`
+command ([upgrading.md](upgrading.md)) and the local MCP server
+([integrations/mcp.md](integrations/mcp.md)). Their rules are written down now so that they can be built without weakening the
 guarantees above. `memory.json` has a placeholder `"cleanup": { "provider": "none" }`, and sector
 manifests may carry `cleanup: none`. Phase 1 accepts no other value.
 
@@ -477,24 +505,14 @@ computer:
   folder.
 - The owner always approves what goes into an export file.
 
-### MCP server
+### Remote MCP server
 
-An optional module with its own `package.json` (the core stays dependency-free):
+The local MCP server is built ([AI apps over MCP](#ai-apps-over-mcp)). Still to come:
 
-| tool | kind |
-|---|---|
-| `memory_search(query, sector?, type?, limit=8)` | read-only |
-| `memory_read(path, offset?, lines?)` | read-only |
-| `memory_recent(days=7, sector?)` | read-only |
-| `memory_start()` | read-only |
-| `search(query)` and `fetch(id)` in the shape ChatGPT expects, with GitHub URLs for citations | read-only |
-| `memory_inbox(text, sector?, source)` | creates a new file in `inbox/` and nothing else |
-
-- Locally over stdio: it sees the main vault and the private folder.
-- Remote only with OAuth, never without sign-in. It exposes only `github` sectors, reads the
-  repository with a read-only deploy key, and limits writes in code to `inbox/`.
-- Tool outputs stay well below client limits. Clients treat tool annotations as hints, not
-  guarantees, so the server enforces them itself.
+- `search(query)` and `fetch(id)` in the shape ChatGPT expects, with GitHub URLs for citations
+  (read-only).
+- A remote variant, only with OAuth, never without sign-in. It exposes only `github` sectors, reads
+  the repository with a read-only deploy key, and limits writes in code to `inbox/`.
 
 ### Embeddings
 
@@ -512,4 +530,3 @@ failing because of synonyms, or hit@3 below 0.85. Then:
 - A hot tier fed by git history and the search log, not only the journal.
 - Splitting large sector indexes per type instead of trimming them.
 - Monthly journal summaries, with the single-session entries moved to the archive unchanged.
-- An upgrade command that replaces the kit-owned paths listed above.

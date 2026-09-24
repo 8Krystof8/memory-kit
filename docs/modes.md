@@ -73,9 +73,18 @@ it.
 ```
 
 Only the keys that differ are shown. The first root is always `main`. A local root path is relative
-to the repository, absolute, or starts with `~/`. `memory.json` is committed, so `init` never stores
-an absolute path: a folder under your home folder is written as `~/…`, anything else relative to the
-repository. Code uses the first root with `privacy: "local"`.
+to the repository, absolute, or starts with `~/` (`~\` works too, and `~` is always your user
+folder, on Windows as well). `memory.json` is committed, so `init` never stores an absolute path: a
+folder under your home folder is written as `~/…`, anything else relative to the repository. For
+the same reason `init` refuses a private folder on another drive than the repository, or on a
+network share, unless it lies in your home folder. Code uses the first root with
+`privacy: "local"`.
+
+- A local root inside the repository is an error: its private notes would be committed.
+- An absolute path written on another operating system (`C:\…` read on a Mac, `/Users/…` read on
+  Windows) makes the local root unavailable on this computer. `check` warns, and `new` and
+  `sector add` refuse to write there. Write such a path as `~/…` or relative to the repository.
+
 A local root has the same skeleton as the vault (`sectors/`, `inbox/`) but no manifests, no `_ai/`
 and no `memory.json`. The manifests stay in the main vault, so every agent knows the sector exists.
 
@@ -143,5 +152,7 @@ content is already in the git history. Follow
 ## Offline and air-gapped use
 
 Every command works without network access. Only `sync` talks to a remote; without a remote, or in
-mode local, it prints that there is nothing to sync and exits 0. Search builds its index in memory on every run
+mode local, it prints that there is nothing to sync and exits 0. `upgrade` downloads the new kit
+from GitHub unless you give it a folder: `node system/memory.mjs upgrade --from ../memory-kit`
+([upgrading.md](upgrading.md#where-the-new-kit-comes-from)). Search builds its index in memory on every run
 and never writes it to disk.

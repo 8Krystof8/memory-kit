@@ -115,6 +115,15 @@ file over 64 MB is reported instead of being skipped silently.
   ask. If you allow it in a session, the content goes to that model's provider. It must still never
   be copied or linked into a `github` sector: `PRIVACY_LINK` blocks the links, and copied text is
   your responsibility.
+- **AI apps over MCP and other programs.** The MCP server and the JavaScript API only count local
+  notes, like `search`. They list or read them only when started with `--local` (the API:
+  `local: true`), and `connect` never adds that flag. The rules are in
+  [api.md](api.md#privacy-and-safety-rules).
+- **A note saved into a local sector's folder of the vault itself**, not into the private folder.
+  `check` reports it as `LOCAL_IN_GIT`, and the `.gitignore` block keeps it out of git. Until you
+  move it into the private folder, the kit only counts it: `search` never lists it, not even with
+  `--local`, and never writes it into the search log; `_ai/`, the home page and the start view
+  leave it out (the start view's alert names only its path); `read` and `memory_read` refuse it.
 - **Your own words in a session.** When an agent needs a private fact, tell it in the session and
   decide whether a line belongs in the export file.
 - **On the phone.** Private notes live in a separate folder that is not a git repository. See
@@ -170,6 +179,11 @@ Commits that are only local can be amended before you push.
 - The search log is off (`"search": { "log": false }`), because queries can be personal. When you
   turn it on, it writes to `system/usage/search.log`, which is committed with the vault.
 - Search builds its index in memory and never writes it to disk or git.
+- `.memory-kit/` holds the backups of `upgrade` and `connect` on this computer. It is never
+  committed (`.gitignore`, and `.git/info/exclude` in upgraded vaults). A `connect` backup of an
+  app's settings may hold other servers' keys, so on macOS and Linux only you can read it.
+- The MCP server's `memory_inbox` and the API's `inbox()` refuse text that looks like a secret,
+  even when the text contains the `memory-kit:allow-secret` marker.
 - `.gitignore` excludes editor state folders (`.obsidian/`, `.vscode/`, `.idea/`), so editor and
   plugin settings (including anything a sync plugin stores) are never committed.
 - CI fails at once when a set-up vault (`"initialized": true`) sits in a public repository (job

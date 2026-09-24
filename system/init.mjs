@@ -93,7 +93,8 @@ const INIT_DEFAULTS = {
   'init.check_failed': 'check --strict found errors (above). Fix them, then run node system/memory.mjs check --generate.',
   'init.next.title': 'Next steps:',
   'init.next.profile': 'Fill in your profile: {rel}. Its lead (the > lines) goes into every session start.',
-  'init.next.commit': 'Commit now: git add -A && git commit -m "Set up memory"',
+  'init.next.commit_steps': 'Commit now, one command at a time:',
+  'init.next.commit_message': 'Set up memory',
   'init.next.github': 'Push to a PRIVATE GitHub repository. On the phone: the GitHub app or any markdown and git app (docs/phone.md).',
   'init.next.local': 'Everything stays on this computer: no remote, no GitHub Actions.',
   'init.next.combined': 'The private folder for local sectors is {path}. Back it up; never put it in a git remote.',
@@ -109,6 +110,9 @@ const INIT_DEFAULTS = {
   'init.refused_cloud': 'refused: this looks like a cloud session ({signal}). A private folder or a local-only vault there is lost when the session ends. Here choose --mode github without local sectors; add local sectors later on your own computer (docs/modes.md). Pass --allow-ephemeral only for a throwaway test.',
   'init.github_local_sector': '--sectors: {id} keeps its notes outside git by default, which --mode github cannot do. Ask the user: --mode combined keeps it on this computer; {id}:github keeps it in the private GitHub repository.',
   'init.next.claude-app': 'Claude app: paste _ai/profile.md into a project\'s instructions.',
+  'init.reserved': '--sectors: "{id}" is a device name Windows reserves (con, prn, aux, nul, com1 to com9, lpt1 to lpt9); choose another id',
+  'init.private_root_drive': '--private-root {path} is on another drive than this repository. memory.json is shared by all your computers, so it can only hold a path relative to the repository or one inside your home folder (~/…). Choose a folder on the same drive as the repository or inside your home folder.',
+  'init.move_failed': 'cannot rename {from} to {to} ({detail}). Close editors, terminals and sync apps that use it, then run init again with the same answers.',
 };
 
 class InitError extends Error {
@@ -141,7 +145,6 @@ function localToday() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-const posix = (p) => String(p).split(path.sep).join('/');
 const cleanDir = (s) => String(s).replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '');
 const withMd = (s) => (String(s).endsWith('.md') ? String(s) : `${s}.md`);
 const splitList = (v) => String(v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -156,15 +159,26 @@ function readJson(file) {
   }
 }
 
-/** Writes text as UTF-8, NFC, LF with exactly one trailing newline; creates parent folders. */
-function writeText(file, text) {
+/**
+ * Writes text as UTF-8, NFC, LF with exactly one trailing newline when it differs from the file.
+ * `replace` is util.replaceFile: an atomic replace that creates parent folders, so an interrupted
+ * init never leaves half a memory.json or AGENTS.md.
+ */
+function writeText(file, text, replace) {
   const out = String(text).normalize('NFC').replace(/\r\n/g, '\n').replace(/\n+$/, '') + '\n';
-  fs.mkdirSync(path.dirname(file), { recursive: true });
   const prev = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
-  if (prev !== out) fs.writeFileSync(file, out);
+  if (prev !== out) replace(file, out);
 }
 
-const writeJson = (file, value) => writeText(file, JSON.stringify(value, null, 2));
+const writeJson = (file, value, replace) => writeText(file, JSON.stringify(value, null, 2), replace);
+
+let utilModule = null;
+
+/** lib/util.mjs, imported on first use: --help and --questions work without the kit modules. */
+async function kitUtil() {
+  utilModule ??= await import(pathToFileURL(path.join(HERE, 'lib', 'util.mjs')).href);
+  return utilModule;
+}
 
 // ---------------------------------------------------------------------------------------------
 // Language packs and messages
@@ -292,7 +306,7 @@ function parseAgents(value) {
   return AGENTS.filter((a) => list.includes(a));
 }
 
-function parseSectors(value, packs, lang, mode = 'github') {
+function parseSectors(value, packs, lang, mode, util) {
   const pack = packs.get(lang);
   const items = splitList(value);
   if (!items.length) throw usageError('--sectors needs at least one sector');
@@ -305,6 +319,7 @@ function parseSectors(value, packs, lang, mode = 'github') {
     if (!preset && (!NAME_RE.test(name) || name.length > SECTOR_ID_MAX)) {
       throw usageError(`--sectors: "${name}" is neither a preset (${presetEntries(packs.get('en')).map(([k]) => k).join(', ')}) nor a valid id (lowercase ascii with hyphens, max ${SECTOR_ID_MAX} chars)`);
     }
+    if (!preset && util.isReservedName(name)) throw usageError(translator(packs, lang)('init.reserved', { id: name }));
     const privacy = priv === undefined ? (preset?.privacy === 'local' ? 'local' : 'github') : canonPrivacy(priv, packs, lang);
     if (!privacy) throw usageError(`--sectors: "${item}": privacy must be github or local`);
     // Mode github has no private folder: a local sector there must be an explicit choice, never silent.
@@ -325,25 +340,36 @@ function parseSectors(value, packs, lang, mode = 'github') {
   return [core, ...byId.values()];
 }
 
-/** The private root as absolute path plus the form stored in memory.json. */
-function resolvePrivateRoot(root, given) {
+/**
+ * The private root as absolute path plus the form stored in memory.json. `util` is lib/util.mjs:
+ * its expandHome is the same '~' expansion memory.json readers use, so writer and reader agree
+ * (the home folder is os.homedir(): USERPROFILE on Windows, where HOME is usually unset).
+ * memory.json is committed and shared by every computer, so the stored form is '~/…' for a
+ * folder typed absolute (or with ~) inside the home folder, else a path relative to the vault.
+ * A folder on another drive has neither form and is refused rather than stored as a path that
+ * exists only on this machine. home, platform, pathMod and realpath let tests play Windows or
+ * macOS; the repository checks follow symlinks and junctions (realpath) and ignore letter case
+ * where the file system does.
+ */
+export function resolvePrivateRoot(root, given, {
+  util, t = translator(new Map(), 'en'), home, platform = process.platform, pathMod = util.pathFor(platform),
+  realpath = util.realpathLoose,
+} = {}) {
   const raw = String(given).trim();
   if (!raw) throw usageError('--private-root must not be empty');
-  const home = process.env.HOME || process.env.USERPROFILE || '';
-  const absPath = raw === '~' || raw.startsWith('~/') ? path.join(home, raw.slice(1)) : path.resolve(root, raw);
-  const inside = (a, b) => {
-    const rel = path.relative(a, b);
-    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-  };
+  const homeAbs = home ?? util.homeDir();
+  const absPath = util.expandHome(raw, { home: homeAbs, pathMod }) ?? pathMod.resolve(root, raw);
+  const inside = (a, b) => util.insidePath(realpath(a), realpath(b), { platform, pathMod });
   if (inside(root, absPath)) throw usageError(`--private-root must be outside this repository (${raw})`);
   if (inside(absPath, root)) throw usageError(`--private-root must not contain this repository (${raw})`);
-  // memory.json is committed: never store a user name or disk layout. Under the home folder the
-  // path is kept as ~/…, anywhere else relative to the vault.
-  const typedAbsolute = path.isAbsolute(raw) || raw.startsWith('~');
-  const stored = typedAbsolute && home && inside(home, absPath) && absPath !== path.resolve(home)
-    ? `~/${posix(path.relative(home, absPath))}`
-    : posix(path.relative(root, absPath));
-  return { abs: absPath, stored };
+  const slashes = (p) => p.split(pathMod.sep).join('/');
+  const typedAbsolute = pathMod.isAbsolute(raw) || /^~(?:[\\/]|$)/.test(raw);
+  const fromHome = homeAbs ? pathMod.relative(homeAbs, absPath) : '';
+  const underHome = fromHome !== '' && fromHome !== '..' && !fromHome.startsWith(`..${pathMod.sep}`) && !pathMod.isAbsolute(fromHome);
+  if (typedAbsolute && underHome) return { abs: absPath, stored: `~/${slashes(fromHome)}` };
+  const fromRoot = pathMod.relative(root, absPath);
+  if (pathMod.isAbsolute(fromRoot)) throw usageError(t('init.private_root_drive', { path: raw }));
+  return { abs: absPath, stored: slashes(fromRoot) };
 }
 
 function dirName(pack, role) {
@@ -396,22 +422,22 @@ function plannedMoves(root, moves) {
   return planned;
 }
 
+/**
+ * True at the top level of a git work tree: git prints the way up (--show-cdup), empty at the
+ * top. Comparing paths fails on Windows (letter case, 8.3 names, subst drives) and macOS links.
+ */
 function isGitTopLevel(root) {
-  const res = runGit(root, ['rev-parse', '--show-toplevel']);
-  if (!res.ok) return false;
-  try {
-    return fs.realpathSync(res.stdout.trim()) === fs.realpathSync(root);
-  } catch {
-    return false;
-  }
+  const res = runGit(root, ['rev-parse', '--is-inside-work-tree', '--show-cdup']);
+  const [inside, cdup = ''] = res.stdout.split(/\r?\n/);
+  return res.ok && inside.trim() === 'true' && cdup.trim() === '';
 }
 
 function runGit(root, args) {
-  const res = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  const res = spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true });
   return { ok: res.status === 0, stdout: res.stdout ?? '', stderr: (res.stderr || res.error?.message || '').trim() };
 }
 
-function buildPlan(root, raw, opts, packs) {
+function buildPlan(root, raw, opts, packs, util) {
   if (!MODES.includes(opts.mode)) throw usageError(`--mode must be one of ${MODES.join(', ')}`);
   if (!packs.has(opts.lang)) throw usageError(`--lang must be one of ${[...packs.keys()].join(', ')}`);
   const cleanup = opts.cleanup ?? 'none';
@@ -423,13 +449,13 @@ function buildPlan(root, raw, opts, packs) {
   const fromLang = typeof raw.lang === 'string' && packs.has(raw.lang) ? raw.lang : 'en';
   const toPack = packs.get(lang);
   const fromPack = packs.get(fromLang);
-  const sectors = parseSectors(opts.sectors, packs, lang, opts.mode);
+  const t = translator(packs, lang);
+  const sectors = parseSectors(opts.sectors, packs, lang, opts.mode, util);
   const agents = parseAgents(opts.agents);
   const needsPrivate = opts.mode !== 'github' || sectors.some((s) => s.privacy === 'local') || opts['private-root'] !== undefined;
-  const privateRoot = needsPrivate ? resolvePrivateRoot(root, opts['private-root'] ?? defaultPrivateRoot(root)) : null;
+  const privateRoot = needsPrivate ? resolvePrivateRoot(root, opts['private-root'] ?? defaultPrivateRoot(root), { util, t }) : null;
   const moves = plannedMoves(root, renameMoves(fromPack, toPack));
   const git = isGitTopLevel(root);
-  const t = translator(packs, lang);
   if (opts.mode === 'local' && git) {
     const remotes = runGit(root, ['remote']).stdout.split('\n').map((r) => r.trim()).filter(Boolean);
     if (remotes.length) throw new InitError(1, t('init.refused_remote', { remotes: remotes.join(', ') }));
@@ -477,13 +503,15 @@ function isTracked(root, rel) {
   return res.ok && res.stdout.trim() !== '';
 }
 
-function moveEntry(plan, from, to) {
-  fs.mkdirSync(path.dirname(abs(plan.root, to)), { recursive: true });
-  if (plan.git && isTracked(plan.root, from)) {
-    const res = runGit(plan.root, ['mv', '--', from, to]);
-    if (!res.ok) throw new InitError(1, `git mv ${from} ${to} failed: ${res.stderr}`);
-  } else {
-    fs.renameSync(abs(plan.root, from), abs(plan.root, to));
+/**
+ * Renames one planned entry: git mv for tracked content, else (or when git mv fails) a rename
+ * that retries while Windows reports a file in use (util.movePath).
+ */
+function moveEntry(plan, util, t, from, to) {
+  try {
+    util.movePath(plan.root, from, to, { useGit: plan.git && isTracked(plan.root, from) });
+  } catch (err) {
+    throw new InitError(1, t('init.move_failed', { from, to, detail: err?.code ?? err?.message ?? err }));
   }
 }
 
@@ -583,20 +611,21 @@ function cloudSignal() {
 
 async function kitModules() {
   const url = (rel) => pathToFileURL(path.join(HERE, rel)).href;
-  const [config, vault, generate, check, sector, frontmatter] = await Promise.all([
+  const [config, vault, generate, check, sector, frontmatter, util] = await Promise.all([
     import(url('lib/config.mjs')), import(url('lib/vault.mjs')), import(url('lib/generate.mjs')),
     import(url('lib/check.mjs')), import(url('lib/commands/sector.mjs')), import(url('lib/frontmatter.mjs')),
+    kitUtil(),
   ]);
-  return { config, vault, generate, check, sector, frontmatter };
+  return { config, vault, generate, check, sector, frontmatter, util };
 }
 
 /** The private root's skeleton (sectors and inbox folders) plus a short README. */
-function ensurePrivateRoot(plan, cfg, t) {
+function ensurePrivateRoot(plan, cfg, t, replace) {
   if (!plan.privateRoot) return;
   const base = plan.privateRoot.abs;
   for (const dir of [cfg.dirs.sectors, cfg.dirs.inbox]) fs.mkdirSync(path.join(base, dir), { recursive: true });
   const readme = path.join(base, 'README.md');
-  if (!fs.existsSync(readme)) writeText(readme, t('init.private_readme', { root: plan.root, sectors: cfg.dirs.sectors }));
+  if (!fs.existsSync(readme)) writeText(readme, t('init.private_readme', { root: plan.root, sectors: cfg.dirs.sectors }), replace);
 }
 
 function setupGit(plan, out) {
@@ -626,37 +655,38 @@ async function apply(plan, packs, out) {
   const { root } = plan;
   const t = translator(packs, plan.lang);
   const m = await kitModules();
+  const replace = m.util.replaceFile;
 
   // 1. Folder and file names of the target language.
-  for (const [from, to] of plan.moves) moveEntry(plan, from, to);
+  for (const [from, to] of plan.moves) moveEntry(plan, m.util, t, from, to);
   if (plan.moves.length) out.line(t('init.renamed', { moves: plan.moves.map(([a, b]) => `${a} → ${b}`).join(', ') }));
   ensureSkeleton(root, plan.dirs);
 
   // 2. memory.json first (not yet initialized), so every kit module sees the new names and roots.
-  writeJson(path.join(root, 'memory.json'), memoryJson(plan, false));
+  writeJson(path.join(root, 'memory.json'), memoryJson(plan, false), replace);
   let cfg = m.config.loadConfig(root);
-  ensurePrivateRoot(plan, cfg, t);
+  ensurePrivateRoot(plan, cfg, t, replace);
 
   // 3. Hubs, core manifest and profile from the language's kit templates.
   const written = [];
   for (const role of HAND_FILES) {
     const rel = cfg.files[role];
-    writeText(abs(root, rel), fill(kitTemplate(root, plan.lang, `${role}.md`), { date: plan.today }));
+    writeText(abs(root, rel), fill(kitTemplate(root, plan.lang, `${role}.md`), { date: plan.today }), replace);
     written.push(rel);
   }
   const core = plan.sectors[0];
   const coreRel = `${cfg.dirs.sectors}/${core.id}/_${core.id}.md`;
-  writeText(abs(root, coreRel), manifestText(cfg, m.frontmatter.serialize, root, core, plan.today));
+  writeText(abs(root, coreRel), manifestText(cfg, m.frontmatter.serialize, root, core, plan.today), replace);
   written.push(coreRel);
   if (!exists(root, plan.profileRel)) {
-    writeText(abs(root, plan.profileRel), fill(kitTemplate(root, plan.lang, 'profile.md'), { date: plan.today }));
+    writeText(abs(root, plan.profileRel), fill(kitTemplate(root, plan.lang, 'profile.md'), { date: plan.today }), replace);
     written.push(plan.profileRel);
   }
 
   // 4. AGENTS.md: the system section of the language, without the setup block.
   const agentsFile = path.join(root, 'AGENTS.md');
   const current = fs.existsSync(agentsFile) ? fs.readFileSync(agentsFile, 'utf8') : null;
-  writeText(agentsFile, agentsText(root, plan.lang, current));
+  writeText(agentsFile, agentsText(root, plan.lang, current), replace);
   written.push('AGENTS.md');
   out.line(t('init.wrote', { files: written.join(', ') }));
 
@@ -682,7 +712,7 @@ async function apply(plan, packs, out) {
   }
 
   // 6. memory.json, now initialized. It feeds the fingerprints, so it is final before generating.
-  writeJson(path.join(root, 'memory.json'), memoryJson(plan, true));
+  writeJson(path.join(root, 'memory.json'), memoryJson(plan, true), replace);
   cfg = m.config.loadConfig(root);
 
   out.line(t('init.wrote', { files: 'memory.json' }));
@@ -702,7 +732,8 @@ async function apply(plan, packs, out) {
 
 function nextSteps(plan, t) {
   const lines = [t('init.next.title'), `- ${t('init.next.profile', { rel: plan.profileRel })}`];
-  if (plan.git) lines.push(`- ${t('init.next.commit')}`);
+  // One command per line: `a && b` is a parse error in Windows PowerShell 5.1.
+  if (plan.git) lines.push(`- ${t('init.next.commit_steps')}`, '    git add -A', `    git commit -m "${t('init.next.commit_message')}"`);
   else lines.push(`- ${t('init.next.no_git')}`);
   if (plan.mode === 'local') lines.push(`- ${t('init.next.local')}`);
   else lines.push(`- ${t('init.next.github')}`);
@@ -792,7 +823,7 @@ export async function main(argv) {
       return 2;
     }
 
-    const plan = buildPlan(root, raw, opts, packs);
+    const plan = buildPlan(root, raw, opts, packs, await kitUtil());
     const tt = translator(packs, plan.lang);
     if (!opts.yes || opts['dry-run']) {
       if (opts.json) process.stdout.write(`${JSON.stringify(planJson(plan, false), null, 2)}\n`);
@@ -848,7 +879,31 @@ function planJson(plan, applied) {
   };
 }
 
-if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+/**
+ * True when argv1 (the script node was started with) is selfFile. Node resolves links for the
+ * module's own URL but not for argv[1], so both sides go through realpath (symlinks, junctions,
+ * subst drives, 8.3 names); Windows and macOS also ignore letter case (and NFC/NFD on macOS).
+ */
+export function entryMatches(argv1, selfFile, { platform = process.platform, realpath = fs.realpathSync.native } = {}) {
+  if (!argv1) return false;
+  const real = (p) => {
+    try {
+      return realpath(p);
+    } catch {
+      return p;
+    }
+  };
+  const fold = (p) => (platform === 'win32' || platform === 'darwin' ? p.normalize('NFC').toLowerCase() : p);
+  const resolve = platform === 'win32' ? path.win32.resolve : path.posix.resolve;
+  return fold(real(resolve(argv1))) === fold(real(selfFile));
+}
+
+// import.meta.main exists from Node 22.18; older 22.x lines compare the paths.
+const IS_MAIN = typeof import.meta.main === 'boolean'
+  ? import.meta.main
+  : entryMatches(process.argv[1], fileURLToPath(import.meta.url));
+
+if (IS_MAIN) {
   // A reader that stops early (| head) must not abort init half way: finish the setup silently.
   for (const stream of [process.stdout, process.stderr]) {
     stream.on('error', (err) => {

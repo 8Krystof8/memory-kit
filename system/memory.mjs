@@ -2,10 +2,20 @@
 // memory-kit CLI: node system/memory.mjs <command> [args] [--root <path>]
 // Maps localized command, subcommand and flag aliases to canonical names, then runs
 // system/lib/commands/<command>.mjs. Exit codes: 0 ok, 1 problem found, 2 usage, 3 internal.
+// Every command module exports `usage` and `run(argv, cfg, ctx)`; ctx is
+// { root, kitRoot, configError }. Commands in CONFIGLESS also run when memory.json or a
+// pack cannot be loaded; they then get cfg = null and must read what they need themselves.
+// Their localized names and flags still work then: the aliases of every readable pack apply.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+if (Number(process.versions.node.split('.')[0]) < 22) {
+  process.stderr.write(`memory: Node.js 22 or newer is required (this is ${process.version})\n`);
+  process.exit(3);
+}
 
 installSqliteWarningFilter();
 
@@ -17,17 +27,20 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const COMMANDS = ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval'];
+const COMMANDS = ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp'];
+const CONFIGLESS = new Set(['doctor', 'upgrade', 'mcp']);
 const HELP = new Set(['help', '--help', '-h']);
 
-/** Drops the ExperimentalWarning that node:sqlite prints; every other warning passes. */
+/** Drops only the ExperimentalWarning that node:sqlite prints on Node 22; every other warning passes. */
 function installSqliteWarningFilter() {
   const mark = Symbol.for('memory-kit.sqlite-warning-filter');
   if (process[mark]) return;
   const original = process.emitWarning;
   process.emitWarning = function emitWarning(warning, ...rest) {
-    const text = typeof warning === 'string' ? warning : warning?.message;
-    if (String(text ?? '').includes('SQLite')) return undefined;
+    const text = String((typeof warning === 'string' ? warning : warning?.message) ?? '');
+    const opt = rest[0];
+    const type = typeof opt === 'string' ? opt : opt?.type ?? (typeof warning === 'object' ? warning?.name : undefined);
+    if (type === 'ExperimentalWarning' && text.startsWith('SQLite')) return undefined;
     return original.call(process, warning, ...rest);
   };
   process[mark] = true;
@@ -76,6 +89,40 @@ function mapFlags(cfg, args) {
   return out;
 }
 
+/**
+ * Command and flag aliases of every pack that can be read, first one wins (sorted by code), for
+ * when memory.json cannot say which language applies. A broken pack is skipped.
+ */
+function fallbackAliases(root) {
+  const commands = {};
+  const flags = {};
+  const dashed = (flag) => (flag.startsWith('--') ? flag : `--${flag.replace(/^-+/, '')}`);
+  for (const dir of new Set([path.join(root, 'system', 'lang'), path.join(HERE, 'lang')])) {
+    let codes;
+    try {
+      codes = fs.readdirSync(dir).sort();
+    } catch {
+      continue;
+    }
+    for (const code of codes) {
+      let pack;
+      try {
+        pack = JSON.parse(fs.readFileSync(path.join(dir, code, 'pack.json'), 'utf8'));
+      } catch {
+        continue;
+      }
+      for (const [table, out, form] of [[pack?.commands, commands, String], [pack?.flags, flags, dashed]]) {
+        if (!table || typeof table !== 'object' || Array.isArray(table)) continue;
+        for (const [alias, canon] of Object.entries(table)) {
+          if (!alias || typeof canon !== 'string' || !canon || Object.hasOwn(out, form(alias))) continue;
+          out[form(alias)] = form(canon);
+        }
+      }
+    }
+  }
+  return { commands, flags };
+}
+
 async function importCommand(name) {
   const file = path.join(HERE, 'lib', 'commands', `${name}.mjs`);
   if (!fs.existsSync(file)) return null;
@@ -112,7 +159,8 @@ async function main(argv) {
     process.stderr.write(`memory: ${err.message}\n`);
     return 2;
   }
-  const root = parsed.root ? path.resolve(parsed.root) : path.resolve(HERE, '..');
+  const kitRoot = path.resolve(HERE, '..');
+  const root = parsed.root ? path.resolve(parsed.root) : kitRoot;
   const args = parsed.rest;
   const first = args[0];
 
@@ -137,6 +185,16 @@ async function main(argv) {
       await printHelp(null);
       return 0;
     }
+    // The language is unknown without memory.json, so the aliases of every pack apply.
+    const aliases = fallbackAliases(root);
+    const command = Object.hasOwn(aliases.commands, first) ? aliases.commands[first] : first;
+    if (command === 'help') {
+      await printHelp(null);
+      return 0;
+    }
+    if (CONFIGLESS.has(command)) {
+      return runCommand(command, mapFlags(aliases, args.slice(1)), null, { root, kitRoot, configError: err });
+    }
     process.stderr.write(`memory: config error: ${err.message}\n`);
     return 3;
   }
@@ -156,16 +214,80 @@ async function main(argv) {
   if (command === 'sector' && rest.length && !rest[0].startsWith('-')) {
     rest[0] = cfg.subcommands.sector[rest[0]] ?? rest[0];
   }
+  return runCommand(command, rest, cfg, { root, kitRoot, configError: null });
+}
+
+async function runCommand(command, rest, cfg, ctx) {
   const mod = await importCommand(command);
   if (!mod || typeof mod.run !== 'function') {
     process.stderr.write(`memory: command "${command}" is not installed (system/lib/commands/${command}.mjs)\n`);
+    printRecovery(ctx.root);
     return 3;
   }
   if (rest.includes('--help') || rest.includes('-h')) {
     process.stdout.write(`usage: node system/memory.mjs ${mod.usage ?? command}\n`);
     return 0;
   }
-  return mod.run(rest, cfg);
+  return mod.run(rest, cfg, ctx);
+}
+
+/** A path or argument as a shell user would type it (display only). */
+function shellArg(s) {
+  const t = String(s);
+  return /^[\w@%+=:,./\\-]+$/.test(t) ? t : `"${t.replace(/(["\\$`])/g, '\\$1')}"`;
+}
+
+/**
+ * When an upgrade stopped half way (its lock is still there), the kit files may be half replaced,
+ * which is a likely reason for a crash: says how to undo it with the upgrader kept in its backup,
+ * which needs none of the vault's code. An upgrade still at work is left alone. Reads the lock
+ * by itself (the upgrade module may be one of the broken files) and never throws.
+ */
+function printRecovery(root) {
+  try {
+    const lockFile = path.join(root, '.memory-kit', 'upgrade.lock');
+    const lock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+    const rel = typeof lock?.recover === 'string' ? lock.recover : '';
+    const parts = rel.split('/');
+    if (!/^\.memory-kit\/backups\/[^/]+\/tool\/rollback\.mjs$/.test(rel) || parts.includes('..')) return;
+    const tool = path.join(root, ...parts);
+    if (!fs.statSync(tool).isFile()) return;
+    if (lock.pid !== process.pid && upgradeRunning(lock, fs.statSync(lockFile).mtimeMs)) {
+      process.stderr.write(`memory: an upgrade is running right now (process ${lock.pid}); wait for it to finish, then run the command again\n`);
+      return;
+    }
+    const fromHere = path.relative(process.cwd(), tool);
+    const shown = fromHere && !fromHere.startsWith('..') && !path.isAbsolute(fromHere) ? fromHere.split(path.sep).join('/') : tool;
+    process.stderr.write(`memory: the upgrade stopped before it finished; undo it with: node ${shellArg(shown)}\n`);
+  } catch {
+    /* no lock, or none that names its recovery tool */
+  }
+}
+
+/** The running test of the upgrade lock (lib/upgrade.mjs): same machine, a live process, at most 2 hours old. */
+function upgradeRunning(lock, mtimeMs) {
+  if (lock.host !== os.hostname() || !Number.isInteger(lock.pid) || lock.pid <= 0) return false;
+  if (!(Date.now() - mtimeMs < 2 * 60 * 60 * 1000)) return false;
+  try {
+    process.kill(lock.pid, 0);
+  } catch (err) {
+    if (err?.code !== 'EPERM') return false;
+  }
+  try {
+    return fs.readFileSync(`/proc/${lock.pid}/cmdline`, 'latin1').includes('memory.mjs');
+  } catch {
+    return true;
+  }
+}
+
+/** The vault root of argv (--root), for the error handler. */
+function rootOf(argv) {
+  try {
+    const { root } = takeRoot(argv);
+    return root ? path.resolve(root) : path.resolve(HERE, '..');
+  } catch {
+    return path.resolve(HERE, '..');
+  }
 }
 
 main(process.argv.slice(2)).then(
@@ -175,6 +297,7 @@ main(process.argv.slice(2)).then(
   (err) => {
     process.stderr.write(`memory: internal error: ${err?.message ?? err}\n`);
     if (process.env.MEMORY_DEBUG) process.stderr.write(`${err?.stack ?? ''}\n`);
+    printRecovery(rootOf(process.argv.slice(2)));
     process.exitCode = 3;
   },
 );

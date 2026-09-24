@@ -1,0 +1,963 @@
+{
+  "name": "memory-kit",
+  "version": "0.1.1",
+  "data_version": 1,
+  "api_version": 1,
+  "node": "22.5.0",
+  "upgrade_from": "0.1.0",
+  "source": "https://github.com/8Krystof8/memory-kit.git",
+  "files": {
+    ".agents/skills/memory/SKILL.md": {
+      "sha256": "f6f2776f21bc238f49efc9f889c54f045f5f01abde42dbb36d7abdf518d6c4b8",
+      "group": "config"
+    },
+    ".claude/agents/memory-searcher.md": {
+      "sha256": "05babbc4ac7d03a85728d1f5e629cdb5951b5876489cb2db122099b6ed53a4e6",
+      "group": "config"
+    },
+    ".claude/settings.json": {
+      "sha256": "7e4b973e626f2a747f11380c2882f2c15f3cb012bc750a81a1ec6c301ee73e83",
+      "group": "config"
+    },
+    ".claude/skills/memory/SKILL.md": {
+      "sha256": "f6f2776f21bc238f49efc9f889c54f045f5f01abde42dbb36d7abdf518d6c4b8",
+      "group": "config"
+    },
+    ".gitattributes": {
+      "sha256": "bc7b06d18938039cbc6ed0bc75ce982337fa1c5515eae7d157e86ade8ea1c648",
+      "group": "config"
+    },
+    ".githooks/pre-commit": {
+      "sha256": "c9b00e0ab449e2ea92dcd63df5aec0170be4e5a92faf32ef634f1c9d36de3b6e",
+      "group": "config"
+    },
+    ".github/workflows/ci.yml": {
+      "sha256": "70486bcb7f23287b9441e427f7e97d06d179bc6a7a03e82d0aa92d8c0e50ac1b",
+      "group": "config"
+    },
+    "GEMINI.md": {
+      "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
+      "group": "config"
+    },
+    "docs/api.md": {
+      "sha256": "9486530da6ce9aabc2293420f4ff8d53263c31e5d898b8b46b2353529fa843f0",
+      "group": "docs"
+    },
+    "docs/architecture.md": {
+      "sha256": "d10972a1fe6ebd01fc401bbba3d97438919cd8045fa86d4b563833be88b06362",
+      "group": "docs"
+    },
+    "docs/integrations/chatgpt.md": {
+      "sha256": "629ce42c591d6f2ee4fdcd4914e2125391c7a88a6b740b1da54b06681dbdc589",
+      "group": "docs"
+    },
+    "docs/integrations/claude-app.md": {
+      "sha256": "b4d37a15d0345591802dd503cc482b63ac7e797c0d0be53179da82a71f2d7545",
+      "group": "docs"
+    },
+    "docs/integrations/claude-code.md": {
+      "sha256": "fdc81295e86b4036acb8e793f283d4f7b8b5327235cb8404efac577d9723433e",
+      "group": "docs"
+    },
+    "docs/integrations/codex.md": {
+      "sha256": "d362809cf325bf01ecbded08bacf0d4bd2f84cc9e9288f7128d95e151f2a4e7a",
+      "group": "docs"
+    },
+    "docs/integrations/cursor.md": {
+      "sha256": "829db7d124f4693428a6da0b57b9f9239cd29b0d27e82e233703391990980268",
+      "group": "docs"
+    },
+    "docs/integrations/gemini-cli.md": {
+      "sha256": "8714d5497433d7efefd0b5b0480666785592085c95f34830b76cdf35a1f1cdab",
+      "group": "docs"
+    },
+    "docs/integrations/mcp.md": {
+      "sha256": "f272ff8546af4fb759a76367fa1912ca822ef3c59e97fed2e129ae8430688f3d",
+      "group": "docs"
+    },
+    "docs/maintenance.md": {
+      "sha256": "4780f6ebab1b099601c3305bc16687e791fd6c0aa4a2ab0b60063c735867a55c",
+      "group": "docs"
+    },
+    "docs/modes.md": {
+      "sha256": "0eb40ce013678d015f76d3400af677ec53ebcdb7a5e757f056616be802421906",
+      "group": "docs"
+    },
+    "docs/phone.md": {
+      "sha256": "e3f717c9e2003ec075f480ca2926cfc4201f122f225b5b8d1345e9ebec96df15",
+      "group": "docs"
+    },
+    "docs/privacy.md": {
+      "sha256": "ea38758b984c2bd0fce954624de3d2bc26aedea597430823029a70a5baf15fdb",
+      "group": "docs"
+    },
+    "docs/search.md": {
+      "sha256": "4fb9bc735cde25d83ff60b2a64452b043f1362902c5314c78eddba83c90a41e9",
+      "group": "docs"
+    },
+    "docs/upgrading.md": {
+      "sha256": "a74631e61b4f0cbca89932735a9ac71c0de87177211fbc2465da75fbc5cd08bf",
+      "group": "docs"
+    },
+    "system/VERSION": {
+      "sha256": "80447316529fc62014fbaa047fb67c51ac30e32830cda370405349d8d66d196c",
+      "group": "code"
+    },
+    "system/api.mjs": {
+      "sha256": "db53bee7e9425699b54d52c6abe150cbdee9f9c8f166263d16e418d049eabbb0",
+      "group": "code"
+    },
+    "system/init.mjs": {
+      "sha256": "8331bc3201d2f8f2a5c43d466ef406298ceb2496e17b6e07c1b9c0e5dd0ac8ea",
+      "group": "code"
+    },
+    "system/lang/LICENSE-snowball.txt": {
+      "sha256": "986d3478432fb1d3493fbdf3b3d462a14d7de7047d79b91c64f5be433154b874",
+      "group": "code"
+    },
+    "system/lang/cs/pack.json": {
+      "sha256": "8c05d297a6e1a01a34748b3d253fa24991ee943f63a9a94ab2574fc650a89138",
+      "group": "code"
+    },
+    "system/lang/cs/stemmer.mjs": {
+      "sha256": "a2f1336c8eb11db5fbeac1fa49e529d872fed6df90c0b01cd3c32c6805c094c9",
+      "group": "code"
+    },
+    "system/lang/en/pack.json": {
+      "sha256": "a91ef563cf99abf02de912a4f9d335700f51084174ed0352c7764302fc10e176",
+      "group": "code"
+    },
+    "system/lang/en/stemmer.mjs": {
+      "sha256": "99f70ea0e3ac64709996c593da006cfac5149b7194921685bd9cc882608c942b",
+      "group": "code"
+    },
+    "system/lang/snowball-base.mjs": {
+      "sha256": "78f18ab8e780b4e31c97fd0dc7dca620602b051ec053c8ffa8ff723c09a524b2",
+      "group": "code"
+    },
+    "system/lib/check.mjs": {
+      "sha256": "602c490e2d38b0002188377a612896c87314ef6646b40e4bfbcd037a0bda9175",
+      "group": "code"
+    },
+    "system/lib/clients.mjs": {
+      "sha256": "eb9b32576ae2a32f1104280ce9571f719dad584b9a9e94d0d8ae7325135f6f1b",
+      "group": "code"
+    },
+    "system/lib/commands/check.mjs": {
+      "sha256": "13db0f59e9543d6afb45b57001de465b9d3bf41e16884f08b60d8b44d3ebd83b",
+      "group": "code"
+    },
+    "system/lib/commands/connect.mjs": {
+      "sha256": "26b6f24a12bd01896859c2fe1ba066ee641dd27d82365f49f1c223e12c964f2e",
+      "group": "code"
+    },
+    "system/lib/commands/doctor.mjs": {
+      "sha256": "d78be20d4c1c7717b8282946b94488e4885d97ea779f474d0580d5e55d9a8625",
+      "group": "code"
+    },
+    "system/lib/commands/eval.mjs": {
+      "sha256": "da2842253efe90d0c9bbc79c744aee46eb0f280a5c99743c2ba5ef63c51738a6",
+      "group": "code"
+    },
+    "system/lib/commands/mcp.mjs": {
+      "sha256": "58526da533bbe868bea0db5686d9413373fad5b95ebe9a20b1a0cbc7ccb319c7",
+      "group": "code"
+    },
+    "system/lib/commands/new.mjs": {
+      "sha256": "1b271bde94f2b58304d2cb778dc29243d2a15b46b021deeab1d7a9cc12e6dca6",
+      "group": "code"
+    },
+    "system/lib/commands/search.mjs": {
+      "sha256": "ebfc757d406d36d6f6038e10f15d427c2418a593dbfa7fb79cf8096d4aa0999e",
+      "group": "code"
+    },
+    "system/lib/commands/sector.mjs": {
+      "sha256": "3984975736d9558503acabbed99dff4e8b58c891bad989b31577dfd66c1558c2",
+      "group": "code"
+    },
+    "system/lib/commands/start.mjs": {
+      "sha256": "e64a9371b4fbeae4512289549fbecdf9a80ab01b4f5190321f96ce6436b37596",
+      "group": "code"
+    },
+    "system/lib/commands/sync.mjs": {
+      "sha256": "b89b2ab1254fec2be87858f5af23d1b7747c9ca8288e6ac79f0d6daa2236f051",
+      "group": "code"
+    },
+    "system/lib/commands/upgrade.mjs": {
+      "sha256": "30b0a17904817c55e9783af170e4b6fa878d49de432e1933075d461718b1f424",
+      "group": "code"
+    },
+    "system/lib/config.mjs": {
+      "sha256": "28b09625c07b958dabc9994f0816a2e4d38ecb84f36c58ffe6c2469471a60b73",
+      "group": "code"
+    },
+    "system/lib/doctor.mjs": {
+      "sha256": "69f05ec7e25919465a266cad7dee54e5c7716fb574e8dbe40aa631e483c9bb7b",
+      "group": "code"
+    },
+    "system/lib/eval.mjs": {
+      "sha256": "171b4f58322e59878147ec4433d31af766feb109fb1c1e627d31493ec76ae8cc",
+      "group": "code"
+    },
+    "system/lib/fingerprint.mjs": {
+      "sha256": "b714af532f78f5436a0d63cc997907d98480a696ef8b99ac3495b6d9e1edb3a3",
+      "group": "code"
+    },
+    "system/lib/frontmatter.mjs": {
+      "sha256": "c70b7d7b6fd4bddd34538a1bf918150618a4c7534702a60d664ca2e85ca47b55",
+      "group": "code"
+    },
+    "system/lib/fsafe.mjs": {
+      "sha256": "d0b81834176aa4ccac6e11f92eef31d625acbdea7a7c3e8dc96f420678b1a97d",
+      "group": "code"
+    },
+    "system/lib/generate.mjs": {
+      "sha256": "e2c7cb9fae4be306495073450153843a814d76af1771e82c72c63e9408c85247",
+      "group": "code"
+    },
+    "system/lib/jsonc.mjs": {
+      "sha256": "82fe0f3f177c79520ba22a9fab9076e4675c10e405a7d0a4b583dea117851a5b",
+      "group": "code"
+    },
+    "system/lib/kit.mjs": {
+      "sha256": "f438f05e3e1155730eea8bf7b56a1c7caf6709b6a8f7a6ccb09cbeb6d2d448c3",
+      "group": "code"
+    },
+    "system/lib/mcp.mjs": {
+      "sha256": "62bc18dee23f20eec0b30ef77a9278bd301e30cdabbbb020f5fff5d320ca1b36",
+      "group": "code"
+    },
+    "system/lib/migrations.mjs": {
+      "sha256": "d2e55d5503979f6f59210be3e9164b0e257e4e35d4d5366e285cf74d7a87c1d3",
+      "group": "code"
+    },
+    "system/lib/schema.mjs": {
+      "sha256": "056395ec0395f2f369487c378160abc515e4ee1de1db4d5ea2d43e806d464239",
+      "group": "code"
+    },
+    "system/lib/search.mjs": {
+      "sha256": "98b8ae9409b5c32f89abbc74c3b30a6e0c94c0a5ba7f445ca26c8f1b150269bb",
+      "group": "code"
+    },
+    "system/lib/secrets.mjs": {
+      "sha256": "58cb7ba4bba0dc57c9bb73d74840a26d580ef146f1512c53cf3c9102909fd54d",
+      "group": "code"
+    },
+    "system/lib/startview.mjs": {
+      "sha256": "ebc70f44ee9b2b908ad84682d077dfebe0469a8a6538d7e2c8c5861ce6fe4a71",
+      "group": "code"
+    },
+    "system/lib/text.mjs": {
+      "sha256": "70360e617f18487c15f902079199c677aa1ba4540cbd55070104a79fc02addbc",
+      "group": "code"
+    },
+    "system/lib/upgrade.mjs": {
+      "sha256": "630fbb136d1b414b9ea6ea234f8f604da3850254bab0b64f497539570b1e6dcf",
+      "group": "code"
+    },
+    "system/lib/util.mjs": {
+      "sha256": "60c626e0ad14ae03d9f9c6a253c355fac9ef231f455fbdb97c45389986ca782e",
+      "group": "code"
+    },
+    "system/lib/vault.mjs": {
+      "sha256": "3f3db7fa7abf4a9de5883ee97c2e4723f794da4ac33fad388f0f42fa6deae989",
+      "group": "code"
+    },
+    "system/memory.mjs": {
+      "sha256": "0b30f3a005b960a5803bc9f4616c37b164c000a17dbc1cda3ab15f60a6ef2f54",
+      "group": "code"
+    },
+    "system/migrations/index.mjs": {
+      "sha256": "2900de514b2348f08ae97edf99c9efab72071f2b19b0afaa11a48173817756fa",
+      "group": "code"
+    },
+    "system/schema/check-result.schema.json": {
+      "sha256": "243bd9833bd115761cbdf23e0a747a4b49bfe436a4248290d6a5cdf3ce187b91",
+      "group": "code"
+    },
+    "system/schema/doctor-result.schema.json": {
+      "sha256": "11ea6b9a9d5313b6d2f4f97e82bd8242732f989652c343ce2583b69a2f66e31d",
+      "group": "code"
+    },
+    "system/schema/kit.schema.json": {
+      "sha256": "739578442dc1b59efd9f0677a1937b07bf3fb6c6b8052e49d40d23924b9108d1",
+      "group": "code"
+    },
+    "system/schema/memory.schema.json": {
+      "sha256": "a8ccf08cc01ac42ce161dfedbfa3bee71f66dbbdfc9c4bf2fd06c4465df5dcb8",
+      "group": "code"
+    },
+    "system/schema/note.schema.json": {
+      "sha256": "af4856f2b6e3c48f1a900655f1051f135b98a7ac4289ac13dea5ff03385471e6",
+      "group": "code"
+    },
+    "system/schema/search-result.schema.json": {
+      "sha256": "9416e5650076abd164e3b7e60db13bd182502a6b416450edd4c39481059fcd83",
+      "group": "code"
+    },
+    "system/templates/cs/kit/agents-personal.md": {
+      "sha256": "feaa34ae1c2d1bd0171586c12eff907906525af567251660ede5e37821026abc",
+      "group": "code"
+    },
+    "system/templates/cs/kit/agents-system.md": {
+      "sha256": "45be8ecac2cefe583f43b4ad7627f20cf61673d28317e56a3a65471d285a4efa",
+      "group": "code"
+    },
+    "system/templates/cs/kit/export.md": {
+      "sha256": "40cacfcb2534fc8fba5b44d4d8a6e3bee898e4f80c0ad8e57a086913a649b285",
+      "group": "code"
+    },
+    "system/templates/cs/kit/profile.md": {
+      "sha256": "a067e5868f0024708118985f582d7df88c3204d5bd9667b326f9c4496f1a0ecb",
+      "group": "code"
+    },
+    "system/templates/cs/kit/sector.md": {
+      "sha256": "d660bd02f187188dfd2854c4349d5cffe3f4d2a560a2282f09834f1ce0f95e22",
+      "group": "code"
+    },
+    "system/templates/cs/kit/state.md": {
+      "sha256": "6579dcc25ae553cd8b57fdaa006811f98aa2fde87550566421eb91d131b0669b",
+      "group": "code"
+    },
+    "system/templates/cs/kit/waiting.md": {
+      "sha256": "42f45d675daf2bf8eee5b42df5bd9f4136b21207bb4c9daf207792c6740e3097",
+      "group": "code"
+    },
+    "system/templates/cs/notes/clovek.md": {
+      "sha256": "73156ac55f78c699d108cb065a37b51c355696ecc34277979a20a06da06edde9",
+      "group": "code"
+    },
+    "system/templates/cs/notes/denik.md": {
+      "sha256": "c9f5bba007bc6a1cf9831636afec0b99ce03c3ecc19d2d63e1dd193ef6757bbd",
+      "group": "code"
+    },
+    "system/templates/cs/notes/fakt.md": {
+      "sha256": "d789c3848fe23080164f0603c56df794070b7435b809a0e09a7931e8c585435e",
+      "group": "code"
+    },
+    "system/templates/cs/notes/navrh.md": {
+      "sha256": "c41b27be01eadbaf374a81633ce8001ff88cefc37773303658282afa2fb535e2",
+      "group": "code"
+    },
+    "system/templates/cs/notes/organizace.md": {
+      "sha256": "4164148c265c9a86d16cbb6ad473a57053039f742c1593b96a46130b77ec5265",
+      "group": "code"
+    },
+    "system/templates/cs/notes/postup.md": {
+      "sha256": "a740aea6f4219c40e800d751f5625807998a3ffc5776700c858bafb28011b600",
+      "group": "code"
+    },
+    "system/templates/cs/notes/poznatek.md": {
+      "sha256": "2dea270dc7bcadf1b84c764d32268cef9c6762e49cbe1b8a3e65df27ad973c54",
+      "group": "code"
+    },
+    "system/templates/cs/notes/pravidlo.md": {
+      "sha256": "f073e742fc8ff4c1a659ad7e71187cd8bad626a3ceb0c2077d20f545157dda45",
+      "group": "code"
+    },
+    "system/templates/cs/notes/projekt.md": {
+      "sha256": "0a504ac47a0c3f15cd6f397a50ea9ad30dc036d4916688c53bb622b3d333dc13",
+      "group": "code"
+    },
+    "system/templates/cs/notes/rozbor.md": {
+      "sha256": "aa82ebca830c9106ae5e1a88fc517e30c342c1cd97e2129edc5a52a9a14ef3ed",
+      "group": "code"
+    },
+    "system/templates/cs/notes/rozhodnuti.md": {
+      "sha256": "b7edf56c3a890070b3917b1fcef4e0957927f7ea4668894a5eb10822bdd50085",
+      "group": "code"
+    },
+    "system/templates/cs/notes/seznam.md": {
+      "sha256": "4f26d7f5f7780bd3263b712770cbc32c68ea4bf70472b524d7926a8197983bb5",
+      "group": "code"
+    },
+    "system/templates/cs/notes/text.md": {
+      "sha256": "3a0607c5ac664cf6e3af17ec1281d085b0c86d3cf71e4f0fa6df178ec0bd89f8",
+      "group": "code"
+    },
+    "system/templates/en/kit/agents-personal.md": {
+      "sha256": "6dfc4c2233862bb59b99dc181b0cfcff9021173ccbd2a57135c67c46c27d4184",
+      "group": "code"
+    },
+    "system/templates/en/kit/agents-system.md": {
+      "sha256": "2d3da84971b4e67e298062527e0f388c0c3d1c3b7ea52d4fcce79f95b186bafd",
+      "group": "code"
+    },
+    "system/templates/en/kit/export.md": {
+      "sha256": "13dd2942dd703970efa0354a8e47009a9a5cc1b614f7bdde4acd311deb035f57",
+      "group": "code"
+    },
+    "system/templates/en/kit/profile.md": {
+      "sha256": "56a9a568122df9e1c993453ca7b90dc9715de533ced735dd85f815744c957a49",
+      "group": "code"
+    },
+    "system/templates/en/kit/sector.md": {
+      "sha256": "0cc7a86a5c839c059bf2dcf6c2ab1394b90249ab7f107fffac43b53983babba0",
+      "group": "code"
+    },
+    "system/templates/en/kit/state.md": {
+      "sha256": "0752640ea0787209c270de334eec07bff53164f9cf2b0959a2fe33caa710d4dc",
+      "group": "code"
+    },
+    "system/templates/en/kit/waiting.md": {
+      "sha256": "36cdcef8f2c9ae292a5404a406dfac7ef77b84855838ff462090f9fb3cc1639a",
+      "group": "code"
+    },
+    "system/templates/en/notes/analysis.md": {
+      "sha256": "6517c2f682bfe5d51144e07e4723acb146dcaaa6dca1636bf92c2fb7a970be0f",
+      "group": "code"
+    },
+    "system/templates/en/notes/decision.md": {
+      "sha256": "1bdcd3dbda545a895830b231ea0e61f55da0e4a4cf75a7319053a3987712fec0",
+      "group": "code"
+    },
+    "system/templates/en/notes/fact.md": {
+      "sha256": "b30ceb15dc112906b477c85ba10c8d4e02dde543e5c3622e62cbd636611fbf10",
+      "group": "code"
+    },
+    "system/templates/en/notes/insight.md": {
+      "sha256": "3826493f707d2b26b31c56823cdc78bc9323aee5f4154661c964a1183bd72eae",
+      "group": "code"
+    },
+    "system/templates/en/notes/journal.md": {
+      "sha256": "f1e54f65d73fc088c98760d450e8ecc448d4566bc955878c1c6e39c902ae4f45",
+      "group": "code"
+    },
+    "system/templates/en/notes/list.md": {
+      "sha256": "95d077d81fd03a833cb15a478715b418845ffd33f893cf4c15048fcba2e358c3",
+      "group": "code"
+    },
+    "system/templates/en/notes/organization.md": {
+      "sha256": "d728c0bda18263dba8f29ed173704d2f5e9ac346f2276d6f43d57468d7012a77",
+      "group": "code"
+    },
+    "system/templates/en/notes/person.md": {
+      "sha256": "de12e3e390a27f937f3780bb6d17370605c3a82fb0aabc666fe3107c2454f203",
+      "group": "code"
+    },
+    "system/templates/en/notes/procedure.md": {
+      "sha256": "24c7b1d536af31d84f6c1480eaffd5500f2fab2be48cba1d2eff867a5cba0e6d",
+      "group": "code"
+    },
+    "system/templates/en/notes/project.md": {
+      "sha256": "6dd5993384bbda9ecf5b07dd86eb69947308c82d197a4cd80471d2a98b853c84",
+      "group": "code"
+    },
+    "system/templates/en/notes/proposal.md": {
+      "sha256": "e51d3a2bb8084140d416f356c8e23e86a3db76830313772cf9f211cb7a064bf4",
+      "group": "code"
+    },
+    "system/templates/en/notes/rule.md": {
+      "sha256": "6673a78b36f3fe68bcccab7f69fc618fe935b2f1b17663b8fb14e83ba7d7ec42",
+      "group": "code"
+    },
+    "system/templates/en/notes/text.md": {
+      "sha256": "15126432a50dac02a9f6fb133ad3c073c66eb9cd560ac427566d94a49cbc0ac5",
+      "group": "code"
+    },
+    "system/tests/fixtures/cs/golden.json": {
+      "sha256": "f6fdf6eb9ea4ac4efbb650db7e53a0e65858b7a2de76c2e6292b66881fb91a23",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/private/sektory/zdravi/bezecky-plan.md": {
+      "sha256": "d2f678ffdd835eef7edec83397ee785e37ce57fc02c0abed780af7fb4053e15a",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/private/sektory/zdravi/zubar-terminy.md": {
+      "sha256": "10a30e0fc6e4d79aab258c40a9a15c287a663804ed59d0ec7c994a8dcaab96bd",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/archiv/sektory/prace/stary-brief-loga.md": {
+      "sha256": "b22a9fc81f079653a1cedb08b20622dd7300df91cc87260cfa3a62d452f02742",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/ceka.md": {
+      "sha256": "2dcbd7ea4374fbae8d9e7ceff204c314de4e85e9c18d2589359c478bfa138a64",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/denik/2026/2026-09-15-sezeni-k-cenam.md": {
+      "sha256": "73939401997a6e9328861eb04aee7604aeafc51b0086643185f502db50133e75",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/denik/2026/2026-09-18-sezeni-k-maturite.md": {
+      "sha256": "f4a7b7f9437a3cd42247bb32bb91fe5196635df3028884f96485bb5321c5f7d2",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/inbox/2026-09-17-napad-vernostni-karta.md": {
+      "sha256": "9cf27430fc1f77de32143b05287e615184f42333bc829562ef03e84cedf7392e",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/inbox/2026-09-19-vlozeny-email.md": {
+      "sha256": "80e4223d6d7b3920843c27dd5b7eb9e2e8c5d494623983b3d7b36c5fdc652ccc",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/jadro/_jadro.md": {
+      "sha256": "8a375c75609aea6b63fc332cd6a8c056b84f4698c1fbed6c2f329a348a1915e7",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/jadro/nastroje.md": {
+      "sha256": "39d1ca700ab7779b6b1f0ebd29cd7d12c23904776fdeb110252ea25f9afa9d3b",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/jadro/profil.md": {
+      "sha256": "162026dc5109d06141ea86e5f4af8d1d3ce940c6d151177d31fb7de0daaf1ede",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/jadro/styl-psani.md": {
+      "sha256": "e87c3f8f41d0798bc0ea8260718dd73a349726f793202dfd13f4b088f9971919",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/jadro/tydenni-revize.md": {
+      "sha256": "deadbe4ab026047b5562cee07449ac947d83b9c78d3984659e1ad87e9faa6c01",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/konicky/_konicky.md": {
+      "sha256": "3347c8ee7e31c11f096cda5ea20cea140cf50cdbe241692b8474ff0a4d41399f",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/konicky/lezeni-trasy.md": {
+      "sha256": "311f2e896440dfe645aad6c5ebc22dbdbaa272025628e02fece5aa3a74e79bf4",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/konicky/nastaveni-fotoaparatu.md": {
+      "sha256": "f7a291153f0a3a24de1e10ef12fd93d427e810227aa108a8ec285a67de8ea23f",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/_prace.md": {
+      "sha256": "7984e37dfce4332426d622562e0751c585b44d18e7cf00a838a9c856f025b9e0",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/cislovani-faktur.md": {
+      "sha256": "84130b513fbbf66e8ff6cd74527129eeb6209b33575b03953763ce48720010b6",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/dodavatele-tisku.md": {
+      "sha256": "67324858bf7fe014c63c3acef329200b8fdeb6fabe155cb96f990406f8bd9267",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/hosting-pekarny.md": {
+      "sha256": "d0d83f9a302fbac4f379c0b447693bd4f0c5fb049ba06ae3c61f060094ee5287",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/klienti/knihovna-brezovka.md": {
+      "sha256": "b3e7315945519f1302f9a15da990f53ad28bb79a42aaec1fec6a0433b9eab84b",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/klienti/pekarna-u-pristavu.md": {
+      "sha256": "2fbc780aaf0f93613234e37b51738af3c762e18d5886f1d7a4e38607aa3f4119",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/lide/ada-kvicalova.md": {
+      "sha256": "53d98066dfe085218a9b55682abc6c7b21885e36a8c056886101e74bcfd3b4a4",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/lide/mira-fenclova.md": {
+      "sha256": "72c9e2454942cde8bced616b37754c87eb65be11cbd77d655600fd3a6b5043ff",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/navrh-servisni-pausal.md": {
+      "sha256": "b924f8e2c732873be298b19fcebe4b7f5c2d88a3c3b740b3b5307bba08b54e4a",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/postup-noveho-klienta.md": {
+      "sha256": "aa863b11a089d04c69290eefb7600f5ee492aaa30dce86a4daf169c09352078e",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/poucky-ze-zpetne-vazby.md": {
+      "sha256": "22d114582d9a42806ed7b28c1c507326da3defa7910689db8b70aac86c35db4d",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/redesign-webu-pekarny.md": {
+      "sha256": "4512eeb9079b6f497377be7358eb2e53956be9b55d4933ab02beb3b3e2d37719",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/rozbor-konkurence.md": {
+      "sha256": "d9ef7581e92d353785efd970f8c75f5c040a3acd46ef62b4f51a1380c393d8ed",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/rozhodnuti/2026-03-10-hodinova-fakturace.md": {
+      "sha256": "6823eabee89a86ee8eba320f3501aa2f28d3404b7d53f140b9a4b41bc9212d82",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/rozhodnuti/2026-05-12-platba-na-splatky.md": {
+      "sha256": "e4d105efb84823dfc33021e58e1636c602667545e537aa4024817e26e8ecadc0",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/rozhodnuti/2026-06-02-balicky-s-pevnou-cenou.md": {
+      "sha256": "f7125bc6391405620ce114a962d7f252e692b1147b50d86eb0d3922fd949a096",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/rozhodnuti/2026-08-18-o-vikendech-nepracujeme.md": {
+      "sha256": "5d3990a90bcf8952464421d2f461bd29ca4de05361b2330d871cd8036d1cfd5c",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/rozsah-balicku.md": {
+      "sha256": "321d0fe42ec086a7e5ab152934fd83764f6affbebfbc93668606b5fec2fb8d83",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/prace/uvod-newsletteru.md": {
+      "sha256": "371ea9e4c274d636e29aff6f4f849f381e652e72e9c0ee428484968de7ef81e6",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/skola/_skola.md": {
+      "sha256": "8aee68c8b72f15ef3d436641cd053841f7be6c344666ce75a36ceed51e4b201b",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/skola/citace-zdroju.md": {
+      "sha256": "c4459d740f8d3ef256ed0bd5e94be90633a10b0e4f45b9a099b5a3b0afb16482",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/skola/harmonogram-zkousek.md": {
+      "sha256": "dab5f419094b75c2a8aed1431788f1f0fae9ce7b23e4addc563256fcad227d25",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/skola/lide/oto-brindl.md": {
+      "sha256": "6b08d1d95787bbdec3513a1291f6e184c49472cc3c5fcba2bbca9c790f5621c5",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/skola/maturita-rezervacni-aplikace.md": {
+      "sha256": "2bee81f72b6068fc08ffbca110893822e113a256da7b1d66548bd76f018d23b5",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/skola/osnova-prace.md": {
+      "sha256": "92cc27df843c646484655929dab11b81a504ca5e63f7fdeb2bbe24f69bdf3bb6",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/skola/poznatky-z-prototypu.md": {
+      "sha256": "35741360a9bde0d6d7751f1b200fea7fd10563dd294ab7b8c8046e683874c5eb",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/skola/rozhodnuti/2026-04-15-tema-maturitni-prace.md": {
+      "sha256": "96f2a1e75b8934313c8568f045b27b86eb89e69b13195499dc5de9fca76957c5",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/skola/skola-severka.md": {
+      "sha256": "b8793e55313f985397fa2f84c4b1acd97927b61c1124db552d844e9be5c25a64",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/zdravi/_zdravi-export.md": {
+      "sha256": "803534c0a04941e51a476854b0b62b50d5ff6ce90e2e51f0612707758ecdacb1",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/sektory/zdravi/_zdravi.md": {
+      "sha256": "34b7a741056d96d094461a5d9327845fce0ed41b2332018ea84c48f737825f20",
+      "group": "tests"
+    },
+    "system/tests/fixtures/cs/vault/stav.md": {
+      "sha256": "920451849d14c04c56152e7808c73508b41011767f332b07418f4bf0205b14af",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/golden.json": {
+      "sha256": "ace0ffbc0e42f4ed4bc3b2a81cebbdb5e1ce5388b4fa67c8ff59ad3370e3510a",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/private/sectors/health/dentist-appointments.md": {
+      "sha256": "a02f0bba4ef01e42e91ecec740157af9ef8c27ff3dd54814eb2d0edfe869097a",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/private/sectors/health/running-plan.md": {
+      "sha256": "4ad104049608724c5ab88a56ef0732f417ad59db795d2c71c33c0859fa53160c",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/archive/sectors/work/old-logo-brief.md": {
+      "sha256": "2fd72d6a3dfbbb838ade9cb04bcf3a7c5e88960d975b5b6a7aa891b259b19b8d",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/inbox/2026-09-17-loyalty-card-idea.md": {
+      "sha256": "a053fecee7ebe06c320590479dc7d164e15ab8b2f5917c020326e514f8ca7333",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/inbox/2026-09-19-pasted-email.md": {
+      "sha256": "e6c9100f8d13097e795e72bee334532e5a7470b22a032dfa5e7c58e2221531db",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/journal/2026/2026-09-15-pricing-session.md": {
+      "sha256": "bd76c3ddecd1e5f52c2fbac0a5201d6c1dff676720f58554c3e979c15fafb9d2",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/journal/2026/2026-09-18-thesis-session.md": {
+      "sha256": "e00fca48c4b9adfcfad14c1231bb84d1c21a9035c4a602f557c220b0d8262544",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/core/_core.md": {
+      "sha256": "f2d17cc6851d7642d029a070c1151880c25a6c320f19671759d656004764b5bd",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/core/profile.md": {
+      "sha256": "5b71b7e2bc9b95252e10d6a64510592973f9cc166302f584e214a17e2cfe2b06",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/core/toolbox.md": {
+      "sha256": "2293bfd3c14cca045ce9571ef42ca4511d171625753cc6442539136d52ba7a51",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/core/weekly-review.md": {
+      "sha256": "058c0e5be8ef8762924e93cefdccf98ad02e108db17912914fa4838461e5d07d",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/core/writing-style.md": {
+      "sha256": "3fafcba5d111bd0eba1a9491accfce9fef7164b5577debfb75896108942f3a03",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/health/_health-export.md": {
+      "sha256": "ac7e6e98653a76e582edcddeb243fa2af65354da7388b382e79eb9da2190ebcf",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/health/_health.md": {
+      "sha256": "96ef5f120851bac1a5c4065df3c9664bc853b016c3021ebdefb4ee6ef6a5163c",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/hobbies/_hobbies.md": {
+      "sha256": "1e592180c5d56d81fdf62dcf16e3796f1796fc00c71aa9e9efb95b4f904db254",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/hobbies/camera-settings.md": {
+      "sha256": "e8f6ade3b0902c3fcf0e2ed4338b4713dfde728748b528cd9e90cd2f68dcacac",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/hobbies/climbing-log.md": {
+      "sha256": "fb698571c4d3123eca7041ecc47e7d1fb8238592956b7d5d40dbc0789b87df65",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/school/_school.md": {
+      "sha256": "5d4cc1fee3b247fc45fd3270b6d66e64a348f8352409217bc0eca8ca16e09c4a",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/school/booking-app-lessons.md": {
+      "sha256": "c6ebf01685c7b62c27fac8d0ce415d87ddb90da28be7519713fe32e623841b6d",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/school/citation-style.md": {
+      "sha256": "4bd5adeb6a7831bb231c7bbb5d5b5a5c9a5fdf62e10d1e7689973a07cbc057b8",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/school/decisions/2026-04-15-thesis-topic.md": {
+      "sha256": "511f9905784fc9b20f966ce99e089ef4f577fdfc78203b8035e632c99019589f",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/school/exam-schedule.md": {
+      "sha256": "d0dc0696d449d3a407134a1def26c14868205be5d6eb438f2e80fc3645194931",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/school/northfield-school.md": {
+      "sha256": "1818ee7041d36ccde130171a6ff304fb26d3a53538782684db9c1d4bc4f4e47e",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/school/people/otto-brindle.md": {
+      "sha256": "00b1f9997a4d317cde65e39b08e18094d8e86acba98f66aa34bc734886635be0",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/school/thesis-outline.md": {
+      "sha256": "8dc38373237c06bdf4c878402d18d92fe8cc9505462988cd28025e3e4a06ef2b",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/school/thesis-project.md": {
+      "sha256": "c60670c01b997818adeef8cec03783007bd05b2e2f189fb272e29af3398ac4e7",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/_work.md": {
+      "sha256": "6e9e7917ab8b4dca958b4ce7c3bd07e1589bb8729d4f4ad2cb252f472d598a23",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/client-feedback-lessons.md": {
+      "sha256": "84e4b82a809c5dac0c92b662a1a52f032cfd6489897d324e80dae9cee5a872cf",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/clients/birchwood-library.md": {
+      "sha256": "426302dac177c9b03a92772380fa8f6cdbd34e15c576cc79af06ddc82b31eed4",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/clients/harbor-bakery.md": {
+      "sha256": "a904c20a6d421ad8143135aa0752c326309b5669686df89067321830dc19a787",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/competitor-analysis.md": {
+      "sha256": "fbb66757f788ade86ee078a7787ff6c925455a90b007c7326c69bab99cd328f0",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/decisions/2026-03-10-hourly-billing.md": {
+      "sha256": "ac4853f5d6f3cf81c736e8413cca23694fa400bc06771baa64735896531aa3c7",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/decisions/2026-05-12-payment-in-installments.md": {
+      "sha256": "e0fd2ba656c46647ae7d62217981a06231056fe1d22267c1de4840e73d3350c8",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/decisions/2026-06-02-fixed-price-packages.md": {
+      "sha256": "795f0fe3fd231bceec22da08ce3c94894c05df7ab240239e8d34e30fda97036a",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/decisions/2026-08-18-no-work-on-weekends.md": {
+      "sha256": "a9becf0edec0c5c62b0e97843b89b59f10f74b24f788d0c18a4e3aa8b1a9cf6a",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/hosting-provider.md": {
+      "sha256": "0d1b03f71b2ab1d84719619925134c0bdb14199ba8911b7cc57e07750d7cd077",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/invoice-numbering.md": {
+      "sha256": "52d7283488ebbcd1f8d408627225c4b5557229cc3d2981ab7fbbc009cee9fa8f",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/newsletter-intro.md": {
+      "sha256": "e69d6fbb723a2cc9b3223f57d56d6c96d4f2e4e8d5bdf240961889a334a5ae65",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/onboarding-checklist.md": {
+      "sha256": "6a3fff31dbc8fb56cdee2062653469366df2e65866d561eb980ddadfd530c1d3",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/people/ada-quill.md": {
+      "sha256": "458454079cfa6594d5e7fdecad43f1d00d60928f423f3ebd31b3af15fb95460d",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/people/mira-fenwick.md": {
+      "sha256": "61caf8ead8d6a0480075c7de604c10fb8374a628914fb5b7795426fef43f7e66",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/pricing.md": {
+      "sha256": "2d4d4b8ae931b34f434dfdb734bef2b9d16e02b192fb97103dc827abe89b2a56",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/print-suppliers.md": {
+      "sha256": "78f909a1cd2eb87acede727900a91ed4034074241f762e2193f38dcf90e66471",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/proposal-maintenance-plan.md": {
+      "sha256": "7cf743c2760145159cb6c03b258322844ed7b1948580314239229de5b13a7f46",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/sectors/work/website-redesign.md": {
+      "sha256": "51bd708bfdef58af48f2d1ebfba75d0bfdf85d4c64f4aedec1a6278211dd24ce",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/state.md": {
+      "sha256": "66f47f180f18e4139b83c0adcd070cb7915eb34dac41201634b4a6f54188f906",
+      "group": "tests"
+    },
+    "system/tests/fixtures/en/vault/waiting.md": {
+      "sha256": "e132dd73999318e37ad0aa791f49f9d8cb35e04f3f5d9ee1cf8704de58497928",
+      "group": "tests"
+    },
+    "system/tests/helpers.mjs": {
+      "sha256": "4938bee29f2d6cebc57683fd39ba2a787e993ec488bc9716153c5ea2e0e418ff",
+      "group": "tests"
+    },
+    "system/tests/integration/kit.test.mjs": {
+      "sha256": "74017fdc3f71e2e3b60cdef074a4d602aa8603b01d9c085222957bacc033735a",
+      "group": "tests"
+    },
+    "system/tests/integration/mcp.test.mjs": {
+      "sha256": "39075c48aae058ccae44d01e40cc3b89a8dc73d47709c330767a8e124ba96c23",
+      "group": "tests"
+    },
+    "system/tests/integration/sync.test.mjs": {
+      "sha256": "5436455d304373be7500216bafff5a5c608cc0fac6d06ed8ce74dac855a5ab8a",
+      "group": "tests"
+    },
+    "system/tests/integration/upgrade-recovery.test.mjs": {
+      "sha256": "bf9322980aa0dbb972ae4e38cec81830addb6f8569fe0fc21780614c28084d2a",
+      "group": "tests"
+    },
+    "system/tests/integration/upgrade.test.mjs": {
+      "sha256": "63e75cd2b0cfe997df0f588ad44cefc4c0a9b0bbd59eb3b1538c5e1a68a6d888",
+      "group": "tests"
+    },
+    "system/tests/unit/api.test.mjs": {
+      "sha256": "9b18d476034d2512cd81df9c3f75691f8dc6059a1063d7ca176de148ff1aee71",
+      "group": "tests"
+    },
+    "system/tests/unit/check.test.mjs": {
+      "sha256": "00d881604a68037b2e46fc733ddb377d9666dc62dc07632130eae20efe0fe5e5",
+      "group": "tests"
+    },
+    "system/tests/unit/cli.test.mjs": {
+      "sha256": "5f7efd42c59516daff4fdc75b39ceb1d2290775de2b544d6cc4fd79134ddf08d",
+      "group": "tests"
+    },
+    "system/tests/unit/config.test.mjs": {
+      "sha256": "7c10362ec82f6d960ba43df4bee97f2be122c82af796f7e84d73a4b22319d5c7",
+      "group": "tests"
+    },
+    "system/tests/unit/connect.test.mjs": {
+      "sha256": "9cbadc2e421f8b656b9e6fe72e2c2913f676c7a08eb74b94edc39b23eb94ccee",
+      "group": "tests"
+    },
+    "system/tests/unit/docs.test.mjs": {
+      "sha256": "fa7046f1f092f01cefd973ae837ee7a5f81f99ff7305943154851cbcf0c6b606",
+      "group": "tests"
+    },
+    "system/tests/unit/doctor.test.mjs": {
+      "sha256": "c3d288885915b013f6ec8a4310addaa8ce1b1c923aed680efbdc9ee8cf558201",
+      "group": "tests"
+    },
+    "system/tests/unit/eval.test.mjs": {
+      "sha256": "b94685d0c11c22e0bf2784f0edcb9a97fa7c1e32632c4604fe021f0b029ec746",
+      "group": "tests"
+    },
+    "system/tests/unit/fingerprint.test.mjs": {
+      "sha256": "d8baefe91ab0465b27b89c4e8c8e70b560bbb137c813fb806cfcc83f42a270df",
+      "group": "tests"
+    },
+    "system/tests/unit/frontmatter.test.mjs": {
+      "sha256": "b07acf3b3f8b0006c29bb7180bc06bf40e2ae327a2476a43128783720d5c9b42",
+      "group": "tests"
+    },
+    "system/tests/unit/generate.test.mjs": {
+      "sha256": "4416676faa79114d2a73f4d78ef68ef2de374f08b8d88d83611dbc76d5411829",
+      "group": "tests"
+    },
+    "system/tests/unit/kit-manifest.test.mjs": {
+      "sha256": "529612e0316a1ee39349cd15ef4e76b5d7036540fdafba0e9b1d00385bec3f30",
+      "group": "tests"
+    },
+    "system/tests/unit/kit.test.mjs": {
+      "sha256": "a5be84a386a514fe12fba6dfda0bc6714002cb40e5b32a92ace982520fb41c41",
+      "group": "tests"
+    },
+    "system/tests/unit/local-folder.test.mjs": {
+      "sha256": "42e33eb8e00cb71b9b1ac467cf211532adc33e23499b7adca0ede5e81b9aa6ea",
+      "group": "tests"
+    },
+    "system/tests/unit/pack.test.mjs": {
+      "sha256": "2ed93acd22048d74a2ef012863cc5c8d8b9ca539dc9dae6013d7f2fdaf8a9f3d",
+      "group": "tests"
+    },
+    "system/tests/unit/portability.test.mjs": {
+      "sha256": "eef01cbabdde885a41b2bde2afcb087e2bbf325f139253f191c73329e684e248",
+      "group": "tests"
+    },
+    "system/tests/unit/recovery.test.mjs": {
+      "sha256": "ecf56155210daeb7d3390d30d0669005bee208bd1559d6d2d7148849fb350d83",
+      "group": "tests"
+    },
+    "system/tests/unit/review.test.mjs": {
+      "sha256": "b211a93cb2ae7b9ba00c77ea67ee6e2a3725d539f416de32635a042960b17a87",
+      "group": "tests"
+    },
+    "system/tests/unit/schema.test.mjs": {
+      "sha256": "a0ed2c80e4dcd2c85cfd51bfd0dbef9613efb83ec3ed8f259780f06e3481ccf8",
+      "group": "tests"
+    },
+    "system/tests/unit/search.test.mjs": {
+      "sha256": "aadbbbadf4ac4d89d16c82f6cef4a30ba90a778845a5ba7cd24db43f5e216402",
+      "group": "tests"
+    },
+    "system/tests/unit/secrets.test.mjs": {
+      "sha256": "c23e70da944741cb45e541d094f06d2c68941c451660566ed1cce40749f97f6d",
+      "group": "tests"
+    },
+    "system/tests/unit/text.test.mjs": {
+      "sha256": "13166e9d37544914f80b1356f8d1596ba5802a4234b219f1cb5894b29339d664",
+      "group": "tests"
+    },
+    "system/tests/unit/util.test.mjs": {
+      "sha256": "ab0a1e7f28a8d86c487653aed5ff3f1da80329d90a8305a788eeb683795aad34",
+      "group": "tests"
+    },
+    "system/tools/release.mjs": {
+      "sha256": "d7ccdeb5195fa04e886905ea913771fb9b00c3569eb10370a45335ed8add91be",
+      "group": "code"
+    }
+  }
+}

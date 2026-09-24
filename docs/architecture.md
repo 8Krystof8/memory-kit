@@ -1,20 +1,26 @@
 # memory-kit architecture: the implementation contract
 
-Status: describes phase 1 (v0.1.0). The code is split into five modules (core, search, packs, tests,
-docs), see section 18. When code and this file disagree, fix one of them so they match again. The
-"Decisions log" (section 17) records the choices this contract had to make.
+Status: describes v0.1.1: phase 1 (v0.1.0) plus `upgrade`, `doctor`, the MCP server with `connect`,
+the JS API, JSON schemas and Windows and macOS support. The code is split into five modules (core,
+search, packs, tests, docs), see section 18. When code and this file disagree, fix one of them so
+they match again. The "Decisions log" (section 17) records the choices this contract had to make.
 
 Contents: 1 Conventions · 2 Vault layout · 3 memory.json · 4 Language packs · 5 Notes and frontmatter ·
 6 Sectors · 7 Module APIs · 8 Generated files · 9 Rules files and adapters · 10 CLI and output formats ·
 11 Check rules · 12 Secrets · 13 Search · 14 init · 15 Tests and CI · 16 Roadmap (not built) ·
-17 Decisions log · 18 File ownership
+17 Decisions log · 18 Module map
+
+Where the 0.1.1 additions are: kit manifest, ownership and upgrade 7.15 and 10.6 (user guide:
+docs/upgrading.md); migrations 10.6; JS API 7.14; JSON schemas 7.15; doctor 10.7; connect 10.8; MCP
+server 10.9 (user guides: docs/api.md, docs/integrations/mcp.md).
 
 ---
 
 ## 1. Conventions (apply to every file you write)
 
 ### 1.1 Runtime
-- Node >= 22, ESM only (`.mjs`), **zero dependencies**, no network access at runtime. Built-ins only:
+- Node >= 22, ESM only (`.mjs`), **zero dependencies**, no network access at runtime (the one
+  exception: `upgrade` fetches the kit with `git clone`, section 10.6). Built-ins only:
   `node:fs`, `node:path`, `node:os`, `node:crypto`, `node:child_process` (git, rg), `node:util`
   (`parseArgs`), `node:sqlite` (optional, see 13.6), `node:test`, `node:assert`.
 - `node:sqlite` prints an `ExperimentalWarning`. Any module that imports it must first install a
@@ -33,6 +39,14 @@ Contents: 1 Conventions · 2 Vault layout · 3 memory.json · 4 Language packs �
 - Lowercasing uses `String.prototype.toLowerCase()` (never locale variants).
 - File and folder names that the kit creates are ASCII lowercase with hyphens:
   `^[a-z0-9]+(-[a-z0-9]+)*$` (plus the `_` prefix of manifests, section 6.1).
+- Portability (Windows, macOS, Linux): names are compared, sorted, hashed and printed in NFC, while
+  I/O uses the name as it is on disk (macOS may store NFD). Hubs, manifests, export files, AGENTS,
+  CLAUDE and GEMINI are found only under their exact letter case (`CASE_MISMATCH` otherwise). Names
+  Windows cannot hold (`con`, `nul`, `com1`…, `< > : " | ? * \`, a trailing dot or space) are
+  refused by `new`, `sector add` and `init` and reported by `check` (`NAME_PORTABLE`). Existing files
+  are rewritten atomically (`system/lib/fsafe.mjs`: temp file + rename with retries, POSIX mode
+  kept); renames retry and fall back from `git mv` to a plain rename. Child processes never use a
+  shell and always pass `windowsHide`. Home is `os.homedir()`; `~`, `~/` and `~\` expand to it.
 
 ### 1.3 Determinism (law for generators and check)
 - `generate.mjs`, `check.mjs`, `search.mjs` (except the timing in the human footer) and `eval.mjs`
@@ -121,18 +135,28 @@ memory-kit/
 ├── .ignore                                   GENERATED
 ├── docs/                                     human docs (not notes)
 ├── system/
-│   ├── VERSION  memory.mjs  init.mjs
-│   ├── lib/ config frontmatter vault fingerprint util text search generate check secrets eval .mjs
-│   ├── lib/commands/ start check new sector sync search eval .mjs
+│   ├── VERSION  memory.mjs  init.mjs  api.mjs (public JS API, section 7.14)
+│   ├── kit.json  kit-history.json            kit manifest and shipped hashes (written by tools/release.mjs)
+│   ├── lib/ config frontmatter vault fingerprint util fsafe text search generate startview check secrets
+│   │        eval kit upgrade migrations schema doctor mcp clients jsonc .mjs
+│   ├── lib/commands/ start check new sector sync search eval doctor upgrade connect mcp .mjs
 │   ├── lang/LICENSE-snowball.txt  lang/{en,cs}/pack.json stemmer.mjs (+ base stemmer)
 │   ├── templates/{en,cs}/notes/<type>.md     note templates (localized file names)
 │   ├── templates/{en,cs}/kit/*               non-note templates used by code (section 9.7)
+│   ├── schema/ memory note kit search-result check-result doctor-result .schema.json
+│   ├── migrations/index.mjs                  data migrations (none in 0.1.1)
+│   ├── tools/release.mjs                     maintainers only: rebuilds kit.json and the history
 │   └── tests/ golden.json unit/ integration/ fixtures/ helpers.mjs
 ├── .agents/skills/memory/SKILL.md  .claude/skills/memory/SKILL.md (same file)
 ├── .claude/agents/memory-searcher.md  .claude/settings.json
 ├── .githooks/pre-commit  .github/workflows/ci.yml
 └── .gitignore  .gitattributes                no editor settings: any markdown editor works (9.8)
 ```
+
+`.memory-kit/` (backups of `upgrade`, `connect` and `doctor --fix`, the proposed files of `upgrade`,
+the upgrade lock) is local state of one computer: never committed, ignored by `.gitignore` in new vaults and through
+`.git/info/exclude` in upgraded ones. No walk enters it; only a file forced into git there is
+scanned for secrets.
 
 ### 2.3 Where notes are (the note set)
 A note is a `*.md` file in exactly one of these places; nothing else is ever a note
@@ -146,7 +170,10 @@ A note is a `*.md` file in exactly one of these places; nothing else is ever a n
 | root hub | `<state>`, `<waiting>` at the root (the home page is generated, not a note) | `root` | null |
 | archive | `<archive>/**/*.md` | `archive` (+ original area in `note.origArea`) | `<id>` if under `<archive>/<sectors>/<id>/`, else null |
 
-Directories starting with `.` and the `_ai/` folder are never walked. Symlinks are not followed.
+Directories starting with `.` and the `_ai/` folder are never walked. Symlinks are not followed
+(a directory entry that looks like a link is confirmed with `lstat`, so Windows reparse points that
+are not links are walked). Files the OS drops into folders (`desktop.ini`, `Thumbs.db`,
+`ehthumbs.db`, `ehthumbs_vista.db`, `.DS_Store`, `Icon\r`) are ignored.
 
 ### 2.4 Local (private) roots
 A sector with `privacy: local` keeps only its manifest `_<id>.md` and the optional export file
@@ -180,11 +207,11 @@ only ever use notes with `note.root === 'main'`.
 
 | key | type | rules |
 |---|---|---|
-| `version` | int | schema version, must be `1` |
+| `version` | int | data version, `1` (`DATA_VERSION` in config.mjs). A higher value is a config error that asks to run `node system/memory.mjs upgrade`; `upgrade` migrates a lower one (section 10.6) |
 | `initialized` | bool | false in the kit; `init` sets true |
 | `lang` | string | a folder name under `system/lang/` |
 | `mode` | `github` \| `local` \| `combined` | chosen by init (section 14) |
-| `roots` | array | first entry must be `{id:"main", path:".", privacy:"github"}`; further entries `{id, path, privacy:"local"}`; `path` relative to the main root or absolute, `~/` expanded |
+| `roots` | array | first entry must be `{id:"main", path:".", privacy:"github"}`; further entries `{id, path, privacy:"local"}`; `path` relative to the main root (`/` or `\`) or absolute, `~`, `~/` and `~\` expanded with `os.homedir()`. An absolute path of another OS (`C:\…` on macOS, `/Users/…` on Windows) makes that root unavailable on this computer (`exists: false, foreign: true`, one CONFIG warning, `new` and `sector add` refuse to write there). A local root inside the repository, also through a symlink, is a config error |
 | `profile` | string \| null | rel path of the owner profile note (section 8.6); null = no profile section |
 | `agents` | string[] | subset of `claude-code codex gemini-cli cursor chatgpt claude-app`; informational |
 | `budgets` | object | overrides of section 3.1 keys; a value larger than the default is clamped to the default and a config warning is recorded |
@@ -193,6 +220,10 @@ only ever use notes with `note.root === 'main'`.
 | `eval.golden` | string | rel path of the golden file |
 | `eval.min` | number | minimum hit@3 for exit 0 (default 0.9) |
 | `cleanup.provider` | string | phase 1 accepts only `"none"` (roadmap placeholder); any other value → config warning, treated as none |
+| `kit.source` | string | optional: where `upgrade` fetches the kit (a git URL or a folder); default the `source` of `system/kit.json` |
+
+`system/schema/memory.schema.json` describes this file: a memory.json that passes the schema loads
+without an error or a warning.
 
 Sectors are **not** listed in memory.json. Manifests are the only source of truth about sectors.
 Unknown keys are preserved by init and ignored by code.
@@ -346,12 +377,18 @@ Canonical commands and flags always work in every language; the pack adds aliase
 
 | canonical | cs alias |
 |---|---|
-| commands: `start`, `check`, `search`, `new`, `sector`, `sync`, `eval`, `help` | `start`, `kontrola`, `hledej`, `novy`, `sektor`, `synchronizuj`, `eval`, `napoveda` |
+| commands: `start`, `check`, `search`, `new`, `sector`, `sync`, `eval`, `doctor`, `upgrade`, `connect`, `mcp`, `help` | `start`, `kontrola`, `hledej`, `novy`, `sektor`, `synchronizuj`, `eval`, `doktor`, `aktualizuj`, `pripoj`, `mcp`, `napoveda` |
 | sector subcommands: `add`, `sleep`, `wake`, `off`, `list` | `pridat`, `uspat`, `probudit`, `vypnout`, `seznam` |
 | flags: `--sector --type --status --all --duplicates --generate --strict --lenient --today --description --title --privacy --keywords --when --not --file --force --json --n --rg --min --engine --sectors --no-push --root` | `--sektor --typ --stav --vse --duplicity --generuj --prisne --tolerantne --dnes --popis --nazev --soukromi --klicova --kdy --nepatri --soubor --vynutit` (others unchanged) |
+| flags of 0.1.1: `--yes --dry-run --rollback --from --no-verify --scope --name --remove --list --read-only --local --fix` | `--ano --nanecisto --vratit --odkud --bez-overeni --rozsah --jmeno --odebrat --seznam --jen-cteni --lokalni --oprav` (`--ref`, `--format` and `--json` unchanged) |
 
 The en pack has empty `commands`, `subcommands.sector` and `flags` objects. Flag VALUES that name a
 type, status, state or privacy are accepted localized or canonical (`--typ rozhodnuti`, `--type decision`).
+Flag aliases map before the command parses its arguments, for every command alike: an alias must
+never equal a flag of any command, and each canonical flag has one alias at most (`--nazev` is
+`--title`, so `--name` got `--jmeno`). `mcp` keeps one name in every language, because app configs
+store it. When memory.json or the pack cannot be loaded, the commands that still run (`doctor`,
+`upgrade`, `mcp`) accept the aliases of every readable pack. `pack.test.mjs` enforces all of this.
 
 ### 4.7 Search-related pack data
 - `stopwords`: lowercase NFC words dropped from queries (not from indexing). en minimum: `a an the of
@@ -447,7 +484,15 @@ translation never breaks anything. Keys: `check.<CODE>` (section 11 gives the en
 `new.created`, `new.exists`, `new.duplicate`, `new.fill_description`, `sector.added`, `sector.state`,
 `sector.moved`, `sector.no_local_root`, `sync.no_remote`, `sync.conflict`, `sync.regenerated`,
 `sync.pushed`, `eval.summary`, `eval.miss`, `init.question.<id>` (section 14), `init.done`,
-`usage.<command>`.
+`usage.<command>`, and from 0.1.1 `upgrade.*`, `connect.*`, `api.*`, `mcp.*`, `schema.*`,
+`start.bad_format` and the messages of `doctor`.
+
+The English texts live only in code: in `CODE_DEFAULTS` (config.mjs) and in a `DEFAULTS` table of
+each module that prints (`say(cfg, key, vars)` falls back to it when `cfg` is null or the pack
+lacks the key). The en pack's `messages` stay empty. The cs pack translates every key;
+`pack.test.mjs` reads the `…DEFAULTS` tables from the source and fails on a missing Czech text, a
+Czech text for a key the code no longer prints, different `{placeholders}`, or `&&` in any pack
+text (commands are printed one per line, because Windows PowerShell 5.1 rejects `&&`).
 
 ---
 
@@ -569,7 +614,12 @@ other only along these arrows (A ← B = B imports A): `util ← config ← fron
 `search ← eval`; commands ← anything. `secrets` imports only `util`. `generate` gets alerts from
 `check` through a DYNAMIC `await import('./check.mjs')` inside `buildContext` (no static cycle).
 `commands/new.mjs` imports `search` (duplicates). `init.mjs` imports `config`, `vault`, `generate`,
-`check`, `commands/sector.mjs`, `frontmatter`, `util`.
+`check`, `commands/sector.mjs`, `frontmatter`, `util`. From 0.1.1: `{fingerprint, generate, vault,
+util} ← startview`; `{check, config, frontmatter, generate, search, secrets, startview, text,
+vault, util, commands/check.mjs (normalizeNotes)} ← api ← mcp`; `fsafe`, `kit`, `schema` and `jsonc` import only
+node built-ins; `{fsafe, kit} ← migrations`; `{fsafe, kit, migrations} ← upgrade`; `jsonc ← clients`;
+`util ← doctor`, which loads `config`, `kit`, `upgrade`, `schema`, `vault`, `check`, `clients` and
+`jsonc` with a dynamic `import()` inside each check, so a damaged module fails only its own check.
 
 ### 7.1 `system/lib/util.mjs` (core)
 ```js
@@ -654,10 +704,16 @@ export function resolveLink(vault, target, fromNote?): Note|null
 export function extractSection(note, canonSection /* e.g. 'now' */): {line, lines: string[]} | null
 export function waitingItems(cfg, note): [{title, open, line}]
 export function waitingOpen(cfg, note): number
+// private content left in a local sector's main-root folder (see the last bullet below)
+export function sectorIsLocal(cfg, id): boolean
+export function localFolderTest(cfg): (rel) => boolean
+export function inLocalSectorFolder(cfg, rel): boolean
+export function localFolderNotes(cfg, vault): Note[]        // the notes loadVault marked misplacedLocal
+export function withoutNotes(vault, notes): Vault           // a shallow copy without them
 ```
 ```ts
 type Note = {
-  path, rel, root: string /*root id*/, local: boolean,
+  path, rel, root: string /*root id*/, local: boolean, misplacedLocal?: true,
   name /*basename without .md*/, dir /*rel dir*/, area: 'sector'|'journal'|'inbox'|'root'|'archive',
   origArea: 'sector'|'journal'|'inbox'|null, sector: string|null, archived: boolean,
   isManifest: boolean, isExport: boolean,
@@ -693,6 +749,15 @@ type Vault = {
   loaded notes (main root first). Aliases never resolve links (the usual wiki-link convention).
 - `waitingOpen`: number of `## ` headings in the waiting file whose section has no line matching
   `^<answer label>:\s*\S`.
+- A sector is local when a main-root manifest of it (live or archived) says privacy local, or, with
+  no readable manifest there, when a local root holds its folder (a manifest that says github
+  wins). A main-root note inside a local sector's folder (`<sectors>/<id>/` or
+  `<archive>/<sectors>/<id>/`), other than its manifest and export file, is private content left
+  behind: check reports it as `LOCAL_IN_GIT` (from `inputs`) and the `.gitignore` block keeps it
+  out of git. `loadVault` marks it `misplacedLocal: true` and `local: true`. It is only ever
+  counted: the generated files (section 8) and the start view leave it out, `search` (CLI, API, MCP)
+  never lists it and never logs it (without `--local` it counts among the local hits, with
+  `--local` it is dropped), and the API's `read` refuses it.
 
 ### 7.5 `system/lib/fingerprint.mjs` (core)
 ```js
@@ -818,17 +883,23 @@ export async function runEval(cfg, goldenPath, {engine}?): {
 
 ### 7.12 Commands (`system/lib/commands/<name>.mjs`)
 Each exports `export const usage: string` (one line, English) and
-`export async function run(argv: string[], cfg: Cfg): Promise<number>` (exit code).
-`argv` holds the arguments after the command with flag ALIASES ALREADY MAPPED to canonical names by
-`memory.mjs`. Commands parse with `util.parseArgs` from `node:util` (`strict: true`,
-`allowPositionals: true`); an unknown flag → stderr usage, return 2.
+`export async function run(argv: string[], cfg: Cfg | null, ctx: {root, kitRoot, configError}): Promise<number>`
+(exit code). `argv` holds the arguments after the command with flag ALIASES ALREADY MAPPED to
+canonical names by `memory.mjs`. Commands parse with `util.parseArgs` from `node:util`
+(`strict: true`, `allowPositionals: true`); an unknown flag → stderr usage, return 2. `kitRoot` is
+the kit whose code runs (it differs from `root` when another checkout upgrades this vault).
+`doctor`, `upgrade` and `mcp` also run when memory.json or a pack cannot be loaded: then `cfg` is
+null, `ctx.configError` holds the error and they read what they need themselves. Commands: `start`,
+`check`, `search`, `new`, `sector`, `sync`, `eval`, `doctor`, `upgrade`, `connect`, `mcp`.
 
 Extra exports used by init:
 ```js
 // commands/sector.mjs
 export async function addSector(cfg, {id, privacy = 'github', title, description, when_here,
   not_here, keywords = [], links = [], today}): {rel, created: string[]}   // no regeneration
-export async function setSectorState(cfg, id, state, {today}): {rel, moved: boolean}
+export async function setSectorState(cfg, id, state, {today}):
+  {rel, moved: boolean, unchanged?: true, unstaged?: string[]}  // unstaged: folders that moved while
+                                                                 // git could not stage the move
 // commands/new.mjs
 export async function createNote(cfg, {type, target, title, description, today, force}):
   {rel} | {refused: 'exists'|'duplicate'|'invalid', detail}
@@ -837,11 +908,96 @@ export async function createNote(cfg, {type, target, title, description, today, 
 ### 7.13 `system/memory.mjs` (core)
 1. Install the SQLite warning filter.
 2. Root = `--root <path>` if given, else `path.resolve(dirname(script), '..')`. Never the cwd.
-3. `loadConfig(root)`; on ConfigError print it and exit 3 (except `help`).
+3. `loadConfig(root)`; on ConfigError print it and exit 3, except `help` and the CONFIGLESS commands
+   `doctor`, `upgrade` and `mcp`: they run with `cfg = null`, and their names and flags are mapped
+   through the aliases of every pack that can still be read (the language is unknown then).
 4. Map `argv[2]` through `cfg.commands` (also accept canonical); map every `--flag` / `--flag=value`
    through `cfg.flags`; for `sector`, map the subcommand through `cfg.subcommands.sector`.
-5. `import('./lib/commands/<canonical>.mjs')` and `run(rest, cfg)`; catch → exit 3.
+5. `import('./lib/commands/<canonical>.mjs')` and `run(rest, cfg, {root, kitRoot, configError})`;
+   catch → exit 3.
 6. `help` / `--help` / no args: print every command's `usage`. `--version`: print `kitVersion`.
+   Node older than 22 → a clear message and exit 3 before anything is imported.
+
+### 7.14 `system/api.mjs` (public JS API, api_version 1)
+The stable surface for other programs and the MCP server. Library code: it never writes to stdout or
+changes git settings; only `inbox()`, `check({generate: true})` and `search({log: true})` write.
+```js
+export const API_VERSION = 1;
+export const INBOX_MAX_CHARS = 20000;
+export class MemoryError extends Error { code; key }  // code: CONFIG INVALID_ARGUMENT INVALID_PATH
+                                                      // NOT_FOUND SECRET TOO_LARGE ENGINE WRITE_FAILED CLOSED
+export async function openMemory(root: string | URL, {lang}?): Memory  // reads memory.json + packs once
+Memory:
+  info       // {root, kitVersion, dataVersion, apiVersion, lang, mode, initialized}
+  t(key, vars?)                                    // a pack message (English default)
+  localValue(kind, value)                          // the vault language's word for a canonical
+                                                   // type, status, state or privacy value; sync
+  async start({sectors, today, surface = 'cli'}?)  // {text, stale, initialized, failed}; no git side effect
+  async search(query, {sector, sectors, type, status, n = 8, all, local, engine, log, today}?)
+                                                   // the QueryResult of `search --json`
+  async read(rel, {offset = 1, lines = 120, column = 1, local, maxChars}?)
+                                                   // {path, root, from, to, total, text, truncated,
+                                                   //  next, nextColumn, inbox}
+  async recent({days = 7, sector, limit = 20, today}?)
+                                                   // [{path, type, status, updated, description, sector}], as-of based
+  async inbox(text, {title, source, today}?)       // {path}: a NEW file in the inbox, never overwrites
+  async check({strict = true, generate = false, today}?)  // the object of `check --json`
+  close()                                          // later calls throw CLOSED
+```
+`read` accepts only a vault-relative POSIX path of an existing `.md` note in the exact letter
+case: no `..`, absolute path, drive letter, backslash, control or Windows-forbidden character, no
+`system/`, `.git/` or other hidden folder, no link leading out of the vault, and a local-root note
+only with `local`; with `local` the path a local hit has in search results (`../<repo>-private/…`,
+the exact path of a configured local root from the vault, then a relative path) is read from that
+root. `next` is the offset of the next line (null at the end). `column` (≥ 1, in code points)
+starts the first line at that character, at most one past the line's end (else `INVALID_ARGUMENT`,
+`api.column_past_end`). `maxChars` cuts the page at a line boundary (`truncated: true`); a first
+line longer than `maxChars` is cut inside, and `nextColumn` (else null) is the column to read the
+rest of line `to` with. `start` with `surface: 'mcp'` puts the search rules of the `memory_*` tools
+(`start.mcp_rule_1…7`) in place of the shell-based block of AGENTS.md and always renders in memory
+(`stale` still says whether `_ai/start.md` is out of date); another surface is `INVALID_ARGUMENT`
+(`api.bad_surface`). A note that `loadVault` marks `misplacedLocal` (7.4) never leaves the API:
+`search` only counts it (`localHits`, without `local`), `read` refuses it, and `start` leaves it
+out (the `LOCAL_IN_GIT` alert names only its path). Without `local`, a sector that only a local
+root holds is unknown to `search`, also in the `unknown_sector` list. `inbox` names the file `<date>-<slug>.md` (`-2`, `-3` on a clash, `wx`),
+removes control and bidi characters and refuses a secret (section 12) or more than 20,000
+characters. Every call reads the notes afresh.
+
+### 7.15 Other modules of 0.1.1
+```js
+// lib/startview.mjs (core): the start view as a pure function, used by start, the API and mcp
+export async function renderStartView(cfg, {sectors, today, surface = 'cli' | 'mcp'}?):
+  {text, stale, initialized, failed}
+export function formatStartView(view, format = 'text' | 'gemini-hook' | 'json'): string
+// lib/fsafe.mjs (core): writeAtomic, copyAtomic, renameRetry, unlinkRetry, removeTree, retrySync
+// lib/kit.mjs (core): KIT_FILE, HISTORY_FILE, compareVersions, hashText, hashFile, groupOf,
+//   listKitFiles, buildManifest, loadManifest, loadHistory, knownHashes, integrityReport
+// lib/upgrade.mjs (core): planUpgrade, applyUpgrade, rollbackUpgrade, restoreBackup, listBackups,
+//   lockState, recoveryTool, LOCK_FILE (10.6); with kit.mjs, fsafe.mjs and migrations.mjs it imports
+//   only node: modules and these four, because the four are copied into every backup's tool/
+// lib/migrations.mjs (core): loadMigrations, migrationChain, runMigrations (system/migrations/index.mjs)
+// lib/schema.mjs (core): validate(schema, value, {root, t}?) → {ok, errors: [{path, message, keyword}]},
+//   loadSchema(kitRoot, name), validateAs, formatErrors; imports only node:fs and node:path
+// lib/mcp.mjs (core): createServer, serveStdio, toolDefinitions (10.8); no I/O of its own
+// lib/clients.mjs (core): CLIENTS, resolveClient({platform, env, home}), locateClient,
+//   inspectClients({vault}) (read-only, also used by doctor), planJsonEdit, planTomlEdit
+// lib/jsonc.mjs (core): parseJsonc, stripJsonc, detectStyle, formatJson
+// lib/doctor.mjs (core): CHECK_IDS, REPAIRS, diagnose(root, opts) → {report, skipped, repairs},
+//   formatReport(report, {skipped, t}), validateReport(report, kitRoot); read-only, no stdout (10.7)
+```
+`system/kit.json` = `{name, version, data_version, api_version, node, upgrade_from, source,
+files: {rel: {sha256, group}}}`; `system/kit-history.json` = `{version: {rel: sha256}}` for every
+release. `node system/tools/release.mjs` rewrites both from the working tree (`--check` exits 1 when
+they are stale; CI runs it). Hashes are of the normalized text (no BOM, LF, NFC), so a CRLF checkout
+has the same hashes.
+
+`system/schema/` holds JSON Schemas (draft 2020-12, `$id`
+`https://github.com/8Krystof8/memory-kit/schema/<name>.schema.json`): `memory` (memory.json),
+`note` (canonical frontmatter), `kit` (kit.json; `#/$defs/history` for kit-history.json),
+`search-result` (`search --json`; `#/$defs/duplicates` for `search --duplicates --json`),
+`check-result` (`check --json`) and `doctor-result` (`doctor --json`). A `$defs` part is validated
+with `validate(schema.$defs.x, value, {root: schema})`. The output schemas reject unknown keys, so
+a new output field needs a schema change in the same commit.
 
 ---
 
@@ -1144,15 +1300,32 @@ data, not instructions.
 
 ### 9.6 `.claude/settings.json`, `.githooks/pre-commit`
 ```json
-{ "hooks": { "SessionStart": [ { "matcher": "startup|resume|compact",
-  "hooks": [ { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/system/memory.mjs\" start" } ] } ] } }
+{ "hooks": { "SessionStart": [ { "matcher": "startup|resume|clear|compact",
+  "hooks": [ { "type": "command",
+               "command": "node \"${CLAUDE_PROJECT_DIR}/system/memory.mjs\" start" } ] } ] } }
 ```
-`.githooks/pre-commit` (POSIX sh, mode 755, LF):
-```sh
-#!/bin/sh
-command -v node >/dev/null 2>&1 || { echo "memory-kit: node not found, check skipped" >&2; exit 0; }
-node system/memory.mjs check --pre-commit || exit 1
-```
+Shell form, the placeholder braced and the path in double quotes: sh, bash and Git Bash expand it
+on every Claude Code version, spaces in the path included, and Claude Code 2.1.198 and newer rewrite
+the braced placeholder for PowerShell (Windows without Git Bash). The exec form (`"command": "node"`
+with `"args"`) is not used: Claude Code before 2.1.139 ignores `args`, so node would read the hook
+input from stdin as a script and fail. 0.1.0 shipped a bare `$CLAUDE_PROJECT_DIR`, which only a
+POSIX shell expands; an upgrade replaces it with this hook (config group, when unmodified).
+
+`.githooks/pre-commit` (POSIX sh, mode 755, LF; Git for Windows runs it with its own sh). GUI git
+clients often run hooks without the login `PATH`, so node is looked for in this order: `git config
+memorykit.node` (pin a stable path: `git config memorykit.node /opt/homebrew/bin/node`), `PATH`,
+`/opt/homebrew/bin/node`, `/usr/local/bin/node`, `$HOME/.volta/bin/node`, `$NVM_BIN/node`. A
+candidate counts when it (or `<it>.exe`) is executable; the first one that passes
+`-e 'process.exit(parseInt(process.versions.node) >= 22 ? 0 : 1)'` runs
+`"$node_bin" system/memory.mjs check --pre-commit || exit 1`, so older ones are passed over. None
+found → `memory-kit: node not found, check skipped (set it with: git config memorykit.node
+/path/to/node)` on stderr and exit 0. Only older ones found: when the first of them is the pinned
+node or the one on `PATH` (the node the user chose), `memory-kit: commit refused: <path> (vX) is
+not Node.js 22 or newer, which the check needs. Install a newer Node.js, or pin one with: git
+config memorykit.node /path/to/node` and exit 1; when it is only in a usual place, it counts as no
+node: `memory-kit: no Node.js 22 or newer found (<path> is vX), check skipped (set it with: git
+config memorykit.node /path/to/node)` and exit 0. The hook's messages are plain `echo`, not pack
+messages.
 `check --pre-commit` = `check --generate --strict` for a commit: it first refuses the commit when a
 staged file differs from its work-tree copy (`git add -p`, edits after `git add`, a staged file deleted
 from the work tree), because every check reads the work tree; then it normalizes notes (10.3),
@@ -1190,7 +1363,7 @@ All human output is token-cheap: one line per item, no colors, no progress bars.
 
 ### 10.1 Commands
 ```
-node system/memory.mjs start [--sectors a,b] [--today D]
+node system/memory.mjs start [--sectors a,b] [--today D] [--format text|gemini-hook|json]
 node system/memory.mjs check [--generate] [--strict|--lenient] [--today D] [--json] [--pre-commit]
 node system/memory.mjs search <query…> [--sector s] [--type t] [--status s|any] [--n 5] [--all] [--local] [--json] [--engine fts5|scan]
 node system/memory.mjs search --rg <query…>
@@ -1202,8 +1375,16 @@ node system/memory.mjs sector sleep|wake|off <id>
 node system/memory.mjs sector list
 node system/memory.mjs sync [--no-push]
 node system/memory.mjs eval [--file path] [--min 0.9] [--engine fts5|scan] [--json]
+node system/memory.mjs doctor [--json] [--fix]
+node system/memory.mjs upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--yes] [--dry-run] [--force] [--rollback [id]] [--no-verify] [--json]
+node system/memory.mjs connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json]
+node system/memory.mjs connect --list [--json]
+node system/memory.mjs mcp [--read-only] [--local]
 ```
-Default check mode is strict. Everything accepts `--root <path>` (handled by memory.mjs).
+Default check mode is strict. Everything accepts `--root <path>` (handled by memory.mjs). Every
+`--json` prints `JSON.stringify(x, null, 2) + '\n'`; `search`, `check` and `doctor` follow their
+schemas in `system/schema/` (7.15). Printed next steps name one command per line, never joined
+with `&&`.
 
 ### 10.2 search
 ```
@@ -1245,7 +1426,14 @@ renders in memory (never writes) and appends the `start.stale` line. With `initi
 prepends `start.not_initialized`. With `--sectors`/`MEMORY_SECTORS` it always renders in memory.
 Total output ≤ `hook_bytes`. Always exit 0; on any exception print `# <start.title>`, one line
 `memory: start failed: <message>. Run node system/memory.mjs check.`, then the search block of
-AGENTS.md and the `start_safety` lines, so a session never loses the search protocol.
+AGENTS.md and the `start_safety` lines, so a session never loses the search protocol (`upgrade`
+recognizes a broken start by that line). The committed file is read with its BOM stripped and CRLF
+turned into LF, so a CRLF checkout is still fresh and prints LF. The rendering is the pure
+`renderStartView` of `lib/startview.mjs` (7.15), shared with the API and `mcp`. `--format text`
+(default) prints the view; `json` prints `{text, stale, initialized, failed}`; `gemini-hook` prints
+one line `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":<text>}}` with
+every non-ASCII character escaped as `\uXXXX` (Gemini CLI's SessionStart hook). An invalid format
+prints a usage line on stderr and still exits 0.
 
 ### 10.5 new, sector, sync, eval
 - `new` prints `created <rel>` and, if the description is empty, `new.fill_description`. It refuses
@@ -1260,18 +1448,272 @@ AGENTS.md and the `start_safety` lines, so a session never loses the search prot
   regenerate `_ai/` + `.ignore`. `sector add` refuses an existing id, an invalid id, and `local` when
   no local root is configured (`sector.no_local_root`, exit 1). For local it creates the manifest and
   `_<id><export_suffix>.md` in the main root and `<sectors>/<id>/` in the local root.
-  `sector off` uses `git mv` when tracked, else `fs.renameSync`. `sector list`: one line per sector
-  `<id> · <state> · <privacy> · <notes> notes · <description>`.
+  `sector off` uses `git mv` when tracked. When `git mv` fails (a file held open on Windows, a
+  tracked file already deleted), `util.movePath` renames the folder with retries and then stages
+  the move in one `git --literal-pathspecs add -A -f` of the old folder plus the moved paths that
+  exist, so the index gets the whole move or nothing: a tracked file deleted before stays a staged
+  deletion, the others become staged renames. If git cannot stage it (another git program holds
+  the index), the folder still moves, the index stays as it was, and `sector` prints
+  `sector.unstaged` on stderr (run `git add -A`); `setSectorState` then returns
+  `unstaged: [dirs]`. `init`'s language switch moves folders the same way. Moves run local roots
+  first and the main root last; when one
+  fails, the ones done are moved back and the command exits 1 (`sector.move_failed`: close editors,
+  terminals and sync apps). `sector add` and `new` refuse Windows device names (`sector.reserved`,
+  `new.reserved`) and a local root written for another OS (`*.foreign_root`). `sector list`: one
+  line per sector `<id> · <state> · <privacy> · <notes> notes · <description>`.
 - `sync`: mode `local` → `sync.local_mode`, exit 0 (nothing leaves the computer, even when a remote
   exists). No remote → `sync.no_remote`, exit 0. Else `git pull --rebase`; while a rebase is in
   progress: conflicted files (`git diff --name-only --diff-filter=U`) all generated (`_ai/`, `.ignore`,
   the home page) →
   `writeGenerated`, `git add`, `git -c core.editor=true rebase --continue` (max 20 rounds); any other
   conflict → `git rebase --abort`, print the files, exit 1. Then, unless `--no-push`, `git push`
-  up to 3 attempts, pulling (same procedure) between attempts. Never `--force`.
+  up to 3 attempts, pulling (same procedure) between attempts. Never `--force`. Git runs with
+  `GIT_TERMINAL_PROMPT=0`, and `rebase --continue` with `GIT_EDITOR=true` and
+  `GIT_SEQUENCE_EDITOR=true`, so no prompt or editor can hang it. A `.git` that git cannot use is
+  `sync.git_error`, exit 1.
 - `eval` prints `hit@3 0.92 (23/25) · extraction 5/5 · multi-session 4/5 · temporal 5/5 ·
   knowledge-update 5/5 · absent 3/3` then one `miss <id> "<q>" expected <names> got <names>` line per
   miss. Exit 1 when hit@3 < min. Empty golden file → prints `no questions`, exit 0.
+
+### 10.6 upgrade
+The newest upgrader always runs. The code that executes is the runner kit (`ctx.kitRoot`). When the
+runner is the vault itself, the source is `--from`, else memory.json `kit.source`, else kit.json
+`source`, else `https://github.com/8Krystof8/memory-kit.git`; a git URL (`https`, `ssh`, `git`,
+`file` or `user@host:path`) is fetched with `git clone --depth 1 --quiet [--branch <ref>]` into
+`os.tmpdir()`, and any other `kit.source` is a folder relative to the vault (with `--ref` it is
+cloned as a `file:` URL; a missing folder → `upgrade.source_missing`, exit 1). Removing the
+temporary clone afterwards is best effort: a failure prints `upgrade.tmp_left` and keeps the exit
+code. A source newer than the runner takes over:
+`node <source>/system/memory.mjs upgrade --root <vault> --from <source> [same flags]` (once; the
+child never hands over again). A source that is not newer: "up to date", exit 0. When the runner is
+another checkout (`node <new-kit>/system/memory.mjs upgrade --root <vault>`, how a 0.1.0 vault is
+upgraded), the runner is the source.
+
+- **Plan** (`lib/upgrade.mjs` `planUpgrade`, no writes): refuses (exit 1) a source whose files do not
+  match its own kit.json, a VERSION and kit.json that disagree, a broken memory.json, an older source
+  (unless `--force`), a vault older than `upgrade_from`, a Node.js older than `node`, vault data
+  newer than `data_version`, a missing migration path, and an upgrade that is still running
+  (`running`, never overridden, see the lock below). One action per file by the ownership table
+  of docs/upgrading.md ("Which files change"), which `kit.groupOf` implements: groups `code`,
+  `tests` (only when the vault has `system/tests/helpers.mjs`), `docs` (only when it has `docs/`),
+  `config` (`.githooks/pre-commit` is essential: installed when missing), the AGENTS `block`, and
+  everything else untouched. Actions: `add`, `replace`, `unchanged`, `force`, `blocked`,
+  `propose`, `skip`, `remove`, `keep`; plus the AGENTS block action and the migrations. Unmodified =
+  `hashText` of the vault file is in `knownHashes` of the new kit's history (the vault's own
+  kit.json and history count too). Blockers (unless `--force`): a changed code or tests file,
+  uncommitted changes (`git status --porcelain`) in a path it touches or in AGENTS.md or
+  memory.json, the lock of an interrupted upgrade. A vault that is not the top of its work tree
+  counts as under git only when that repository tracks something in it (`git ls-files -- .`); a
+  vault in an untracked folder of another repository gets `repo: false` (no dirty check, no
+  `info/exclude` write, no git next steps).
+- AGENTS.md: `replaceKitBlockBytes` replaces the block of valid UTF-8 as text; other bytes (a code
+  page) are spliced as latin1, so every byte outside the block stays and the block is written as
+  UTF-8; a leading UTF-8 BOM is kept; a UTF-16 BOM → state `encoding`, skipped and reported.
+- Without `--yes`, or with `--dry-run`, it prints the plan and the command that applies it (exit 0,
+  or 1 when refused or blocked).
+- **Apply:** a backup `.memory-kit/backups/<YYYYMMDD-HHMMSS>-<from>-to-<to>/` (UTC; `-2`, `-3` on a
+  clash) with `backup.json` `{id, kit, from, to, created, state, pid, files, dirs, roots, local}`
+  and the saved bytes under `files/<rel>`. A file entry is `{rel, existed, sha256, mode, next?,
+  kind?, text?, after?}`: `next` is the raw hash the apply will write (null: it removes the file),
+  recorded before anything is written (kit files, removals, kit-history.json, VERSION, kit.json and
+  the new AGENTS.md bytes; a migration write through the `wrote` callback; without migrations, a
+  planned file the apply leaves alone, such as memory.json, gets its own hash); `kind` `generated`
+  marks a file check --generate rebuilds, `note` and `gitignore` one it may rewrite without changing
+  the owner's part (`text`: the hash of a note's normalized text, or of the `.gitignore` lines
+  outside the kit block); `after` is the raw hash when the upgrade finished. Then the recovery tool
+  (`tool/`: copies of `upgrade.mjs`, `kit.mjs`, `fsafe.mjs`, `migrations.mjs` and a generated
+  `rollback.mjs`) → the lock `.memory-kit/upgrade.lock` `{backup, from, to, started, pid, host,
+  runner, recover}` → files via `fsafe.copyAtomic` (mode 0755 for `.githooks/*`) → proposed copies
+  to `.memory-kit/upgrade/<to>/proposed/<rel>` → verified obsolete files removed → AGENTS block
+  replaced → migrations → `system/kit-history.json`, `system/VERSION` and `system/kit.json` last.
+  `.memory-kit/` goes into `.git/info/exclude`. A failure while applying restores the backup
+  (below).
+- **Verify** (unless `--no-verify`): before, the vault's own `eval --json` (when a golden file
+  exists) and `check --lenient --json`; after, `check --generate --lenient --json` must not exit 3,
+  `start` must exit 0 without the start-failure line, `search memory --json` must exit 0, hit@3 must
+  not drop. Before the checks run, the backup records what they may rewrite: `_ai/**`, `.ignore`
+  and the home page (`generated`), `.gitignore` (`gitignore`) and every `.md` outside `system/` with
+  CRLF, a BOM or non-NFC text (`note`); notes of the same kind in each local root of memory.json
+  that exists outside the vault are saved inside that root, `<local root>/.memory-kit/backups/<id>/
+  files/<rel>` (`roots`, `local`), never in the vault. The verification's own search leaves no line
+  in `system/usage/search.log` (it is put back in place; the log is not in the backup). Afterwards
+  only files the checks create are recorded as created (`_ai/**`, `.ignore`, the home page,
+  `.gitignore`, `<archive>/<home>-hand-written[-n].md` with its `next`); any other new file is
+  `foreign`, reported (`upgrade.foreign`) and never removed. Any failure restores the backup with
+  `force`: a file changed meanwhile is saved under `conflicts/<rel>` first, reported
+  (`upgrade.saved`), and the backup then stays, marked restored; otherwise the backup is removed.
+  Exit 1. The lock goes only after verification passed and only when it still names this backup
+  (else `upgrade.undone_meanwhile`, exit 1, nothing finished or pruned); then `finish()` records
+  `after`, the 5 newest backups are kept (never the one a lock names).
+- **Rollback** (`--rollback [id]`, the recovery tool, the automatic rollback; `restoreBackup`):
+  the named backup, else the one the lock names, else the newest (by `created`, the id breaking
+  ties; a plain `--rollback` of a restored newest backup does nothing). Refused
+  (`rollback_running`) while the lock's upgrade still runs, with or without `--force`. Per entry
+  (`entryState`): `same` (it holds its saved bytes, or the upgrade left it as it was: a later change
+  is the owner's and stays, e.g. memory.json) → nothing; `restore` (it holds what the upgrade left
+  or planned, it is `generated`, or it differs only where the checks rewrite: equal `text`) → saved
+  bytes back, or removed when it did not exist; else `conflict`. Any conflict refuses the whole
+  rollback (exit 1; `--dry-run` lists them) unless `--force`, which first copies each conflicting
+  file to `<backup>/conflicts/<rel>` (`upgrade.rollback.saved`). A local-root note is restored only
+  on `restore`; on a conflict, or when its root or saved copy is gone, it stays (`skipped`). Then
+  the temporary files `.<name>.tmp-<pid>-<random>` of the backup's own `pid` next to recorded files
+  are removed (`temp`), and the folders the upgrade created, when empty. The backup is marked
+  `restored` and the lock removed. A lock whose backup is gone: `rollback_orphan_lock`, `--force`
+  removes only the lock (`--dry-run`: `upgrade.rollback.lock_would_remove`).
+- **Lock:** `lockState` gives `{rel, backup, from, to, started, pid, host, valid, running,
+  recover}`. `running` = the same host, a live pid (`process.kill(pid, 0)`, EPERM counts as alive),
+  a lock file younger than 2 h and, where `/proc/<pid>/cmdline` exists, a command line containing
+  `memory.mjs`; a lock without `host` counts as interrupted. `recover` = `recoveryTool(backup)`,
+  `.memory-kit/backups/<id>/tool/rollback.mjs`, when that file exists.
+- **Recovery tool:** `node .memory-kit/backups/<id>/tool/rollback.mjs [--force] [--dry-run]
+  [--json]` runs `rollbackUpgrade` of the copied upgrader on its own backup (the vault is four
+  folders up), so it works while the vault's code is half replaced. English messages only; exit 0,
+  1 refused, 2 usage; `--json` prints `{rollback: {ok, ...}}`. A hand-over whose child fails and
+  leaves a lock of its own prints `upgrade.recover` with this command (only when no tool exists, it
+  keeps the temporary clone and names that clone's `upgrade --rollback`); a failed automatic
+  restore prints `upgrade.restore_failed` with it.
+- **Migrations** (`system/migrations/index.mjs`, run by `lib/migrations.mjs`): `export const
+  MIGRATIONS = [{id, from, to, title, run(ctx)}]`, ordered, `to > from >= 1`, unique ids. The data
+  version is memory.json `version` (absent = 1); kit.json `data_version` is the highest `to` (at
+  least 1, derived by `release.mjs`). `migrationChain(list, from, to)` takes at each step the entry
+  that gets furthest without passing `to`; no chain → refused. `ctx = {root, lang, readText,
+  writeText, readJson, writeJson, move, log}` with vault-relative POSIX paths only (no `..`,
+  absolute paths, `.git/` or `.memory-kit/`); every write or move is recorded in the backup before
+  it happens, and its result after (`wrote`). A migration rewrites or moves, never deletes. After
+  each step memory.json `version` is set to its `to`. 0.1.1 ships `MIGRATIONS = []`.
+- Output: a summary per action, then the next steps as separate lines `git add -A` and
+  `git commit -m "memory-kit <from> → <to>"` (only under git). `--json`: `{runner, delegated_from,
+  plan, result}`. Exit 0 done or up to date, 1 refused, blocked or failed (rolled back), 2 usage,
+  3 internal.
+
+### 10.7 doctor
+`doctor [--json] [--fix]` checks the installation, read-only. It runs with `cfg = null` when
+memory.json or a pack cannot be loaded (messages then come from the en pack and, when it loads,
+the pack named by memory.json `lang`) and never exits 3 because of a broken config: it reports it.
+Every check is `{id, status: ok|warn|fail, message, fix}` (`fix` a command or instruction, or
+null), in this order:
+
+| id | checks |
+|---|---|
+| `node.version` | Node.js ≥ kit.json `node` |
+| `node.fts5` | `node:sqlite` with FTS5 loads (warn: the scan engine is used) |
+| `config.memory_json` | memory.json exists, parses, matches `memory.schema.json`, loads without config warnings; `initialized` |
+| `config.data_version` | memory.json `version` vs `DATA_VERSION` and kit.json `data_version` |
+| `kit.version` | `system/VERSION` and kit.json agree; for a missing or unreadable kit.json the fix is the running kit's `upgrade --root <vault>` when the vault's VERSION is older than that kit, `git checkout -- system/kit.json` only when the last commit has the file, else a copy from the kit |
+| `kit.integrity` | `integrityReport`: missing, changed (and whether the bytes are another release's) and unknown kit files |
+| `kit.upgrade_lock` | `.memory-kit/upgrade.lock` (`lib/upgrade.mjs` `lockState`): an upgrade still at work (`running`) is a warning with no fix; one that did not finish fails, and its fix is the recovery tool of its backup, `node .memory-kit/backups/<id>/tool/rollback.mjs` (absolute when another kit checks the vault with `--root`), else `upgrade --rollback`, or `--rollback --force` when the backup is gone |
+| `agents.block` | kit markers present once and in order, marker version = VERSION, block equals the language's template (the setup block and CRLF ignored) |
+| `adapters` | CLAUDE.md and GEMINI.md import AGENTS.md (for the agents in memory.json `agents`); `.claude/settings.json` has a SessionStart hook that runs `system/memory.mjs start` (a shell command, or `args` in exec form); a warning when no such hook would run here: a bare `$CLAUDE_PROJECT_DIR` on Windows without Git Bash (`IO.gitBash`), `args` below Claude Code 2.1.139, the braced shell form under PowerShell below 2.1.198 (`claude --version` is asked only when the answer matters; the fix is the braced shell form, or updating Claude Code), or when the matchers leave out startup, resume, clear or compact |
+| `git.repo` | git installed; the vault is the top of its own repository; no rebase or merge in progress; a remote unless mode local |
+| `git.hooks_path` | `core.hooksPath` is `.githooks` |
+| `git.pre_commit` | the hook exists, starts with `#!/bin/sh`, has no BOM or CRLF, is executable (POSIX) and stored with mode 100755, runs `check --pre-commit`; on POSIX also which Node.js a git app started outside a terminal would use: a `memorykit.node` pin that is missing or too old warns; without a pin, as the hook picks it, the first Node.js 22 or newer on the app's `PATH` or in the usual places counts, a too old one on the app's `PATH` warns that commits fail, and none, or a too old one only in a usual place, warns that commits go unchecked |
+| `git.attributes` | `.gitattributes` has `* text=auto eol=lf`; `core.autocrlf` |
+| `roots` | from the raw memory.json: every local root resolves, exists, lies outside the repository and is not a path of another OS |
+| `generated.fresh` | `runChecks` limited to the GEN_* rules and GITIGNORE_LOCAL: EDITED, FAILED, BUDGET fail; MISSING, STALE, ORPHAN, GITIGNORE_LOCAL warn |
+| `platform` | OS, release, architecture, Node.js path, home folder, a UTF-8 probe; warns when HOME differs from the user folder on Windows or the vault lies in OneDrive, Dropbox, iCloud Drive, Google Drive or Box |
+| `mcp.clients` | `clients.inspectClients` (read-only): the apps connected to this vault; warns on an unreadable config, an entry whose command no longer exists, an entry serving a vault that is gone; never fails |
+
+A check that cannot run (for example `roots` when memory.json does not load) is ok with the message
+`not checked: <reason>` and is marked `·` in human output; the others are marked `✓`, `!` and `✗`
+with the fix indented below. Each kit module is loaded inside its own check, so a damaged module
+fails only that check. `--json` prints only `{kit, root, checks, summary: {ok, warn, fail}}`
+(`doctor-result.schema.json`; `kit` is the VERSION string or null). `--fix` applies only two
+mechanical repairs and then checks again. It sets `core.hooksPath` to `.githooks` when it is unset
+(never over another value). It repairs `.githooks/pre-commit` byte by byte, with no decoding
+(`hookBytes`): a leading UTF-8 BOM goes, and each CR LF pair or lone CR becomes LF; every other
+byte stays. When the bytes change, the old file is first copied (never over an older copy) to
+`.memory-kit/backups/doctor/<name>-<YYYYMMDD-HHMMSS>[-n]<ext, or .bak>` (local time),
+`.memory-kit/` is appended to `.git/info/exclude` unless git ignores it already, and the new bytes
+are written through `fsafe.writeAtomic` with the old mode plus the exec bits. When only the exec
+bit is missing, it only adds the exec bits (`chmod`, same bytes and inode; nothing on Windows). A
+symlinked hook stays a link: the file it leads to is repaired when that file is inside the vault;
+otherwise `git.pre_commit` offers no repair, names that file in its fix
+(`doctor.hook.outside_fix`), and `applyRepairs` refuses (`doctor.fix_outside`). The `fixed:` line
+of each repair is followed by `doctor.backup` with the copy's path; with `--json` both go to
+stderr. Without `--fix` doctor writes nothing. When the vault's kit has no doctor (it is not the
+running kit and has no `system/lib/commands/doctor.mjs`, as in 0.1.0), the `doctor --fix` hints of
+`git.hooks_path` and `git.pre_commit` name the running kit's command,
+`node <kit>/system/memory.mjs doctor --fix --root <vault>`. Exit 0 without a fail, 1 with one, 2 on
+a usage error.
+
+### 10.8 connect
+`connect <client>` writes `{command: <node>, args: [<vault>/system/memory.mjs, 'mcp', '--root',
+<vault>(, '--read-only')]}` under `--name` (default `memory-kit`) into the client's own config and
+keeps every other key and server. `<node>` is `process.execPath`; a Homebrew Cellar path becomes
+the stable `<prefix>/bin/node` link when it points at the same formula. Clients: claude-code
+(`claude mcp add --scope user --transport stdio …` when the `claude` command is found, else
+`~/.claude.json`), claude-desktop (with the Microsoft Store private copy on Windows), cursor,
+vscode (`servers`, `type: stdio`), windsurf, gemini-cli, codex (TOML: only its own
+`[mcp_servers.<name>]` block is added, changed or removed), zed (`context_servers`), lm-studio,
+cline, copilot-cli (`tools: ["*"]`), junie; guidance only: chatgpt, claude-app (alias claude-web),
+jetbrains. Paths come from the pure `resolveClient({platform, env, home})`. An entry is ours when its
+args name this vault's memory.mjs; another entry with the same name is a conflict (exit 1) unless
+`--force`. A file with comments, an unreadable file or one with integers too big to keep exact is
+never rewritten: the entry to paste is printed, exit 1. Before a change the file is copied to
+`.memory-kit/backups/connect/<client>-<timestamp>.<ext>` (mode 0600) and written with
+`fsafe.writeAtomic` (a symlinked config is written at its target, its mode kept). A missing app
+directory → "app not found" unless `--force`. `--scope project` only for cursor and vscode
+(`${workspaceFolder}`). `--dry-run` writes nothing; `--list` prints one row per client (connected,
+not connected, app not found, guidance only, unreadable). After a change it prints how to restart
+the app and how to check the connection. The per-OS paths and the troubleshooting for users are in
+docs/integrations/mcp.md.
+
+| client | file (Windows · macOS · Linux) | key and entry |
+|---|---|---|
+| claude-code | `~/.claude.json` (`CLAUDE_CONFIG_DIR`) | `mcpServers`, `type: stdio`, `env: {}`; through `claude mcp add` when the command is found |
+| claude-desktop | `%APPDATA%\Claude\` (or the MSIX private copy) · `~/Library/Application Support/Claude/` · `~/.config/Claude/`, file `claude_desktop_config.json` | `mcpServers`, exactly `command` and `args` |
+| cursor | `~/.cursor/mcp.json`; project `.cursor/mcp.json` | `mcpServers`, `type: stdio` |
+| vscode | `<user settings>/Code/User/mcp.json` (Insiders when only it exists); project `.vscode/mcp.json` | `servers`, `type: stdio` |
+| windsurf | `%APPDATA%\devin` or `$XDG_CONFIG_HOME/devin`, and `~/.codeium/windsurf`, file `mcp_config.json` (both when both exist) | `mcpServers` |
+| gemini-cli | `~/.gemini/settings.json` (`GEMINI_CLI_HOME`), JSONC | `mcpServers` |
+| codex | `~/.codex/config.toml` (`CODEX_HOME`), TOML | `[mcp_servers.<name>]` block |
+| zed | `%APPDATA%\Zed` · `~/.config/zed` · `$XDG_CONFIG_HOME/zed`, file `settings.json`, JSONC | `context_servers`, `env: {}` |
+| lm-studio | `~/.lmstudio-home-pointer` target, else an existing `~/.cache/lm-studio/mcp.json` or `~/.lmstudio/mcp.json` | `mcpServers` |
+| cline | `~/.cline/data/settings/cline_mcp_settings.json` (`CLINE_DIR`, `CLINE_DATA_DIR`, `CLINE_MCP_SETTINGS_PATH`); the old VS Code globalStorage file only when it is the only one | `mcpServers`, `disabled: false` |
+| copilot-cli | `~/.copilot/mcp-config.json` (`COPILOT_HOME`) | `mcpServers`, `type: stdio`, `tools: ["*"]` |
+| junie | `~/.junie/mcp/mcp.json` | `mcpServers` |
+
+Fields marked with a value (`env`, `disabled`, `tools`) are defaults added only when missing, so
+the owner's values survive an update; `command`, `args` and `type` are always the kit's.
+
+### 10.9 mcp
+`mcp [--read-only] [--local]` is the MCP server over stdio (`lib/mcp.mjs`): newline-delimited
+JSON-RPC on stdout only (any stray print goes to stderr), a trailing CR and a BOM dropped, whole
+lines decoded as UTF-8, messages over 10 MiB refused. `initialize` accepts 2025-11-25, 2025-06-18,
+2025-03-26 and 2024-11-05 and answers any other version with 2025-11-25; the stateless 2026-07-28
+era (`server/discover`, per-request `_meta`) is served too. `ping` → `{}`, notifications never get
+an answer, unknown methods with an id → -32601, batches only for 2025-03-26, cancellation honored;
+stdin end → exit 0. Tools (JS API underneath, memory.json read per call): `memory_start`,
+`memory_search` (limit 8, max 20), `memory_read` (120 lines, max 400), `memory_recent`,
+`memory_inbox` (absent with `--read-only`). `outputSchema`, `structuredContent`, `title` and
+annotations appear only for protocol versions that have them; a text block is always there, capped
+at about 20,000 characters (`TEXT_LIMIT`). `memory_read` passes `maxChars: TEXT_LIMIT` to `read`: a
+page cut at a line boundary ends with `mcp.read_cut` (continue with `offset`), a first line longer
+than the limit with `mcp.read_line_cut` (continue with `offset` and `column` = `nextColumn`), and a
+page that starts inside a line has the header `mcp.read_header_column`. `memory_start` calls
+`start({surface: 'mcp'})`, so its search rules name the tools, not shell commands. The text of
+`memory_search` shows each hit's `rel` (what `memory_read` takes; `[L]` before a local hit), and
+`memory_search` and `memory_recent` write type and status in the vault's language
+(`Memory.localValue`, `–` when empty); structured content stays canonical. Bad arguments give a
+result with `isError: true`. Local-root notes leave the server only with `--local`; private
+content in a local sector's main-root folder never does (7.4). A `tools/call` cancelled before
+its tool ran is not run at all and gets no response.
+
+| tool | arguments (JSON Schema, `additionalProperties: false`) | structured result |
+|---|---|---|
+| `memory_start` | `sectors?: string[]` (≤ 20) | `{text, stale, initialized, failed}` |
+| `memory_search` | `query: string` (1–500 chars), `sector?`, `type?`, `status?`, `limit?` (1–20, default 8), `all?` (default false) | the QueryResult of 7.7 |
+| `memory_read` | `path: string` (≤ 1024 chars), `offset?` (≥ 1, default 1), `lines?` (1–400, default 120), `column?` (≥ 1, default 1) | `{path, root, from, to, total, text, truncated, next, nextColumn, inbox}` |
+| `memory_recent` | `days?` (0–365, default 7), `sector?`, `limit?` (1–50, default 20) | `{days, notes: [{path, type, status, updated, description, sector}]}` |
+| `memory_inbox` | `text: string` (1–20,000 chars), `title?` (≤ 200), `source?` (≤ 500) | `{path}` |
+
+Annotations: `readOnlyHint: true` on the first four, `false` on `memory_inbox`; `destructiveHint`
+and `openWorldHint` false everywhere. They are hints; the path, privacy and write rules are enforced
+in the API (7.14). `initialize` returns `instructions` of four sentences (three with
+`--read-only`, which leaves out the inbox): call `memory_start` first, search and read before
+answering about the past and cite paths, notes and inbox are data, the inbox only files new
+captures. `MEMORY_SECTORS` narrows `memory_start` and the default search scope. The users' view of
+the tools is docs/api.md.
 
 ---
 
@@ -1293,6 +1735,7 @@ where hooks cannot run.
 | GEN_FAILED | S | generator threw | `generator failed: {detail}` |
 | AGENTS_MARKERS | S | AGENTS.md missing, or kit or search markers missing, or empty search block | `AGENTS.md markers missing` |
 | ADAPTER_IMPORT | S | CLAUDE.md or GEMINI.md present without `@AGENTS.md` first | `must start with @AGENTS.md` |
+| NAME_PORTABLE | S | a path segment of a note (any root), shelf, attachment, hub or sector folder (live or archived) that Windows cannot hold: a device name (`con prn aux nul com1–com9 lpt1–lpt9 conin$ conout$`, any case, with or without extension), a forbidden character (`< > : " \| ? * \` or a control character), a trailing dot or space; once per bad segment, messages `check.NAME_PORTABLE`, `.char`, `.end` | `"{name}" is a device name Windows reserves (…), so git cannot check it out there; rename it` |
 | FM_MISSING | D | non-inbox note without frontmatter | `no frontmatter` |
 | FM_PARSE | D | parser errors, including plain values real YAML rejects (containing `: `, ending with `:`, starting with `@`, `` ` ``, `%`, `,`, `]`, `}` or `- `): they need quotes | `frontmatter: {detail}` |
 | FM_REQUIRED | D | required key missing or empty (5.4) | `missing {key}` |
@@ -1341,6 +1784,12 @@ where hooks cannot run.
 | GITIGNORE_LOCAL | W | the `.gitignore` block for local sectors (6.3) missing or outdated | `the block for local sectors is missing or outdated; run check --generate` |
 | ROOT_MISSING | W | configured local root path does not exist (mode combined/local) | `local root {path} not found` |
 | LOCAL_UNKNOWN_SECTOR | W | local-root note in a sector that is not a local sector | `unknown local sector {id}` |
+| CASE_MISMATCH | W | a hub, manifest, export file, AGENTS.md, CLAUDE.md, GEMINI.md or top folder exists only with other letter case; it counts as missing on every OS (lookups are case-exact) | `the letter case differs from {expected}, so it counts as missing; rename it: git mv -f {actual} {expected}` |
+
+A generated file with CRLF line ends or a BOM (a checkout with `core.autocrlf` and no `eol=lf`
+rule) is compared after removing them, so it is not GEN_EDITED; `--generate` writes it back with
+LF. ROOT_MISSING is not reported for a root written for another OS (3). The secret walk of a vault
+without git skips `.memory-kit/` (local state, 2.2).
 
 `notesOnly: true` limits SECRET scanning to vault notes (used for start alerts, so alerts depend only
 on source inputs). Plain `check` scans all text files (12.2).
@@ -1482,7 +1931,12 @@ node system/init.mjs --mode github|local|combined --lang en|cs --sectors <list>
   finances) is a usage error that asks for `--mode combined` or `<id>:github`: a private folder is
   never created silently.
 - `--private-root` is stored in memory.json (which is committed) as `~/…` when it lies under the home
-  folder and as a path relative to the vault otherwise, never as an absolute path.
+  folder (`os.homedir()`; `~`, `~/` and `~\` are accepted) and as a path relative to the vault
+  otherwise, never as an absolute path. A private root on another drive than the repository or on a
+  UNC share (and not under the home folder) is refused (`init.private_root_drive`, exit 2): no
+  relative path reaches it, and an absolute one would not hold on the owner's other computers.
+  Inside-checks resolve links and ignore letter case on Windows and macOS.
+- A custom sector id that Windows reserves (`con`, `nul`, `com1`…) is refused (`init.reserved`).
 - Mode `local` refuses (exit 1) a repository that already has a git remote (mode local promises that
   nothing leaves the computer); remove the remote or choose `github`/`combined`.
 - In a cloud session (`CLAUDE_CODE_REMOTE=true`, `CODESPACES=true`, `GITPOD_WORKSPACE_ID`) init
@@ -1497,9 +1951,11 @@ node system/init.mjs --mode github|local|combined --lang en|cs --sectors <list>
 
 Steps (in order; each step idempotent):
 1. Validate flags against the target pack.
-2. If `lang ≠ en`: rename roles en → target (`git mv` when tracked, else rename): dirs sectors,
+2. If `lang ≠ en`: rename roles en → target (`git mv` when tracked, else a rename that retries while
+   Windows holds a lock; `init.move_failed` asks to close editors and run init again): dirs sectors,
    inbox, journal, archive, attachments; files home, state, waiting. The `core` sector folder and its
-   manifest are renamed to the preset id (`sektory/jadro/_jadro.md`).
+   manifest are renamed to the preset id (`sektory/jadro/_jadro.md`). Every file init writes goes
+   through `fsafe.writeAtomic`.
 3. Rewrite the state and waiting files and the core manifest body from `system/templates/<lang>/kit/` (the English
    starters contain no user data). Write the profile note `<sectors>/<core>/<profile_note>.md` from
    `kit/profile.md`.
@@ -1513,8 +1969,12 @@ Steps (in order; each step idempotent):
 7. Mode `local` and not a git repo → `git init -b main`. Any git repo → `git config core.hooksPath .githooks`.
 8. `writeGenerated(cfg, loadVault(cfg), {today})` (home page, `_ai/`, `.ignore`, the `.gitignore`
    block), then `runChecks` strict; print a summary and next steps per agent (from `init.done`; in
-   mode local ChatGPT gets `init.next.chatgpt_local`, since it cannot see the repository). Exit 0 when
-   no errors.
+   mode local ChatGPT gets `init.next.chatgpt_local`, since it cannot see the repository). The commit
+   step is `init.next.commit_steps` followed by `git add -A` and `git commit -m "<init.next.commit_message>"`
+   on separate lines. Exit 0 when no errors.
+
+init runs only as the entry script (`import.meta.main`, else a realpath comparison that ignores
+letter case on Windows and macOS), so tests and tools can import its exported helpers.
 
 Modes: `github` = private GitHub repo, CI; `local` = git without remote, no Actions; `combined` =
 github repo + local private root listed in `roots`. The public kit uses `github` defaults.
@@ -1528,8 +1988,9 @@ github repo + local private root listed in `roots`. The public kit uses `github`
 system/tests/
 ├── golden.json                     the owner's questions: {"version":1,"questions":[]}
 ├── helpers.mjs                     copyKit(tmpDir), runCli(root, args, {env}), sha256File, plantSecret()
-├── unit/{frontmatter,config,util,text,search,generate,check,secrets,fingerprint,pack,review}.test.mjs
-├── integration/kit.test.mjs
+├── unit/{frontmatter,config,util,text,search,generate,check,secrets,fingerprint,pack,review,cli,
+│        eval,kit,kit-manifest,portability,schema,api,connect,doctor,docs}.test.mjs
+├── integration/{kit,sync,upgrade,upgrade-recovery,mcp}.test.mjs
 └── fixtures/
     ├── en/vault/**   en/private/**   en/golden.json
     └── cs/vault/**   cs/private/**   cs/golden.json
@@ -1599,8 +2060,13 @@ Triggers: push, pull_request, `workflow_dispatch`, schedule `23 2 * * *`. Permis
 `contents: read`. Actions pinned to a commit SHA. Job `public-guard` (public repositories only):
 fails when `memory.json` has `"initialized": true`, i.e. a personal vault was made public by mistake.
 Job `kit` (runs only when the repository is public,
-i.e. the kit itself): Node 22 and 24 matrix, `node --test "system/tests/**/*.test.mjs"`,
-`node system/memory.mjs check --strict`. Job `vault` (private instances; on push only when public,
+i.e. the kit itself): a matrix of ubuntu-latest, windows-latest and macos-latest × Node 22 and 24
+(`fail-fast: false`), a full-history checkout (`fetch-depth: 0`: the upgrade tests build a real
+0.1.0 vault from its release commit), `node --test "system/tests/**/*.test.mjs"` (the same line
+works in bash and PowerShell; node expands the glob), `node system/tools/release.mjs --check`
+(kit.json matches the files) and `node system/memory.mjs check --strict`. Git keeps each runner's
+own line-ending settings (no `core.autocrlf false`); `.gitattributes` decides the checkout, so
+Windows runs see what an owner's Windows clone sees. Job `vault` (private instances; on push only when public,
 otherwise schedule and manual, because private repos have limited Actions minutes): Node 22,
 `node system/memory.mjs check --lenient` and a search smoke test
 (`node system/memory.mjs search "memory" --json`). CI never commits.
@@ -1622,8 +2088,8 @@ otherwise schedule and manual, because private repos have limited Actions minute
   the manifest `cleanup` key are placeholders for this.
 - **Local model** for private sectors (smallest local Gemma that passes a native-language task test),
   narrow mandate, proposals only.
-- **MCP server** (optional module with its own package.json): read-only search/read/start tools,
-  inbox-only writes, remote variant only with OAuth.
+- **MCP server**: the local stdio server is built into the dependency-free core (10.8). Still on the
+  roadmap: ChatGPT-shaped `search`/`fetch` tools and a remote variant, only with OAuth.
 - **Embeddings**: only when a trigger fires (> 500 active notes, > 12 % of logged searches missing
   due to synonyms, or hit@3 < 0.85): H2 chunks with title + description prefix, RRF with FTS (k = 60),
   vectors in `.cache/`, never in git.
@@ -1675,6 +2141,62 @@ otherwise schedule and manual, because private repos have limited Actions minute
 22. **Profile note** is `<first sector>/<profile_note>.md`, created by init; the start profile section
     is its lead and disappears when empty.
 
+From 0.1.1:
+
+23. **The newest upgrader always runs.** The installed kit fetches the new one and hands over to
+    its `upgrade`, so fixes of the upgrade logic reach vaults in the same step. A 0.1.0 vault, which
+    has no upgrader, is upgraded by the new kit with `--root`.
+24. **"Unmodified" means "shipped by some release"**, decided by hashes of normalized text in
+    `kit-history.json`, not by a comparison with the installed version: a CRLF checkout or a file
+    from an older release is unmodified; anything else belongs to the owner.
+25. **A changed code or tests file blocks the upgrade; a changed config or docs file is kept** and
+    the new version is written next to it (`proposed/`). Code must match its version to run; config
+    and docs are the owner's to adapt.
+26. **Verification runs the vault's own commands and rolls back by itself.** The lock stays until
+    verification passes, so an interrupted upgrade is refused until `--rollback`.
+27. **Local state lives in `.memory-kit/`, never committed**, excluded through `.git/info/exclude`,
+    so an upgrade never edits the owner's `.gitignore`.
+28. **The data version is separate from the kit version** (memory.json `version`, kit.json
+    `data_version`); only migrations change data, and a vault with newer data is refused rather
+    than read wrongly.
+29. **The MCP server is part of the zero-dependency core**, not an optional package: it reuses the
+    JS API, implements newline-delimited JSON-RPC itself and costs nothing when unused.
+30. **MCP and the API hide local-root notes unless asked** (`--local`, `local: true`), and
+    `connect` never writes `--local`: an app's model provider would otherwise receive private notes
+    by default.
+31. **The only write through MCP and the API is a new inbox file** (`wx`, secrets refused).
+    Structured writes stay with agents that follow AGENTS.md; the inbox is data until the owner
+    files it.
+32. **`connect` writes absolute paths** of node and the vault: apps started from a GUI often lack
+    the shell's `PATH`. A config file with comments is never rewritten (the entry to paste is
+    printed), because a JSON rewrite would drop the owner's comments.
+33. **`doctor` is read-only and runs without a valid config.** `--fix` does only the two mechanical
+    repairs that cannot lose data (an unset `core.hooksPath`, the hook file's bytes and mode).
+34. **The SessionStart hook is a shell command with a braced, quoted placeholder**
+    (`node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start`), not the exec form: Claude Code before
+    2.1.139 ignores `args`, while this form runs in sh, bash and Git Bash on every version and in
+    PowerShell from 2.1.198; its matcher includes `clear`.
+35. **Commands printed for people stand one per line**, never joined with `&&` (Windows
+    PowerShell 5.1 rejects it).
+36. **Portability is checked where names are made**: `new`, `sector add` and `init` refuse names
+    Windows cannot hold and `check` reports them (`NAME_PORTABLE`); lookups of fixed files are
+    case-exact everywhere (`CASE_MISMATCH`), because macOS and Windows fold letter case and Linux
+    does not.
+37. **JSON schemas ship with the kit and a small built-in validator checks them**, instead of a
+    dependency. Output schemas reject unknown keys, so every change of an output is deliberate.
+38. **`api_version` is separate from the kit version.** Additions keep it; a breaking change of the
+    API, the JSON output or the MCP tools raises it (docs/api.md).
+39. **A rollback never overwrites a change made after the upgrade without a copy.** The backup
+    records the bytes each write will leave before it writes, so a rollback, also of an
+    interrupted upgrade, tells the upgrade's writes from later edits; a later edit refuses it until
+    `--force`, which saves that edit under `conflicts/` first. Files the upgrade left as they were
+    keep later changes, and a new file the upgrade cannot prove it wrote is never removed.
+40. **Every backup carries the upgrader that made it** (`tool/rollback.mjs`), because after an
+    interruption the vault's own code may be half replaced and the kit it came from deleted. The
+    four modules copied there import nothing but `node:` modules and each other.
+41. **A running upgrade is never undone.** Its lock (same computer, live process, younger than two
+    hours) refuses a second upgrade and every `--rollback`, and `--force` does not override it.
+
 ---
 
 ## 18. Module map
@@ -1683,11 +2205,11 @@ Only the owner edits a file. Files marked (+) are additions inside the module's 
 
 | module | files |
 |---|---|
-| core | `system/memory.mjs`, `system/lib/config.mjs`, `system/lib/frontmatter.mjs`, `system/lib/vault.mjs`, `system/lib/check.mjs`, `system/lib/generate.mjs`, `system/lib/fingerprint.mjs`, `system/lib/secrets.mjs`, `system/lib/commands/{start,check,new,sector,sync}.mjs`, `system/VERSION`, (+) `system/lib/util.mjs` |
+| core | `system/memory.mjs`, `system/lib/config.mjs`, `system/lib/frontmatter.mjs`, `system/lib/vault.mjs`, `system/lib/check.mjs`, `system/lib/generate.mjs`, `system/lib/fingerprint.mjs`, `system/lib/secrets.mjs`, `system/lib/commands/{start,check,new,sector,sync}.mjs`, `system/VERSION`, (+) `system/lib/util.mjs`; from 0.1.1 `system/api.mjs` (public JS API), `system/lib/{fsafe,startview,kit,upgrade,migrations,schema,doctor,mcp,clients,jsonc}.mjs`, `system/lib/commands/{doctor,upgrade,connect,mcp}.mjs`, `system/schema/*.schema.json`, `system/migrations/index.mjs`, `system/tools/release.mjs`, `system/kit.json`, `system/kit-history.json` |
 | search | `system/lib/text.mjs`, `system/lib/search.mjs`, `system/lib/commands/search.mjs`, `system/lang/cs/stemmer.mjs`, `system/lang/cs/base-stemmer.mjs`, `system/lang/en/stemmer.mjs`, `system/lang/en/base-stemmer.mjs` (or a shared `system/lang/snowball-base.mjs`), `system/lang/LICENSE-snowball.txt` |
 | packs | `system/lang/{en,cs}/pack.json`, `system/templates/{en,cs}/*.md` (as `system/templates/{en,cs}/notes/*.md` and (+) `system/templates/{en,cs}/kit/*`), `system/init.mjs`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.agents/skills/memory/SKILL.md`, `.claude/agents/memory-searcher.md`, `.claude/settings.json`, `.githooks/pre-commit`, `.gitignore`, `.gitattributes`, `memory.json`, `home.md`, `state.md`, `waiting.md`, `sectors/core/_core.md`, `inbox/.gitkeep`, `journal/.gitkeep`, `archive/.gitkeep`, `attachments/.gitkeep` |
 | tests | `system/tests/**` (incl. `golden.json`, fixtures, helpers), `system/lib/eval.mjs`, `system/lib/commands/eval.mjs`, `.github/workflows/ci.yml` |
-| docs | `README.md` (English, 5-minute start), `README.cs.md` (Czech), `docs/modes.md`, `docs/privacy.md`, `docs/phone.md` (capture and reading on iPhone/Android without any particular app), `docs/search.md`, `docs/maintenance.md` (incl. roadmap: nightly cleanup constitution and safety rules, local Gemma, MCP), `docs/integrations/{claude-code,codex,gemini-cli,cursor,chatgpt,claude-app}.md`, `CONTRIBUTING.md`, `CHANGELOG.md` |
+| docs | `README.md` (English, 5-minute start, AI tools, health check, updates), `README.cs.md` (Czech), `docs/modes.md`, `docs/privacy.md`, `docs/phone.md` (capture and reading on iPhone/Android without any particular app), `docs/search.md`, `docs/maintenance.md` (routine, checks, troubleshooting and the roadmap: nightly cleanup constitution and safety rules, local Gemma, remote MCP), `docs/upgrading.md` (upgrade guarantees, ownership table, rollback, the 0.1.0 bootstrap, version numbers, release checklist), `docs/api.md` (JS API, JSON output and schemas, MCP tools, stability promise), `docs/integrations/{claude-code,codex,gemini-cli,cursor,chatgpt,claude-app,mcp}.md`, `CONTRIBUTING.md`, `CHANGELOG.md` |
 | repository root | `docs/architecture.md`, generated `_ai/*`, `.ignore` and `home.md` at the kit root (produced by `node system/memory.mjs check --generate`, never written by hand), git file modes (`.githooks/pre-commit` 755) |
 
 ### 18.1 Cross-module dependencies to respect

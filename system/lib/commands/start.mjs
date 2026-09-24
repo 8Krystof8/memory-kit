@@ -1,14 +1,25 @@
 // `start`: prints the session start view (docs/architecture.md, 10.4). Never writes a file except
 // the git setting core.hooksPath. Always exits 0: a broken start must not block a session.
+// --format gemini-hook wraps the view for a Gemini CLI SessionStart hook; --format json prints
+// {text, stale, initialized, failed}. The view itself comes from lib/startview.mjs.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { verifyStamp } from '../fingerprint.mjs';
-import { buildContext, extractSearchBlock, renderStart } from '../generate.mjs';
-import { loadVault } from '../vault.mjs';
-import { bytes, checkToday, git, isGitRepo, parseCli, readTextIfExists, splitList } from '../util.mjs';
+import { START_FORMATS, failedStartView, formatStartView, renderStartView } from '../startview.mjs';
+import { checkToday, git, isGitRepo, parseCli, splitList, usageError } from '../util.mjs';
 
-export const usage = 'start [--sectors a,b] [--today YYYY-MM-DD]';
+export const usage = 'start [--sectors a,b] [--today YYYY-MM-DD] [--format text|gemini-hook|json]';
+
+// English defaults; packs may translate the same keys.
+const DEFAULTS = {
+  'start.bad_format': '--format must be text, gemini-hook or json, got "{value}"',
+};
+
+function say(cfg, key, vars) {
+  const text = typeof cfg?.t === 'function' ? cfg.t(key, vars) : key;
+  if (typeof text === 'string' && text !== '' && text !== key) return text;
+  return DEFAULTS[key].replace(/\{(\w+)\}/g, (all, name) => (name in vars ? String(vars[name]) : all));
+}
 
 function ensureHooksPath(root) {
   try {
@@ -20,77 +31,27 @@ function ensureHooksPath(root) {
   }
 }
 
-/** Cuts text at a line boundary so that it fits maxBytes. */
-function capBytes(text, maxBytes) {
-  if (bytes(text) <= maxBytes) return text;
-  const lines = text.split('\n');
-  let out = '';
-  for (const line of lines) {
-    const next = `${out}${line}\n`;
-    if (bytes(next) > maxBytes) break;
-    out = next;
-  }
-  return out;
-}
-
 export async function run(argv, cfg) {
+  let format = 'text';
   try {
-    const parsed = parseCli(argv, { sectors: { type: 'string' }, today: { type: 'string' } }, usage);
+    const parsed = parseCli(argv, {
+      sectors: { type: 'string' },
+      today: { type: 'string' },
+      format: { type: 'string' },
+    }, usage);
     if (!parsed || !checkToday(parsed.values.today, usage)) return 0;
-    const { today } = parsed.values;
-    ensureHooksPath(cfg.root);
-
-    const sectors = splitList(parsed.values.sectors ?? process.env.MEMORY_SECTORS);
-    const vault = loadVault(cfg);
-    const ctx = await buildContext(cfg, vault, { today });
-
-    let text;
-    if (sectors.length) {
-      text = renderStart(cfg, vault, ctx, { sectors });
-    } else {
-      let committed = null;
-      try {
-        committed = fs.readFileSync(path.join(cfg.root, cfg.dirs.ai, 'start.md'), 'utf8');
-      } catch {
-        /* not generated yet */
-      }
-      const v = committed === null ? null : verifyStamp(committed);
-      if (v?.ok && v.header.source === ctx.source) {
-        text = committed;
-      } else {
-        text = `${renderStart(cfg, vault, ctx)}${cfg.t('start.stale')}\n`;
-      }
+    const wanted = parsed.values.format ?? 'text';
+    if (!START_FORMATS.includes(wanted)) {
+      usageError(say(cfg, 'start.bad_format', { value: wanted }), usage);
+      return 0;
     }
-    if (!cfg.initialized) text = `${cfg.t('start.not_initialized')}\n${text}`;
-    process.stdout.write(capBytes(text, cfg.budgets.hook_bytes));
+    format = wanted;
+    ensureHooksPath(cfg.root);
+    const sectors = splitList(parsed.values.sectors ?? process.env.MEMORY_SECTORS);
+    const view = await renderStartView(cfg, { sectors, today: parsed.values.today });
+    process.stdout.write(formatStartView(view, format));
   } catch (err) {
-    process.stdout.write(capBytes(fallback(cfg, err), cfg?.budgets?.hook_bytes ?? 9500));
+    process.stdout.write(formatStartView(failedStartView(cfg, err), format));
   }
   return 0;
-}
-
-/** When the start view cannot be built, the session still gets the search protocol and the rules. */
-function fallback(cfg, err) {
-  const t = (key, fallbackText) => {
-    try {
-      const out = cfg.t(key);
-      return out && out !== key ? out : fallbackText;
-    } catch {
-      return fallbackText;
-    }
-  };
-  const lines = [
-    `# ${t('start.title', 'Memory: start')}`,
-    `memory: start failed: ${err?.message ?? err}. Run node system/memory.mjs check.`,
-  ];
-  let block = null;
-  try {
-    block = extractSearchBlock(readTextIfExists(path.join(cfg.root, cfg.files?.agents ?? 'AGENTS.md')));
-  } catch {
-    /* no AGENTS.md */
-  }
-  if (block) lines.push('', `## ${t('start.search', 'How to search')}`, block);
-  const safety = Array.isArray(cfg?.startSafety) ? cfg.startSafety : [];
-  if (safety.length) lines.push('', `## ${t('start.safety', 'Writing and safety')}`, ...safety);
-  return `${lines.join('\n')}\n`;
 }

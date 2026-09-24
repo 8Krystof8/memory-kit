@@ -21,7 +21,12 @@ Obyčejné poznámky s YAML hlavičkou a `[[odkazy]]` jsou nápady převzaté z 
 - **Jakýkoli jazyk, čeština v základu.** Názvy složek, klíče v hlavičce, typy, stavy i aliasy
   příkazů pocházejí z jazykového balíčku. Kit má angličtinu a češtinu. Čeština má Snowball stemmer
   a regexy pro grep, které najdou slovo s diakritikou i bez ní.
-- **Žádné závislosti.** Stačí Node 22 nebo novější a git. Funguje i v cloudových kontejnerech.
+- **V každém AI nástroji.** Agenti, kteří spouštějí příkazy, používají CLI. Aplikace jako Claude
+  Desktop, VS Code nebo Zed dostanou paměť přes vestavěný MCP server, který přidá jeden příkaz.
+- **Bezpečné aktualizace.** Kit aktualizuje jeden příkaz. Udělá zálohu, ověří výsledek, a když
+  některá kontrola selže, vrátí všechno zpátky. Tvých poznámek se nedotkne.
+- **Žádné závislosti.** Stačí Node 22 nebo novější a git. Funguje ve Windows, macOS i Linuxu
+  a také v cloudových kontejnerech.
 
 ## Start za 5 minut
 
@@ -51,17 +56,20 @@ gh repo create my-memory --private --template 8Krystof8/memory-kit --clone
 cd my-memory
 node system/init.mjs --questions    # vypíše otázky a výchozí odpovědi
 node system/init.mjs --mode github --lang cs --sectors core,work,school --yes
-git add -A && git commit -m "Nastavení paměti" && git push
+git add -A
+git commit -m "Nastavení paměti"
+git push
 ```
 
 Bez `--yes` vypíše `init` jen plán a nic nezmění. Když je paměť už nastavená, odmítne běžet.
+Příkazy spouštěj jeden po druhém, fungují stejně v bashi, zsh i PowerShellu.
 Sektory se zadávají názvem předvolby (`core`, `work`, `school`, `personal`, `family`, `health`,
 `finances`, `hobbies`) nebo českým id (`jadro`, `prace`, `skola`, `osobni`, `rodina`, `zdravi`,
 `finance`, `konicky`). Přípona `:local` nebo `:github` změní výchozí soukromí sektoru.
 
 Co `init` s češtinou udělá: přejmenuje složky a soubory na české názvy, přepíše systémovou část
 `AGENTS.md` do češtiny, založí manifesty zvolených sektorů, zapíše `memory.json`, vygeneruje `_ai/`
-vygeneruje `domu.md` a nastaví `git config core.hooksPath .githooks`.
+a `domu.md` a nastaví `git config core.hooksPath .githooks`.
 
 | role | anglicky (výchozí v kitu) | česky po `init --lang cs` |
 |---|---|---|
@@ -75,6 +83,34 @@ vygeneruje `domu.md` a nastaví `git config core.hooksPath .githooks`.
 | předání mezi sessions | `state.md` | `stav.md` |
 | otázky pro tebe | `waiting.md` | `ceka.md` |
 | pevné názvy (nikdy nepřekládané) | `_ai/`, `.ignore`, `memory.json`, `system/` | stejné |
+
+## Zapni paměť ve svých AI nástrojích
+
+Claude Code, Codex, Gemini CLI a Cursor nepotřebují nic, když otevřeš přímo repo s pamětí.
+Přečtou si `AGENTS.md` (přes `CLAUDE.md` nebo `GEMINI.md`) a paměť si načtou na začátku session.
+
+Abys měl paměť i ve všech ostatních projektech a v aplikacích, které příkazy spouštět neumějí,
+spusť v repu s pamětí jeden příkaz. Přidá MCP server paměti do nastavení aplikace a všechno ostatní
+v tom nastavení nechá, jak je:
+
+| nástroj | příkaz |
+|---|---|
+| Claude Code | `node system/memory.mjs connect claude-code` |
+| Claude Desktop | `node system/memory.mjs connect claude-desktop` |
+| Codex a desktopová aplikace ChatGPT | `node system/memory.mjs connect codex` |
+| Gemini CLI | `node system/memory.mjs connect gemini-cli` |
+| Cursor | `node system/memory.mjs connect cursor` |
+| VS Code | `node system/memory.mjs connect vscode` |
+| Windsurf, Zed, LM Studio, Cline, Copilot CLI, Junie | `node system/memory.mjs connect windsurf` (nebo `zed`, `lm-studio`, `cline`, `copilot-cli`, `junie`) |
+| ChatGPT na webu | žádný příkaz: v ChatGPT připoj GitHub a do jeho pokynů vlož `_ai/profile.md` ([návod](docs/integrations/chatgpt.md), anglicky) |
+| Claude na webu a v telefonu | žádný příkaz: otevři session Claude Code nad repem s pamětí, nebo použij projekt s `_ai/profile.md` ([návod](docs/integrations/claude-app.md), anglicky) |
+
+V české paměti funguje místo `connect` i `pripoj`. Pak aplikaci restartuj, povol server, až se
+zeptá, a požádej její AI, ať „zavolá memory_start“. Aplikace pak umí hledat a číst tvoje poznámky
+a ukládat nové zápisy do `inbox/`. Existující poznámky nikdy nemění a lokální sektory před ní
+zůstávají skryté. Příkaz `node system/memory.mjs connect --list` ukáže, které aplikace jsou
+připojené. Kde má která aplikace nastavení a co dělat, když něco nefunguje, najdeš
+v [docs/integrations/mcp.md](docs/integrations/mcp.md) (anglicky).
 
 ## Jak to funguje
 
@@ -162,7 +198,7 @@ Kanonické anglické názvy fungují vždy, český balíček k nim přidává a
 
 | příkaz | alias | co dělá |
 |---|---|---|
-| `start [--sectors a,b]` | `start` | vypíše start (totéž, co ukáže hook SessionStart) |
+| `start [--sectors a,b] [--format text\|gemini-hook\|json]` | `start` | vypíše start (totéž, co ukáže hook SessionStart); `gemini-hook` a `json` jsou pro hooky a programy |
 | `search "dotaz" [--sector s] [--type t] [--status s\|any] [--n 5] [--all] [--local] [--json]` | `hledej`, `--sektor`, `--typ`, `--stav`, `--vse` | fulltext, řádek na výsledek s úryvkem; lokální sektory jen spočítá, pokud chybí `--local` |
 | `search --rg "slova"` | `hledej --rg` | vypíše regex s třídami diakritiky pro `rg -i` |
 | `search --duplicates "název" ["popis"]` | `hledej --duplicity` | najde existující poznámku dřív, než založíš novou |
@@ -171,6 +207,10 @@ Kanonické anglické názvy fungují vždy, český balíček k nim přidává a
 | `check [--generate] [--strict\|--lenient]` | `kontrola --generuj --prisne\|--tolerantne` | zkontroluje vault; `--generate` nejdřív sjednotí poznámky (LF, NFC) a přestaví `domu.md`, `_ai/` a `.ignore` |
 | `sync [--no-push]` | `synchronizuj` | `git pull --rebase`, konflikty jen v generovaných souborech vyřeší sám, pushne; nikdy force; v režimu `local` nic nedělá |
 | `eval [--file cesta]` | `eval --soubor` | spustí tvoje kontrolní otázky a vypíše hit@3 |
+| `doctor [--json] [--fix]` | `doktor [--oprav]` | zkontroluje nastavení: Node, memory.json, soubory kitu, git hooky, kořeny, připojené aplikace; ke každému problému řekne, jak ho opravit |
+| `upgrade [--yes] [--dry-run] [--from zdroj] [--rollback]` | `aktualizuj --ano --nanecisto --odkud --vratit` | aktualizuje kit na nejnovější verzi: nejdřív ukáže plán, udělá zálohu, ověří výsledek a při chybě vrátí vše zpět; `--rollback` aktualizaci vrátí |
+| `connect <aplikace> [--name n] [--read-only] [--remove]` · `connect --list` | `pripoj --jmeno --jen-cteni --odebrat` · `pripoj --seznam` | přidá paměť do nastavení MCP v AI aplikaci (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI a další) |
+| `mcp [--read-only] [--local]` | `mcp --jen-cteni --lokalni` | MCP server, který si aplikace spouštějí samy (stdio); ručně ho nespouštíš |
 
 Návratové kódy: 0 v pořádku, 1 nalezený problém, 2 chyba použití, 3 vnitřní chyba.
 
@@ -191,11 +231,70 @@ $ node system/memory.mjs hledej --rg "kalendářem pekárně"
 Dotaz bez diakritiky („maturitni praci“) najde text s diakritikou („maturitní práce“). Ukázky
 pocházejí z vymyšleného testovacího vaultu (studio „Linden Studio“, „Střední škola Severka“).
 
+## Kontrola nastavení
+
+Když něco nefunguje, spusť nejdřív:
+
+```sh
+node system/memory.mjs doctor
+```
+
+Zkontroluje Node.js, `memory.json`, soubory kitu, git hooky, soukromou složku, generované pohledy
+a připojené aplikace. Každý řádek je jedna kontrola a u každého problému je příkaz, který ho
+opraví. `doctor` funguje i s rozbitým `memory.json` a nic nemění. `doctor --fix` sám opraví dvě
+věci, u kterých je to bezpečné: nenastavenou cestu ke git hookům a soubor hooku před commitem se
+špatnými konci řádků nebo bez práva ke spuštění (když mění obsah souboru, původní si schová).
+`doctor --json` vypíše zprávu pro skripty. V české paměti funguje i `doktor`.
+
+## Aktualizace na novou verzi
+
+Kit aktualizuje jeden příkaz:
+
+```sh
+node system/memory.mjs upgrade
+node system/memory.mjs upgrade --yes
+```
+
+První příkaz stáhne nejnovější kit a vypíše, co by se změnilo. Zatím se nic nemění. Druhý změny
+provede. Pak commitni dvěma příkazy, které `upgrade` vypíše (`git add -A` a potom
+`git commit -m "…"`). V české paměti funguje i `aktualizuj` a `--ano`.
+
+Co aktualizace slibuje:
+
+- Poznámky, `memory.json`, kontrolní otázky a lokální sektory zůstanou, jak jsou.
+- Soubor kitu, který jsi upravil, se nikdy nepřepíše potichu. U kódu se aktualizace zastaví,
+  u nastavení a dokumentace se nová verze uloží vedle té tvojí, abys je mohl porovnat.
+- Každý soubor, na který sáhne, nejdřív zazálohuje do `.memory-kit/backups/`.
+- Výsledek ověří vlastními příkazy paměti (`check`, `start`, `search` a kontrolní otázky). Když
+  některá kontrola selže, vrátí všechny soubory sama zpátky.
+
+Příkaz `node system/memory.mjs upgrade --rollback` poslední aktualizaci vrátí, i tu přerušenou.
+Když jsi mezitím nějaký soubor změnil, zastaví se a řekne který. `--rollback --force` pak tvoji
+verzi nejdřív uloží do zálohy a teprve potom soubor vrátí.
+
+Paměť založená z verze 0.1.0 příkaz `upgrade` ještě nemá. Nový kit ji jednou aktualizuje zvenku,
+potřebné tři příkazy najdeš v [docs/upgrading.md](docs/upgrading.md#upgrading-a-vault-made-from-010)
+(anglicky). Potom už stačí příkaz výše.
+
+## Pro vývojáře
+
+Paměť můžou používat i jiné programy, bez agenta:
+
+- **JavaScriptové API** v `system/api.mjs`: `openMemory(root)` s metodami `start`, `search`,
+  `read`, `recent`, `inbox` a `check`;
+- **výstup JSON** příkazů (`--json`), který popisují JSON schémata v `system/schema/`;
+- **MCP server**, `node system/memory.mjs mcp`.
+
+Všechny tři sdílejí jeden slib stability (`api_version` 1). Podrobnosti jsou
+v [docs/api.md](docs/api.md) (anglicky). Kdo chce pracovat na samotném kitu, ať si přečte
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Požadavky
 
 - **Node 22 nebo novější.** Hledání používá vestavěný `node:sqlite` s FTS5, když je k dispozici.
   Jinak samo přepne na engine v čistém JavaScriptu. Agent bez Node pořád může grepovat katalog.
 - **git.** Účet na GitHubu potřebuješ jen pro režimy `github` a `combined`.
+- **Windows, macOS nebo Linux.** Každý příkaz funguje stejně v bashi, zsh i PowerShellu.
 - Volitelně [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`). Claude Code, Codex i Cursor
   ho už používají.
 - Jakýkoli editor markdownu, nebo žádný: GitHub ukáže každou poznámku i domovskou stránku.
@@ -210,17 +309,21 @@ Podrobná dokumentace je anglicky:
 | soukromí, lokální sektory, tajemství | [docs/privacy.md](docs/privacy.md) |
 | paměť v iPhonu a Androidu | [docs/phone.md](docs/phone.md) |
 | jak funguje hledání, čeština, kontrolní otázky | [docs/search.md](docs/search.md) |
-| údržba, kontroly, rozpočty, aktualizace, plán | [docs/maintenance.md](docs/maintenance.md) |
+| údržba, kontroly, rozpočty, řešení potíží, plán | [docs/maintenance.md](docs/maintenance.md) |
+| aktualizace kitu, zálohy, vrácení, vydávání verzí | [docs/upgrading.md](docs/upgrading.md) |
+| AI aplikace přes MCP: každá aplikace, její soubor s nastavením, řešení potíží | [docs/integrations/mcp.md](docs/integrations/mcp.md) |
 | Claude Code · Codex · Gemini CLI · Cursor · ChatGPT · aplikace Claude | [docs/integrations/](docs/integrations/) |
+| JavaScriptové API, výstup JSON a schémata, nástroje MCP | [docs/api.md](docs/api.md) |
 | technická smlouva implementace | [docs/architecture.md](docs/architecture.md) |
 | jak přispět, jak přidat jazyk | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## Stav
 
-Verze 0.1.0 je první fáze: struktura, kontroly, generované pohledy, hledání, šablony, sektory,
-nastavení, adaptéry a CI. Noční úklid levným modelem, lokální model pro soukromé sektory, MCP server
-a embeddingy jsou v [plánu](docs/maintenance.md#roadmap-not-built-yet). Jejich bezpečnostní
-pravidla jsou už sepsaná.
+Verze 0.1.0 byla první fáze: struktura, kontroly, generované pohledy, hledání, šablony, sektory,
+nastavení, adaptéry a CI. Verze 0.1.1 přidává `upgrade`, `doctor`, MCP server s příkazem `connect`,
+JavaScriptové API, JSON schémata a podporu Windows a macOS. Noční úklid levným modelem, lokální
+model pro soukromé sektory, vzdálený MCP server a embeddingy jsou
+v [plánu](docs/maintenance.md#roadmap-not-built-yet). Jejich bezpečnostní pravidla jsou už sepsaná.
 
 ## Licence
 

@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { parse, updateFrontmatter } from '../frontmatter.mjs';
 import { loadVault } from '../vault.mjs';
 import {
-  NAME_RE, checkToday, finalText, humanize, isDate, parseCli, readTextIfExists, todayLocal,
-  toPosix, usageError,
+  NAME_RE, checkToday, finalText, humanize, isDate, isReservedName, parseCli, readTextIfExists,
+  todayLocal, toPosix, usageError,
 } from '../util.mjs';
 
 export const usage = 'new <type> <sector>/<shelf/…>/<name> [--title "…"] [--description "…"] [--today YYYY-MM-DD] [--force]';
@@ -90,6 +90,11 @@ function placeNote(cfg, vault, type, target, today) {
   } else if (shelf.includes(cfg.dirs.decisions)) {
     return { error: `only decisions live in ${cfg.dirs.decisions}/` };
   }
+  // Git for Windows cannot check out aux.md or a shelf named con/, on any machine's commit. The
+  // names checked are the ones written: a decision's date prefix makes "aux" 2026-09-21-aux.md.
+  for (const seg of [...shelf, name]) {
+    if (isReservedName(seg)) return { error: cfg.t('new.reserved', { name: seg }) };
+  }
   const plain = name.replace(/^\d{4}-\d{2}-\d{2}-/, '');
   if (cfg.genericNames.has(name) || cfg.genericNames.has(plain)) return { error: `generic file name "${name}"` };
 
@@ -98,6 +103,9 @@ function placeNote(cfg, vault, type, target, today) {
   if (sector.privacy === 'local') {
     const local = cfg.roots.find((r) => r.id !== 'main');
     if (!local) return { error: cfg.t('new.no_local_root', { id: sectorId }) };
+    // A path of another operating system names no folder here; resolving it would write into
+    // the working directory, possibly inside the repository.
+    if (local.foreign) return { error: cfg.t('new.foreign_root', { id: sectorId, path: local.path }) };
     rootId = local.id;
     rootPath = local.path;
   }

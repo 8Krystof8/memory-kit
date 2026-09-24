@@ -1,5 +1,35 @@
 #!/bin/sh
 # memory-kit: regenerate the views, check the vault strictly and stage what the kit rewrote.
 # The check refuses a commit whose staged files differ from the work tree (it reads the work tree).
-command -v node >/dev/null 2>&1 || { echo "memory-kit: node not found, check skipped" >&2; exit 0; }
-node system/memory.mjs check --pre-commit || exit 1
+# It needs Node.js 22 or newer. GUI git clients often run hooks without the login PATH, so node is
+# also looked for where the usual installers put it. The first node new enough is used: the one
+# pinned with git config memorykit.node /path/to/node, node on PATH, then the usual places.
+pinned=$(git config --get memorykit.node 2>/dev/null)
+on_path=$(command -v node 2>/dev/null)
+node_bin=
+too_old=
+for candidate in "$pinned" "$on_path" /opt/homebrew/bin/node /usr/local/bin/node ${HOME:+"$HOME/.volta/bin/node"} ${NVM_BIN:+"$NVM_BIN/node"}; do
+  if [ -n "$candidate" ] && { [ -x "$candidate" ] || [ -x "$candidate.exe" ]; }; then
+    if "$candidate" -e 'process.exit(parseInt(process.versions.node) >= 22 ? 0 : 1)' >/dev/null 2>&1; then
+      node_bin=$candidate
+      break
+    fi
+    too_old=${too_old:-$candidate}
+  fi
+done
+if [ -z "$node_bin" ]; then
+  if [ -z "$too_old" ]; then
+    echo "memory-kit: node not found, check skipped (set it with: git config memorykit.node /path/to/node)" >&2
+    exit 0
+  fi
+  version=$("$too_old" --version 2>/dev/null)
+  # The node pinned or on PATH is the one chosen, so it refuses the commit (as the check would);
+  # one merely found in a usual place counts as no node at all.
+  if [ "$too_old" = "$pinned" ] || [ "$too_old" = "$on_path" ]; then
+    echo "memory-kit: commit refused: $too_old ${version:+($version) }is not Node.js 22 or newer, which the check needs. Install a newer Node.js, or pin one with: git config memorykit.node /path/to/node" >&2
+    exit 1
+  fi
+  echo "memory-kit: no Node.js 22 or newer found ($too_old is ${version:-too old}), check skipped (set it with: git config memorykit.node /path/to/node)" >&2
+  exit 0
+fi
+"$node_bin" system/memory.mjs check --pre-commit || exit 1

@@ -20,6 +20,12 @@ id_ecdsa*
 .cache/
 node_modules/
 
+# Upgrade backups and proposed files (per machine, never committed)
+.memory-kit/
+
 # OS files
 .DS_Store
 Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini

@@ -6,12 +6,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { writeGenerated } from '../generate.mjs';
 import { loadVault } from '../vault.mjs';
-import { checkToday, git, isGitRepo, parseCli, usageError } from '../util.mjs';
+import { checkToday, git, gitRepoState, parseCli, usageError } from '../util.mjs';
 
 export const usage = 'sync [--no-push] [--today YYYY-MM-DD]';
 
 const MAX_ROUNDS = 20;
 const PUSH_ATTEMPTS = 3;
+
+// sync runs unattended (hooks, agents, GUI hosts): git must never wait for a person. A missing
+// credential fails instead of prompting, and continuing a rebase never opens an editor, whatever
+// GIT_EDITOR the shell exports (it outranks core.editor).
+const NO_PROMPT = { GIT_TERMINAL_PROMPT: '0' };
+const NO_EDITOR = { GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true' };
 
 class SyncError extends Error {}
 
@@ -25,9 +31,10 @@ function rebaseInProgress(root) {
   return false;
 }
 
+/** Conflicted paths in NFC (git prints names as stored, NFD on some disks). */
 function conflictedFiles(root) {
   const res = git(root, ['diff', '--name-only', '--diff-filter=U', '-z'], { allowFail: true });
-  return res.stdout.split('\0').filter(Boolean).sort();
+  return res.stdout.split('\0').filter(Boolean).map((rel) => rel.normalize('NFC')).sort();
 }
 
 function isGenerated(cfg, rel) {
@@ -37,7 +44,7 @@ function isGenerated(cfg, rel) {
 /** Pull with rebase; conflicts only in _ai/ or .ignore are regenerated, anything else aborts. */
 async function pull(cfg, today) {
   const root = cfg.root;
-  const res = git(root, ['pull', '--rebase'], { allowFail: true });
+  const res = git(root, ['pull', '--rebase'], { allowFail: true, env: { ...NO_PROMPT, ...NO_EDITOR } });
   if (res.ok) return false;
   if (!rebaseInProgress(root)) {
     throw new SyncError(cfg.t('sync.failed', { step: 'pull --rebase', detail: (res.stderr || res.stdout).trim() }));
@@ -54,7 +61,7 @@ async function pull(cfg, today) {
       git(root, ['add', '-A', '--', cfg.dirs.ai, cfg.files.ignore, cfg.files.home]);
       regenerated = true;
     }
-    const cont = git(root, ['-c', 'core.editor=true', 'rebase', '--continue'], { allowFail: true });
+    const cont = git(root, ['-c', 'core.editor=true', 'rebase', '--continue'], { allowFail: true, env: NO_EDITOR });
     if (cont.ok) continue;
     if (!rebaseInProgress(root)) {
       throw new SyncError(cfg.t('sync.failed', { step: 'rebase --continue', detail: (cont.stderr || cont.stdout).trim() }));
@@ -81,7 +88,14 @@ export async function run(argv, cfg) {
   const { today } = parsed.values;
   const root = cfg.root;
 
-  if (!isGitRepo(root)) {
+  const repo = gitRepoState(root);
+  if (repo.state === 'error') {
+    // A .git entry that git cannot use (git missing, safe.directory): saying "nothing to sync"
+    // would hide that nothing reaches the remote.
+    process.stderr.write(`${cfg.t('sync.git_error', { detail: repo.detail || 'git failed' })}\n`);
+    return 1;
+  }
+  if (repo.state !== 'top') {
     process.stdout.write(`${cfg.t('sync.no_git')}\n`);
     return 0;
   }
@@ -102,7 +116,7 @@ export async function run(argv, cfg) {
     if (parsed.values['no-push']) return 0;
     let last = null;
     for (let attempt = 1; attempt <= PUSH_ATTEMPTS; attempt++) {
-      const res = git(root, ['push'], { allowFail: true });
+      const res = git(root, ['push'], { allowFail: true, env: NO_PROMPT });
       if (res.ok) {
         process.stdout.write(`${cfg.t('sync.pushed')}\n`);
         return 0;

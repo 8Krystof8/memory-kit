@@ -3,7 +3,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { cmp, git, isGitRepo, toPosix } from './util.mjs';
+import { cmp, direntKind, git, isGitRepo, toPosix } from './util.mjs';
 
 const ALLOW = 'memory-kit:' + 'allow-secret';
 // Every file that is not binary is scanned, whatever its name (.env, .pem, .ini, no extension…).
@@ -11,6 +11,9 @@ const ALLOW = 'memory-kit:' + 'allow-secret';
 const SNIFF_BYTES = 8192;
 const MAX_BYTES = 64 * 1024 * 1024;
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.cache']);
+// Local state of upgrade and connect (backups may hold other apps' keys). Git never lists it (it is
+// excluded), so only the walk of a vault without git skips it; a file forced into git is scanned.
+const LOCAL_STATE_DIR = '.memory-kit';
 
 // Boundaries that also work next to '-' and '_' (\b does not).
 const B = (cls) => `(?<![${cls}])`;
@@ -99,18 +102,20 @@ export function scanText(text, { rel } = {}) {
 }
 
 function walkAll(root, relDir, out) {
+  const dirAbs = path.join(root, relDir);
   let entries;
   try {
-    entries = fs.readdirSync(path.join(root, relDir), { withFileTypes: true });
+    entries = fs.readdirSync(dirAbs, { withFileTypes: true });
   } catch {
     return;
   }
   for (const e of entries) {
-    if (e.isSymbolicLink()) continue;
+    // Real symlinks are skipped; other Windows reparse points are ordinary files and folders.
+    const kind = direntKind(dirAbs, e);
     const rel = relDir ? `${relDir}/${e.name}` : e.name;
-    if (e.isDirectory()) {
-      if (!SKIP_DIRS.has(e.name)) walkAll(root, rel, out);
-    } else if (e.isFile()) {
+    if (kind === 'dir') {
+      if (!SKIP_DIRS.has(e.name) && !(relDir === '' && e.name === LOCAL_STATE_DIR)) walkAll(root, rel, out);
+    } else if (kind === 'file') {
       out.push(rel);
     }
   }

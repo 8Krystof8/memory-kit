@@ -18,7 +18,7 @@ import { loadConfig } from '../../lib/config.mjs';
 
 after(removeTmpDirs);
 
-const HAS_GIT = spawnSync('git', ['--version']).status === 0;
+const HAS_GIT = spawnSync('git', ['--version'], { windowsHide: true }).status === 0;
 
 function gitEnv() {
   const home = tmpDir('git-home');
@@ -35,7 +35,7 @@ function gitEnv() {
 }
 
 function git(cwd, env, ...args) {
-  return spawnSync('git', args, { cwd, env: { ...process.env, ...env }, encoding: 'utf8' });
+  return spawnSync('git', args, { cwd, env: { ...process.env, ...env }, encoding: 'utf8', windowsHide: true });
 }
 
 const note = (fm, body) => `---\n${fm.join('\n')}\n---\n${body}`;
