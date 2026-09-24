@@ -411,7 +411,7 @@
     "system/tests/fixtures/en/vault/sectors/work/website-redesign.md": "51bd708bfdef58af48f2d1ebfba75d0bfdf85d4c64f4aedec1a6278211dd24ce",
     "system/tests/fixtures/en/vault/state.md": "66f47f180f18e4139b83c0adcd070cb7915eb34dac41201634b4a6f54188f906",
     "system/tests/fixtures/en/vault/waiting.md": "e132dd73999318e37ad0aa791f49f9d8cb35e04f3f5d9ee1cf8704de58497928",
-    "system/tests/helpers.mjs": "4938bee29f2d6cebc57683fd39ba2a787e993ec488bc9716153c5ea2e0e418ff",
+    "system/tests/helpers.mjs": "824b5b24552b9764f86e77ed5e3e40cb30d784f50419ac0b80fdc4007308cb1d",
     "system/tests/integration/kit.test.mjs": "74017fdc3f71e2e3b60cdef074a4d602aa8603b01d9c085222957bacc033735a",
     "system/tests/integration/mcp.test.mjs": "39075c48aae058ccae44d01e40cc3b89a8dc73d47709c330767a8e124ba96c23",
     "system/tests/integration/sync.test.mjs": "5436455d304373be7500216bafff5a5c608cc0fac6d06ed8ce74dac855a5ab8a",
