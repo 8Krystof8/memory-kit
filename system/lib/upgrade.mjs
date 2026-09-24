@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { copyAtomic, removeTree, unlinkRetry, writeAtomic } from './fsafe.mjs';
+import { touchLock, upgradeRunning } from './lockcheck.mjs';
 import {
   ESSENTIAL_FILES, HISTORY_FILE, KIT_FILE, VERSION_FILE, absOf, cleanRel, compareVersions, groupOf,
   hashFile, hashText, knownHashes, loadHistory, loadManifest, optionalGroups, parseVersion, readVersion,
@@ -38,10 +39,8 @@ const WRITE_ACTIONS = new Set(['add', 'replace', 'force']);
 const LAST_FILES = [HISTORY_FILE, VERSION_FILE, KIT_FILE];
 const WALK_SKIP = new Set(['.git', WORK_DIR, 'node_modules']);
 const CHILD_TIMEOUT_MS = 300000;
-/** A lock older than this is never taken for a running upgrade (a reused process id). */
-const LOCK_ALIVE_MS = 2 * 60 * 60 * 1000;
 /** The upgrader's own modules; a copy in each backup undoes the upgrade without the vault's code. */
-const TOOL_FILES = ['upgrade.mjs', 'kit.mjs', 'fsafe.mjs', 'migrations.mjs'];
+const TOOL_FILES = ['upgrade.mjs', 'kit.mjs', 'fsafe.mjs', 'migrations.mjs', 'lockcheck.mjs'];
 
 /** A refusal or failure with a code for messages and its variables. */
 export class UpgradeError extends Error {
@@ -356,28 +355,6 @@ export function inspectSource(sourceRoot) {
 /** The recovery tool of a backup (vault-relative POSIX path): node <it> undoes that upgrade. */
 export function recoveryTool(id) {
   return `${BACKUPS_DIR}/${id}/tool/rollback.mjs`;
-}
-
-/**
- * True when the process that wrote the lock is still an upgrade at work: the same machine, a
- * living process id, a lock younger than LOCK_ALIVE_MS and, where Linux names the command, a
- * command that runs memory.mjs (a reused id belongs to another program).
- */
-function upgradeRunning(lock, mtimeMs) {
-  if (typeof lock.host !== 'string' || lock.host !== os.hostname()) return false;
-  if (!Number.isInteger(lock.pid) || lock.pid <= 0) return false;
-  if (!(Date.now() - mtimeMs < LOCK_ALIVE_MS)) return false;
-  try {
-    process.kill(lock.pid, 0);
-  } catch (err) {
-    if (err?.code !== 'EPERM') return false;
-  }
-  try {
-    if (!fs.readFileSync(`/proc/${lock.pid}/cmdline`, 'latin1').includes('memory.mjs')) return false;
-  } catch {
-    /* no /proc here: the answer of the process id has to do */
-  }
-  return true;
 }
 
 /**
@@ -1059,6 +1036,7 @@ function childEnv() {
 
 /** Runs node <root>/system/memory.mjs <args> --root <root>: { code, stdout, stderr }. */
 export function runVaultCli(root, args) {
+  touchLock(absOf(root, LOCK_FILE));
   const res = spawnSync(process.execPath, [absOf(root, 'system/memory.mjs'), ...args, '--root', root], {
     cwd: root,
     encoding: 'utf8',
@@ -1536,6 +1514,7 @@ export async function applyUpgrade(plan, { verify = true, now = new Date(), migr
     if (plan.migrations.length) {
       const list = migrations ?? await loadMigrations(src);
       const chain = migrationChain(list, plan.dataVersion.from, plan.dataVersion.to) ?? [];
+      touchLock(absOf(root, LOCK_FILE));
       result.migrations = await runMigrations(chain, {
         root, lang: plan.lang, record: (rel) => backup.record(rel), wrote: (rel) => backup.wrote(rel),
       });

@@ -311,8 +311,11 @@ use the [recovery tool](#the-recovery-tool) instead; the line after the error na
 If the backup of that upgrade is gone, there is nothing to restore: `upgrade --rollback --force`
 only removes the lock (with `--dry-run` it only says it would).
 
-**An upgrade that is still running** is not interrupted: its lock was written on this computer
-less than two hours ago, and its process is still alive. Then `upgrade` refuses with
+**An upgrade that is still running** is not interrupted: its lock was refreshed on this computer
+within the last six minutes (the upgrader refreshes it before every step), its process is still
+alive, and that process runs `memory.mjs` (Linux reads this from `/proc`, macOS from `ps`,
+Windows from PowerShell, because Windows hands out process ids again quickly). An upgrade that
+stopped therefore counts as stopped after six minutes at the latest. Then `upgrade` refuses with
 `an upgrade … is running right now (process …)`, and so does `--rollback`. `--force` overrides
 neither, so a second terminal cannot undo files under a running upgrade. Wait until it finishes.
 If something removes the lock anyway, the running upgrade does not report success: it ends with

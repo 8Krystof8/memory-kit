@@ -221,7 +221,7 @@ async function runCommand(command, rest, cfg, ctx) {
   const mod = await importCommand(command);
   if (!mod || typeof mod.run !== 'function') {
     process.stderr.write(`memory: command "${command}" is not installed (system/lib/commands/${command}.mjs)\n`);
-    printRecovery(ctx.root);
+    await printRecovery(ctx.root);
     return 3;
   }
   if (rest.includes('--help') || rest.includes('-h')) {
@@ -243,7 +243,7 @@ function shellArg(s) {
  * which needs none of the vault's code. An upgrade still at work is left alone. Reads the lock
  * by itself (the upgrade module may be one of the broken files) and never throws.
  */
-function printRecovery(root) {
+async function printRecovery(root) {
   try {
     const lockFile = path.join(root, '.memory-kit', 'upgrade.lock');
     const lock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
@@ -252,7 +252,7 @@ function printRecovery(root) {
     if (!/^\.memory-kit\/backups\/[^/]+\/tool\/rollback\.mjs$/.test(rel) || parts.includes('..')) return;
     const tool = path.join(root, ...parts);
     if (!fs.statSync(tool).isFile()) return;
-    if (lock.pid !== process.pid && upgradeRunning(lock, fs.statSync(lockFile).mtimeMs)) {
+    if (lock.pid !== process.pid && await upgradeRunning(lock, fs.statSync(lockFile).mtimeMs)) {
       process.stderr.write(`memory: an upgrade is running right now (process ${lock.pid}); wait for it to finish, then run the command again\n`);
       return;
     }
@@ -264,19 +264,13 @@ function printRecovery(root) {
   }
 }
 
-/** The running test of the upgrade lock (lib/upgrade.mjs): same machine, a live process, at most 2 hours old. */
-function upgradeRunning(lock, mtimeMs) {
-  if (lock.host !== os.hostname() || !Number.isInteger(lock.pid) || lock.pid <= 0) return false;
-  if (!(Date.now() - mtimeMs < 2 * 60 * 60 * 1000)) return false;
+/** The running test of the upgrade lock, shared with lib/upgrade.mjs; unknown counts as not running. */
+async function upgradeRunning(lock, mtimeMs) {
   try {
-    process.kill(lock.pid, 0);
-  } catch (err) {
-    if (err?.code !== 'EPERM') return false;
-  }
-  try {
-    return fs.readFileSync(`/proc/${lock.pid}/cmdline`, 'latin1').includes('memory.mjs');
+    const { upgradeRunning: running } = await import('./lib/lockcheck.mjs');
+    return running(lock, mtimeMs);
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -294,10 +288,10 @@ main(process.argv.slice(2)).then(
   (code) => {
     process.exitCode = Number.isInteger(code) ? code : 0;
   },
-  (err) => {
+  async (err) => {
     process.stderr.write(`memory: internal error: ${err?.message ?? err}\n`);
     if (process.env.MEMORY_DEBUG) process.stderr.write(`${err?.stack ?? ''}\n`);
-    printRecovery(rootOf(process.argv.slice(2)));
     process.exitCode = 3;
+    await printRecovery(rootOf(process.argv.slice(2)));
   },
 );
