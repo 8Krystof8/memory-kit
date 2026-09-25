@@ -21,21 +21,40 @@ switch it on; the data version stays 1.
   the exec form (Node with arguments, no shell), so Windows paths with spaces need no quoting.
   Other hooks and settings are kept, a backup is written, files with comments are never rewritten,
   `--remove` and `--dry-run` work ([docs/projects.md](docs/projects.md)).
-- **`hook <agent> <event>`**, what the hooks run: on session start a `dev` sector per repository
-  (found by its `origin` remote) with eight notes filled from `package.json` and the README, and a
-  project brief (git state, handoff, conventions, gotchas, dead ends); on stop one request per
-  session to write the handoff when the code changed; on a failed tool a lookup in gotchas and dead
-  ends; on session end a background commit and push of the vault. A hook never fails a session.
-- **`remember "text" [--type …]`** (`zapamatuj`): one dated line into the right note of the
-  project, or into `inbox/` outside a project. Secrets are refused.
-- `memory.json` key `projects` (`auto_add`, `checkpoint`, `error_lookup`, `autosync`, `repos`).
+- **`hook <agent> <event>`**, what the hooks run. They do nothing until `projects.enabled` is on
+  and never write into the code repository. Session start: in a project, a brief (git state,
+  handoff, conventions, gotchas, dead ends) and the start view narrowed to it; in a repository the
+  vault does not know, a one-time two-line hint to the user (`project add`, `project ignore`);
+  nothing extra inside the vault or outside git. Stop: one request per session to write the
+  handoff when the code changed. A failed Bash or PowerShell command (Claude Code): a lookup in
+  gotchas and dead ends after cheap filters, five per session at most. Session end: with
+  `autosync` on, a background commit and push of the vault under a lock, never over an unfinished
+  merge or rebase. Every run is logged in `.memory-kit/logs/hooks.jsonl` (a local-store repository
+  only as a hash), and the next session start tells the user about a new failure. A hook never
+  fails a session.
+- **`project add|remove|ignore|unignore|list|status`** (`projekt`, with Czech subcommands), run
+  inside the code repository, all with `--json`. A repository is known by its remote (https, ssh,
+  ssh host aliases and Azure DevOps forms give one key), else by its first commit; two servers are
+  never taken for one repository.
+- **`remember "text" [--type …] [--project <sector>]`** (`zapamatuj`): one dated line into the
+  right note of the project. In a repository that is not a project it goes into the inbox of the
+  local root while the store is local; in the vault or outside any repository into `inbox/`.
+  Secrets are refused.
+- Project facts for the overview and the runbook from Node, Python, Rust, Go, PHP, Ruby,
+  Java/Kotlin, .NET, Dart/Flutter and Deno projects, Makefiles, justfiles, Taskfiles and Compose
+  files (read, never run; secrets left out).
+- `memory.json` key `projects`, with these defaults: `enabled` false (the hooks do nothing),
+  `auto_add` false (a new repository is not added by itself), `store` `"local"` (the notes and the
+  repository links stay in the local root, the committed manifest is neutral), `autosync` false,
+  `checkpoint` true, `error_lookup` true, `repos` {} (links of git-store projects only).
 
 ### Kit-owned files
 
-New: `system/lib/projects.mjs`, `system/lib/hooksetup.mjs`, `system/lib/commands/hook.mjs`,
-`system/lib/commands/remember.mjs`, `docs/projects.md`. Changed: `system/memory.mjs`,
-`system/lib/commands/connect.mjs`, `system/lang/cs/pack.json`, `AGENTS.md` and the agents-system
-templates (version marker only).
+New: `system/lib/projects.mjs`, `system/lib/repofacts.mjs`, `system/lib/hookinput.mjs`,
+`system/lib/hooklog.mjs`, `system/lib/hooksetup.mjs`, `system/lib/commands/hook.mjs`,
+`system/lib/commands/project.mjs`, `system/lib/commands/remember.mjs`, `docs/projects.md`.
+Changed: `system/memory.mjs`, `system/lib/commands/connect.mjs`, `system/lang/cs/pack.json`,
+`AGENTS.md` and the agents-system templates (version marker only).
 
 ## 0.1.1 (2026-09-24, not released yet)
 
