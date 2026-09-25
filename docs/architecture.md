@@ -988,8 +988,8 @@ characters. Every call reads the notes afresh.
 ### 7.15 Other modules of 0.1.1
 ```js
 // lib/startview.mjs (core): the start view as a pure function, used by start, the API and mcp
-export async function renderStartView(cfg, {sectors, today, surface = 'cli' | 'mcp'}?):
-  {text, stale, initialized, failed}
+export async function renderStartView(cfg, {sectors, today, surface = 'cli' | 'mcp', project: {command}}?):
+  {text, stale, initialized, failed}   // project: the view of the project hooks, absolute command and paths
 export function formatStartView(view, format = 'text' | 'gemini-hook' | 'json'): string
 // lib/fsafe.mjs (core): writeAtomic, copyAtomic, renameRetry, unlinkRetry, removeTree, retrySync
 // lib/kit.mjs (core): KIT_FILE, HISTORY_FILE, compareVersions, hashText, hashFile, groupOf,

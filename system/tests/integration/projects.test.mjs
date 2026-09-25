@@ -296,6 +296,26 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     });
   }
 
+  for (const lang of ['en', 'cs']) {
+    test(`${lang}: the start view of a project names the vault's command and paths absolutely (the agent is in the code repository)`, () => {
+      const v = vault(lang);
+      const repo = codeRepo();
+      fs.writeFileSync(path.join(repo, 'AGENTS.md'), '# The rules of this code repository\n');
+      assert.equal(projectJson(v, 'add', repo).code, 0);
+      const { context } = startOut(start(v, repo, 'a1'));
+      const root = v.root.replace(/\\/g, '/');
+      assert.match(context, /^# Proje[ck]t shop/);
+      assert.ok(!context.includes('`node system/memory.mjs'), 'no vault-relative command');
+      assert.ok(context.includes(`${vaultCmd(v)} search "`), 'the search command runs from any folder');
+      assert.ok(context.includes(`"${root}/${SECTORS[lang]}/"`), 'the exact-name search has the vault path');
+      // AGENTS.md is the vault's by its full path, or named as the code repository's own.
+      for (const m of context.matchAll(/(\S*)AGENTS\.md( (?:or|nebo) CLAUDE\.md)?/g)) {
+        assert.ok(m[1].endsWith(`${root}/`) || m[2], `AGENTS.md named without the vault: ${context.slice(m.index - 60, m.index + 30)}`);
+      }
+      assert.ok(context.includes(`${root}/AGENTS.md`), 'the memory rules by their full path');
+    });
+  }
+
   test('without a local root, project add makes ../<vault>-private and check stays clean', () => {
     const root = copyKit(path.join(tmpDir('bare'), 'my vault'));
     const v = vault('en', { root, withGit: true });

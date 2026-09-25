@@ -33,7 +33,8 @@ changes for vaults that do not switch the project memory on; the data version st
 - **`hook <agent> <event>`**, what the hooks run. They do nothing until `projects.enabled` is on,
   never write into the code repository and never fail a session (exit 0, also on Node.js older
   than 22). Session start: in a project, a brief (git state, handoff, conventions, gotchas, dead
-  ends) and the start view narrowed to it; in a repository the vault does not know, a one-time
+  ends) and the start view narrowed to it, whose commands and paths name the vault by its full
+  path (the agent works in the code repository); in a repository the vault does not know, a one-time
   two-line hint to the user (`project add`, `project ignore`); nothing extra inside the vault or
   outside git. Stop: one request per session to write the handoff when the code changed (a new
   commit, or uncommitted files that differ in their list, size or time from the session's start,

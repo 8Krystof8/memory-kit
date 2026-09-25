@@ -10,7 +10,8 @@
 //                  user; Codex has none, so the agent is asked to pass them on). Inside the vault:
 //                  nothing more for Claude Code (the vault has its own start hook), the start
 //                  view for Codex. Outside any git repository: nothing more. In a known project:
-//                  the brief and the start view narrowed to the project and the core sector. In a
+//                  the brief and the start view narrowed to the project and the core sector (its
+//                  commands and paths name the vault absolutely: the agent is in the code). In a
 //                  new repository: a one-time hint for the user naming `project add` and
 //                  `project ignore` (or the sector is made when projects.auto_add is on).
 //   stop           once per session in a known project, when the code changed and the handoff did
@@ -197,8 +198,10 @@ async function sessionView(cfg, agent, input, entry, notices) {
   writeSession(cfg, sid, { top: ident.top, sector: found.id, store: found.store, ...base, day: todayLocal() });
   const { renderStartView } = await import('../startview.mjs');
   const core = coreSector(cfg);
-  const view = await renderStartView(cfg, { sectors: [found.id, ...(core && core !== found.id ? [core] : [])] });
-  const brief = projectBrief(cfg, found.id, ident, vaultCommand(cfg), { git: g });
+  // The agent works in the code repository: the view names the vault's command and paths absolutely.
+  const command = vaultCommand(cfg);
+  const view = await renderStartView(cfg, { sectors: [found.id, ...(core && core !== found.id ? [core] : [])], project: { command } });
+  const brief = projectBrief(cfg, found.id, ident, command, { git: g });
   return emit(cfg, agent, { notices, context: `${brief}\n${view.text}` });
 }
 

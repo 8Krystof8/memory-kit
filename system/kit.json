@@ -44,7 +44,7 @@
       "group": "docs"
     },
     "docs/architecture.md": {
-      "sha256": "178d8b0e4f211564ccb15d4705f2c1e802d20f34e81fed82a1ec50204177b5c3",
+      "sha256": "0e5a8903b7897f39726f082a8e9af59a357edb726192a099a91f3bde6c50f54a",
       "group": "docs"
     },
     "docs/integrations/chatgpt.md": {
@@ -92,7 +92,7 @@
       "group": "docs"
     },
     "docs/projects.md": {
-      "sha256": "4f5af7d839a615c9a85802119d08825a99b74cab0bbfebf2dafc4c3a31546034",
+      "sha256": "c8032a3e3688f380cf4ac84cd9e1952d5c12359beca58a2787c7023f81639ed1",
       "group": "docs"
     },
     "docs/search.md": {
@@ -128,7 +128,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "8b62a3696d72468112f824955f3339efbc7bc4f6388ab85a6432eb3e2adc69e8",
+      "sha256": "0483b791faed56bf2d4e8f9d583e7bd4157e6e7f844d8dc270832d570181e637",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -176,7 +176,7 @@
       "group": "code"
     },
     "system/lib/commands/hook.mjs": {
-      "sha256": "a86c5956b1853c3bb4ff30b86b7f8ec6c8cb1f3dd445457f325df5ad84a0cc15",
+      "sha256": "47734314f3a9e3b3b46a9047f7e32680bebb371a9deaa32939b60ba4bf925122",
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
@@ -308,7 +308,7 @@
       "group": "code"
     },
     "system/lib/startview.mjs": {
-      "sha256": "ebc70f44ee9b2b908ad84682d077dfebe0469a8a6538d7e2c8c5861ce6fe4a71",
+      "sha256": "a8c63c47ebe8fee08b33f20cbc5712c51702fbf1fcaa1f588e24b4b707dc5317",
       "group": "code"
     },
     "system/lib/text.mjs": {
@@ -936,7 +936,7 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "6e1fc60db73cf930fc8425b5205a29344158d9f7de2581423de04066f6832f73",
+      "sha256": "d70c492ef15a1b5a3993bdbd910f89a818f53757aabd3dd5352ca80161128c24",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {
