@@ -44,7 +44,7 @@
       "group": "docs"
     },
     "docs/architecture.md": {
-      "sha256": "ff01162dc11076e6b0ec0b1d3f0b4f8a6c6dfb344345d9f0e5766d3ee92cd268",
+      "sha256": "e95bfb5bb73a4ac4e6d75b663cc17400f9d1a232e52a73212684a5c4d3b1f672",
       "group": "docs"
     },
     "docs/integrations/chatgpt.md": {
@@ -76,7 +76,7 @@
       "group": "docs"
     },
     "docs/maintenance.md": {
-      "sha256": "4780f6ebab1b099601c3305bc16687e791fd6c0aa4a2ab0b60063c735867a55c",
+      "sha256": "7fa5875c2b4d1448233679fd0364caca4aa456174b637dd7b374eeee43a66743",
       "group": "docs"
     },
     "docs/modes.md": {
@@ -152,7 +152,7 @@
       "group": "code"
     },
     "system/lib/check.mjs": {
-      "sha256": "602c490e2d38b0002188377a612896c87314ef6646b40e4bfbcd037a0bda9175",
+      "sha256": "c7cb7fe3f8e44ce5db859f883647ed5b664f7f275e0e95e35681dd5d4b1ef89a",
       "group": "code"
     },
     "system/lib/clients.mjs": {
@@ -932,7 +932,7 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "da3ecb234b550f893f380116b89ee4dbbb8e5798f53cbd237a04e8e89666ed34",
+      "sha256": "7d50cfd5021d1f2ff858f936494a588f8f0e43e4fddd3fc0b00d5f875e5ed13d",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {

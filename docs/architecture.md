@@ -1808,7 +1808,7 @@ where hooks cannot run.
 | FM_DATE_FUTURE | W | updated/created later than as-of (with `--today` or last.txt: any later date; inferred as-of: more than `hot_days` later) | `{key} {value} is later than as-of {asOf}: a typo?` |
 | NAME_FORMAT | D | 5.5 | `file name must be lowercase-ascii-with-hyphens` |
 | NAME_GENERIC | D | name in `generic_names` | `generic file name` |
-| NAME_DUPLICATE | D | same name (case-insensitive) twice in all roots | `name also used by {other}` |
+| NAME_DUPLICATE | D | same name (case-insensitive) twice in all roots; the notes of project dev sectors (`dev`, `dev-…`, live or archived, named as in `DEV_NOTES` of `lib/projects.mjs`) may share names with each other | `name also used by {other}` |
 | DATED_NAME | D | decision/journal name not `YYYY-MM-DD-…` | `must start with its date` |
 | DECISION_PLACE | D | decision outside `*/<decisions>/` or non-decision inside | `decisions live in */{dir}/ only` |
 | JOURNAL_PLACE | D | journal type outside journal dir or other type inside | `journal entries live in {dir}/ only` |

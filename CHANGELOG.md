@@ -54,6 +54,9 @@ changes for vaults that do not switch the project memory on; the data version st
   `--json`. A repository is
   known by its remote (https, ssh, ssh host aliases and Azure DevOps forms give one key; a local
   remote by its path), else by its first commit; two servers are never taken for one repository.
+- Every project's dev sector has the same note names (`overview`, `handoff`, `gotchas`…), so
+  `check` lets those notes share names with each other; a second project no longer makes every
+  vault commit and every autosync fail with `NAME_DUPLICATE`.
 - **`remember "text" [--type …] [--project <sector>]`** (`zapamatuj`): one dated line into the
   right note of the project. In a repository that is not a project it goes into the inbox of the
   local root while the store is local; in the vault or outside any repository into `inbox/`.

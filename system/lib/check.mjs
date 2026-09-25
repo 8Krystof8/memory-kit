@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { verifyStamp } from './fingerprint.mjs';
 import { GenBudgetError, buildContext, expectedFiles, extractSearchBlock, gitignoreText, resolveAsOfInfo } from './generate.mjs';
+import { DEV_NOTES } from './projects.mjs';
 import { listTextFiles, scanFiles } from './secrets.mjs';
 import { extractSection, localFolderTest, resolveLink, waitingOpen } from './vault.mjs';
 import {
@@ -393,7 +394,8 @@ function checkNotes(c, cfg, vault, asOf, asOfSource) {
       if (other) c.add('NAME_ALIAS_CLASH', at(n, n.fm.keyLines.aliases), { alias, other: other.rel });
     }
   }
-  // Names are unique across the vault, archive and local roots included (inbox items excepted).
+  // Names are unique across the vault, archive and local roots included (inbox items excepted),
+  // except the notes every project's dev sector has (dev, dev-2, dev-shop…: overview, handoff…).
   const groups = new Map();
   for (const n of vault.notes) {
     if (isInboxNote(n)) continue;
@@ -402,8 +404,24 @@ function checkNotes(c, cfg, vault, asOf, asOfSource) {
     groups.get(key).push(n);
   }
   for (const list of groups.values()) {
+    if (list.length > 1 && list.every((n) => isDevNote(cfg, n))) continue;
     for (const n of list.slice(1)) c.add('NAME_DUPLICATE', at(n), { other: list[0].rel });
   }
+}
+
+const DEV_NAMES = new Set(Object.values(DEV_NOTES).flatMap((d) => [d.en, d.cs]));
+
+/**
+ * True for one of the notes of a project's dev sector (lib/projects.mjs DEV_NOTES, in either
+ * language) in a sector dev or dev-<…>, live or archived: each project has the same set, and a
+ * link reaches them by path (sectors/dev-2/gotchas).
+ */
+function isDevNote(cfg, n) {
+  const { sectors, archive } = cfg.dirs;
+  const parts = n.rel.split('/');
+  const at = parts[0] === archive ? 1 : 0;
+  return parts.length === at + 3 && parts[at] === sectors && /^dev(-[a-z0-9]+)*$/.test(parts[at + 1])
+    && DEV_NAMES.has(parts[at + 2].replace(/\.md$/i, ''));
 }
 
 function checkSectors(c, cfg, vault) {

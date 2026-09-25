@@ -650,6 +650,37 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.match(tracked.fix, /git rm -r --cached \.memory-kit/);
   });
 
+  test('several projects in either store: check --strict and --pre-commit stay clean, and autosync commits', () => {
+    const v = vault('en', { withGit: true, projects: { enabled: true, autosync: true } });
+    const remote = path.join(tmpDir('remote'), 'vault.git');
+    git(path.dirname(remote), ['init', '-q', '--bare', remote]);
+    git(v.root, ['remote', 'add', 'origin', remote]);
+    git(v.root, ['push', '-q', '-u', 'origin', 'HEAD']);
+    const added = [
+      projectJson(v, 'add', codeRepo({ remote: 'git@github.com:linden/shop.git', name: 'shop' })),
+      projectJson(v, 'add', codeRepo({ remote: 'git@github.com:linden/booking.git', name: 'booking' })),
+      projectJson(v, 'add', codeRepo({ remote: 'git@github.com:linden/api.git', name: 'api' }), ['--store', 'git']),
+      projectJson(v, 'add', codeRepo({ remote: 'git@github.com:linden/admin.git', name: 'admin' }), ['--store', 'git']),
+    ];
+    assert.deepEqual(added.map((a) => [a.code, a.sector, a.store]), [[0, 'dev', 'local'], [0, 'dev-2', 'local'], [0, 'dev-api', 'git'], [0, 'dev-admin', 'git']]);
+    const check = checkJson(v.root, ['--generate', '--strict']);
+    assert.equal(check.code, 0, describeFindings(check));
+    assert.ok(!check.errors.some((f) => f.code === 'NAME_DUPLICATE'), describeFindings(check));
+    git(v.root, ['config', 'core.hooksPath', '.githooks']);
+    git(v.root, ['add', '-A']);
+    const preCommit = checkJson(v.root, ['--pre-commit']);
+    assert.equal(preCommit.code, 0, describeFindings(preCommit));
+    git(v.root, ['reset', '-q']);
+    assert.equal(cli(v, ['hook', 'claude-code', 'autosync']).code, 0);
+    const synced = logOf(v).filter((e) => e.event === 'autosync').at(-1);
+    assert.deepEqual([synced.step, synced.ok], ['done', true], JSON.stringify(synced));
+    assert.equal(git(v.root, ['status', '--porcelain']), '');
+    // A note of another sector with the same name as a dev note is still a duplicate.
+    fs.copyFileSync(path.join(v.root, 'sectors', 'dev-api', 'handoff.md'), path.join(v.root, 'sectors', 'work', 'handoff.md'));
+    const dup = checkJson(v.root, ['--strict']);
+    assert.ok(dup.errors.some((f) => f.code === 'NAME_DUPLICATE'), describeFindings(dup));
+  });
+
   test("two clients' look-alike repositories stay apart", () => {
     const v = vault('en', { withGit: true });
     const a = codeRepo({ remote: 'git@github.com:team/website.git', name: 'website' });
