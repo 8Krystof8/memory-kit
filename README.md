@@ -106,6 +106,28 @@ and local sectors stay hidden. `node system/memory.mjs connect --list` shows whi
 connected. Where each app keeps its settings, and what to do when it does not work:
 [docs/integrations/mcp.md](docs/integrations/mcp.md).
 
+## Memory for your code projects
+
+Working on code? One command gives every repository its own memory, kept in your vault and never
+in the code repository:
+
+```sh
+node system/memory.mjs connect claude-code --projects   # or: connect codex --projects
+```
+
+From then on, in the terminal and in VS Code alike, on Windows, macOS and Linux:
+
+- the first session in a repository creates a `dev` sector for it (overview, handoff, commands,
+  conventions, gotchas, dead ends, map, log), filled in from `package.json` and the README;
+- every session starts with the branch, the last commits, the handoff and the known gotchas of
+  *that* project;
+- when the code changed, the agent is asked once to write the handoff and what it learned;
+- a failed command is looked up in the gotchas it met before;
+- the vault commits and pushes itself when the session ends.
+
+`remember --type gotcha "symptom → cause → fix"` records something by hand. Details:
+[docs/projects.md](docs/projects.md).
+
 ## How it works
 
 ```mermaid
@@ -209,11 +231,14 @@ besides Node.
 | `doctor [--json] [--fix]` | checks the setup: Node, memory.json, kit files, git hooks, roots, connected apps; says how to fix each problem |
 | `upgrade [--yes] [--rollback]` | updates the kit to the newest version: shows the plan first, keeps a backup, verifies, rolls back on failure |
 | `connect <app>` · `connect --list` | adds the memory to an AI app's MCP settings (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI and more) |
+| `connect claude-code\|codex --projects [--remove]` | installs the hooks that give every code project its memory ([docs/projects.md](docs/projects.md)) |
+| `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision]` | records one line in the project's memory (inside a code repository) or in `inbox/` |
 | `mcp [--read-only] [--local]` | the MCP server the apps start (stdio); you do not run it yourself |
 
 Every command also accepts the canonical English names. A language pack adds aliases: in Czech,
 `hledej` means `search`, `kontrola` means `check`, `novy` means `new`, `sektor` means `sector`,
-`doktor` means `doctor`, `aktualizuj` means `upgrade` and `pripoj` means `connect`.
+`doktor` means `doctor`, `aktualizuj` means `upgrade`, `pripoj` means `connect` and `zapamatuj`
+means `remember`.
 Exit codes: 0 ok, 1 a problem was found, 2 a usage error, 3 an internal error.
 
 ```text
@@ -343,6 +368,7 @@ With `--lang cs`, `init` renames the folders and files to their Czech names: `se
 | how search works, Czech, golden questions | [docs/search.md](docs/search.md) |
 | routines, checks, budgets, troubleshooting, roadmap | [docs/maintenance.md](docs/maintenance.md) |
 | updating the kit, backups, rollback, releases | [docs/upgrading.md](docs/upgrading.md) |
+| memory for code projects: hooks, the dev sector, `remember` | [docs/projects.md](docs/projects.md) |
 | AI apps over MCP: every app, its settings file, troubleshooting | [docs/integrations/mcp.md](docs/integrations/mcp.md) |
 | Claude Code · Codex · Gemini CLI · Cursor · ChatGPT · Claude app | [docs/integrations/](docs/integrations/) |
 | JavaScript API, JSON output and schemas, MCP tools | [docs/api.md](docs/api.md) |
@@ -354,7 +380,9 @@ With `--lang cs`, `init` renames the folders and files to their Czech names: `se
 
 Version 0.1.0 was phase 1: the structure, checks, generated views, search, templates, sectors,
 setup, adapters and CI. Version 0.1.1 adds `upgrade`, `doctor`, the MCP server with `connect`, the
-JavaScript API, JSON schemas and support for Windows and macOS. The nightly cleanup by a cheap
+JavaScript API, JSON schemas and support for Windows and macOS. Version 0.1.2 adds memory for code
+projects: hooks for Claude Code and Codex, a `dev` sector per repository outside the code, and
+`remember`. The nightly cleanup by a cheap
 model, a local model for private sectors, a remote MCP server and embeddings are on the
 [roadmap](docs/maintenance.md#roadmap-not-built-yet). Their safety rules are already written down.
 

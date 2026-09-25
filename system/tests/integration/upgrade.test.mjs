@@ -23,6 +23,13 @@ import {
   KIT_ROOT, TODAY, cloneDir, copyKit, describeFindings, overlay, readFile, removeTmpDirs, tmpDir, writeFile, writeJson,
 } from '../helpers.mjs';
 
+// The kit's own version and the synthetic ones around it, so a release does not break the tests.
+const CUR = fs.readFileSync(new URL('../../VERSION', import.meta.url), 'utf8').trim();
+const [MAJ, MIN, PAT] = CUR.split('.').map(Number);
+const NXT = `${MAJ}.${MIN}.${PAT + 1}`;
+const NXT2 = `${MAJ}.${MIN}.${PAT + 2}`;
+const esc = (v) => v.replace(/\./g, '\\.');
+
 after(removeTmpDirs);
 
 const V010 = 'cf74578';
@@ -227,7 +234,7 @@ const kitSection = (text) => text.slice(text.indexOf('<!-- kit:start'), text.ind
 // Shared kits and vaults (built once; every test works on its own copy)
 
 let SRC; // this kit, released
-let NEXT; // a synthetic 0.1.2 made from SRC
+let NEXT; // a synthetic next made from SRC
 let VAULT; // an en vault of SRC
 let DOC_REMOVED; // the docs file NEXT no longer ships
 let V010_EN; // en vault of memory-kit 0.1.0
@@ -240,12 +247,12 @@ before(async () => {
   const next = releasedKit('upg-next', {
     from: SRC,
     mutate: (dir) => {
-      writeFile(dir, 'system/VERSION', '0.1.2\n');
-      bumpMarker(dir, '0.1.2');
-      fs.appendFileSync(path.join(dir, 'system', 'lib', 'fingerprint.mjs'), '// 0.1.2\n');
+      writeFile(dir, 'system/VERSION', `${NXT}\n`);
+      bumpMarker(dir, NXT);
+      fs.appendFileSync(path.join(dir, 'system', 'lib', 'fingerprint.mjs'), `// ${NXT}\n`);
       writeFile(dir, 'system/lib/next-extra.mjs', 'export const NEXT = true;\n');
-      fs.appendFileSync(path.join(dir, '.github', 'workflows', 'ci.yml'), '# 0.1.2\n');
-      fs.appendFileSync(path.join(dir, ...docs[0].split('/')), '\n0.1.2\n');
+      fs.appendFileSync(path.join(dir, '.github', 'workflows', 'ci.yml'), `# ${NXT}\n`);
+      fs.appendFileSync(path.join(dir, ...docs[0].split('/')), `\n${NXT}\n`);
       fs.rmSync(path.join(dir, ...DOC_REMOVED.split('/')));
     },
   });
@@ -381,9 +388,9 @@ describe('upgrading this kit to a newer one', { concurrency: 4 }, () => {
     assert.ok(!fs.existsSync(path.join(v.root, 'docs')));
     assert.ok(out.plan.files.filter((f) => f.group === 'docs').every((f) => f.action === 'skip' && f.reason === 'optional'));
     assert.equal(readFile(v.root, 'system/lib/next-extra.mjs'), 'export const NEXT = true;\n');
-    assert.ok(readFile(v.root, 'system/lib/fingerprint.mjs').endsWith('// 0.1.2\n'));
-    assert.equal(readVersion(v.root), '0.1.2');
-    assert.match(readFile(v.root, 'AGENTS.md').split('\n')[0], /kit:start v0\.1\.2 /);
+    assert.ok(readFile(v.root, 'system/lib/fingerprint.mjs').endsWith(`// ${NXT}\n`));
+    assert.equal(readVersion(v.root), NXT);
+    assert.match(readFile(v.root, 'AGENTS.md').split('\n')[0], new RegExp(`kit:start v${esc(NXT)} `));
   });
 
   test('a vault with docs loses the docs file the kit removed and gets the changed ones', async () => {
@@ -451,7 +458,7 @@ describe('upgrading this kit to a newer one', { concurrency: 4 }, () => {
     assert.equal(readFile(v.root, 'system/lib/text.mjs'), readFile(NEXT, 'system/lib/text.mjs'), 'a deleted kit file comes back');
     const lines = ok.stdout.split('\n').map((l) => l.trim());
     assert.ok(lines.includes('git add -A'), ok.stdout);
-    assert.ok(lines.includes('git commit -m "memory-kit 0.1.1 → 0.1.2"'), ok.stdout);
+    assert.ok(lines.includes(`git commit -m "memory-kit ${CUR} → ${NXT}"`), ok.stdout);
     assert.ok(!ok.stdout.includes('&&'));
     const exclude = fs.readFileSync(path.join(v.root, '.git', 'info', 'exclude'), 'utf8');
     assert.ok(exclude.split('\n').includes('.memory-kit/'), exclude);
@@ -496,8 +503,8 @@ describe('upgrading this kit to a newer one', { concurrency: 4 }, () => {
     const before = snapshot(v.root);
     const res = await runKit(NEXT, v.root, ['upgrade', '--yes']);
     assert.equal(res.code, 0, `${res.stdout}\n${res.stderr}`);
-    assert.equal(readVersion(v.root), '0.1.2');
-    assert.match(res.stdout, /to undo it: node .*upgrade --rollback \d{8}-\d{6}-0\.1\.1-to-0\.1\.2/);
+    assert.equal(readVersion(v.root), NXT);
+    assert.match(res.stdout, new RegExp(`to undo it: node .*upgrade --rollback \\d{8}-\\d{6}-${esc(CUR)}-to-${esc(NXT)}`));
 
     const back = await runCli(v.root, ['upgrade', '--rollback']);
     assert.equal(back.code, 0, `${back.stdout}\n${back.stderr}`);
@@ -518,13 +525,13 @@ describe('upgrading this kit to a newer one', { concurrency: 4 }, () => {
     const refused = await runCli(v.root, ['upgrade', '--rollback', id, '--json']);
     assert.equal(refused.code, 1, refused.stdout);
     assert.deepEqual(jsonOf(refused).rollback.conflicts, ['AGENTS.md']);
-    assert.equal(readVersion(v.root), '0.1.2', 'nothing was restored');
+    assert.equal(readVersion(v.root), NXT, 'nothing was restored');
     const dry = await runCli(v.root, ['upgrade', '--rollback', '--dry-run']);
     assert.equal(dry.code, 0);
     assert.match(dry.stdout, /would restore/);
     const forced = await runCli(v.root, ['upgrade', `--rollback=${id}`, '--force']);
     assert.equal(forced.code, 0, `${forced.stdout}\n${forced.stderr}`);
-    assert.equal(readVersion(v.root), '0.1.1');
+    assert.equal(readVersion(v.root), CUR);
     assert.equal(fs.readFileSync(path.join(v.root, '.memory-kit', 'backups', id, 'conflicts', 'AGENTS.md'), 'utf8'), edited, 'the later edit is saved');
   });
 
@@ -533,15 +540,15 @@ describe('upgrading this kit to a newer one', { concurrency: 4 }, () => {
     const before = snapshot(v.root);
     // Crash simulation: the backup is written (with what the upgrade writes), the lock is set,
     // two files are already new.
-    const backup = createBackup(v.root, { from: '0.1.1', to: '0.1.2' });
+    const backup = createBackup(v.root, { from: CUR, to: NXT });
     const next = (rel) => ({ rel, next: sha(fs.readFileSync(path.join(NEXT, ...rel.split('/')))) });
     backup.recordMany([next('system/lib/fingerprint.mjs'), next('system/lib/next-extra.mjs'), next('system/VERSION'), 'AGENTS.md', 'memory.json']);
-    writeJson(v.root, LOCK_FILE, { backup: backup.id, from: '0.1.1', to: '0.1.2', started: '2026-09-24T10:00:00.000Z', pid: 1 });
+    writeJson(v.root, LOCK_FILE, { backup: backup.id, from: CUR, to: NXT, started: '2026-09-24T10:00:00.000Z', pid: 1 });
     fs.copyFileSync(path.join(NEXT, 'system', 'lib', 'fingerprint.mjs'), path.join(v.root, 'system', 'lib', 'fingerprint.mjs'));
     fs.copyFileSync(path.join(NEXT, 'system', 'lib', 'next-extra.mjs'), path.join(v.root, 'system', 'lib', 'next-extra.mjs'));
 
     assert.deepEqual({ ...lockState(v.root), started: null }, {
-      rel: LOCK_FILE, backup: backup.id, from: '0.1.1', to: '0.1.2', started: null, pid: 1, host: null, valid: true, running: false, recover: null,
+      rel: LOCK_FILE, backup: backup.id, from: CUR, to: NXT, started: null, pid: 1, host: null, valid: true, running: false, recover: null,
     });
     const res = await runKit(NEXT, v.root, ['upgrade', '--yes', '--json']);
     assert.equal(res.code, 1, res.stdout);
@@ -562,7 +569,7 @@ describe('upgrading this kit to a newer one', { concurrency: 4 }, () => {
 
   test('(g) doctor reports a lock left behind', async () => {
     const v = cloneVault(VAULT, 'upg-g2');
-    writeJson(v.root, LOCK_FILE, { backup: 'gone', from: '0.1.1', to: '0.1.2', started: '2026-09-24T10:00:00.000Z', pid: 1 });
+    writeJson(v.root, LOCK_FILE, { backup: 'gone', from: CUR, to: NXT, started: '2026-09-24T10:00:00.000Z', pid: 1 });
     const doctor = await runCli(v.root, ['doctor', '--json']);
     const report = jsonOf(doctor);
     const find = (node) => {
@@ -591,7 +598,7 @@ describe('upgrading this kit to a newer one', { concurrency: 4 }, () => {
     const agents = readFile(cs.root, 'AGENTS.md');
     assert.equal(personal(agents), personal(before));
     assert.equal(kitSection(agents), readFile(NEXT, 'system/templates/cs/kit/agents-system.md'));
-    assert.match(agents.split('\n')[0], /kit:start v0\.1\.2 · systémová část/);
+    assert.match(agents.split('\n')[0], new RegExp(`kit:start v${esc(NXT)} · systémová část`));
   });
 
   test('(i) the plan (no --yes, or --dry-run) writes nothing', async () => {
@@ -599,7 +606,7 @@ describe('upgrading this kit to a newer one', { concurrency: 4 }, () => {
     const before = snapshot(v.root);
     const plain = await runKit(NEXT, v.root, ['upgrade']);
     assert.equal(plain.code, 0, plain.stderr);
-    assert.match(plain.stdout, /memory-kit upgrade 0\.1\.1 → 0\.1\.2/);
+    assert.match(plain.stdout, new RegExp(`memory-kit upgrade ${esc(CUR)} → ${esc(NXT)}`));
     assert.match(plain.stdout, /Plan only, nothing was changed/);
     const hint = plain.stdout.split('\n').find((l) => l.includes(' upgrade --root ')) ?? '';
     assert.ok(hint.includes(v.root) && hint.trim().endsWith('--yes'), plain.stdout);
@@ -663,7 +670,7 @@ describe('what the plan refuses or leaves alone', { concurrency: 4 }, () => {
     assert.deepEqual(codes(await planUpgrade({ vault: v.root, source: NEXT })), ['too_old']);
     writeFile(v.root, 'system/VERSION', 'next\n');
     assert.deepEqual(codes(await planUpgrade({ vault: v.root, source: NEXT })), ['vault_version']);
-    writeFile(v.root, 'system/VERSION', '0.1.1\n');
+    writeFile(v.root, 'system/VERSION', `${CUR}\n`);
     writeFile(v.root, 'memory.json', '{ "version": 1, ');
     const broken = await planUpgrade({ vault: v.root, source: NEXT });
     assert.deepEqual(codes(broken), ['config']);
@@ -676,7 +683,7 @@ describe('what the plan refuses or leaves alone', { concurrency: 4 }, () => {
     fs.rmSync(path.join(bare, 'system', 'kit.json'));
     assert.deepEqual(codes(await planUpgrade({ vault: VAULT.root, source: bare })), ['source_no_manifest']);
     writeFile(bare, 'system/kit.json', readFile(NEXT, 'system/kit.json'));
-    writeFile(bare, 'system/VERSION', '0.1.3\n');
+    writeFile(bare, 'system/VERSION', `${NXT2}\n`);
     assert.deepEqual(codes(await planUpgrade({ vault: VAULT.root, source: bare })), ['source_version', 'source_damaged']);
   });
 
@@ -725,20 +732,20 @@ describe('hand-over to a newer upgrader', { concurrency: 4 }, () => {
     assert.equal(plan.code, 0, plan.stderr);
     const hint = plan.stdout.split('\n').find((l) => l.includes('node system/memory.mjs upgrade --from ')) ?? '';
     assert.ok(hint.includes(NEXT) && hint.trim().endsWith('--yes'), `the vault's own command, not the temporary one:\n${plan.stdout}`);
-    assert.match(plan.stderr, /memory-kit 0\.1\.2 found/);
+    assert.match(plan.stderr, new RegExp(`memory-kit ${esc(NXT)} found`));
 
     const res = await runCli(v.root, ['upgrade', '--from', NEXT, '--yes', '--json']);
     assert.equal(res.code, 0, `${res.stdout}\n${res.stderr}`);
     const out = jsonOf(res);
     assert.ok(same(out.runner.root, NEXT), out.runner.root);
-    assert.equal(out.runner.version, '0.1.2');
-    assert.equal(out.delegated_from, '0.1.1');
+    assert.equal(out.runner.version, NXT);
+    assert.equal(out.delegated_from, CUR);
     assert.equal(out.result.applied, true);
-    assert.equal(readVersion(v.root), '0.1.2');
+    assert.equal(readVersion(v.root), NXT);
 
     const again = await runCli(v.root, ['upgrade', '--from', NEXT]);
     assert.equal(again.code, 0);
-    assert.match(again.stdout, /0\.1\.2 is up to date/);
+    assert.match(again.stdout, new RegExp(`${esc(NXT)} is up to date`));
     const older = await runCli(v.root, ['upgrade', '--from', SRC, '--json']);
     assert.equal(older.code, 0);
     assert.equal(jsonOf(older).result.up_to_date, true);
@@ -749,7 +756,7 @@ describe('hand-over to a newer upgrader', { concurrency: 4 }, () => {
     cloneDir(NEXT, repo);
     git(repo, ['init', '-q', '-b', 'main']);
     git(repo, ['add', '-A']);
-    git(repo, ['commit', '-q', '-m', 'memory-kit 0.1.2']);
+    git(repo, ['commit', '-q', '-m', `memory-kit ${NXT}`]);
 
     const v = cloneVault(VAULT, 'upg-git');
     const memory = JSON.parse(readFile(v.root, 'memory.json'));
@@ -757,7 +764,7 @@ describe('hand-over to a newer upgrader', { concurrency: 4 }, () => {
     const plan = await runCli(v.root, ['upgrade', '--json']);
     assert.equal(plan.code, 0, `${plan.stdout}\n${plan.stderr}`);
     const planned = jsonOf(plan);
-    assert.equal(planned.runner.version, '0.1.2');
+    assert.equal(planned.runner.version, NXT);
     assert.equal(planned.result.dry_run, true);
     assert.ok(!fs.existsSync(planned.runner.root), 'the temporary clone is removed');
     assert.ok(same(path.dirname(path.dirname(planned.runner.root)), os.tmpdir()), planned.runner.root);
@@ -765,7 +772,7 @@ describe('hand-over to a newer upgrader', { concurrency: 4 }, () => {
     const res = await runCli(v.root, ['upgrade', '--from', repo, '--ref', 'main', '--yes', '--json']);
     assert.equal(res.code, 0, `${res.stdout}\n${res.stderr}`);
     assert.equal(jsonOf(res).result.applied, true);
-    assert.equal(readVersion(v.root), '0.1.2');
+    assert.equal(readVersion(v.root), NXT);
 
     const missing = await runCli(v.root, ['upgrade', '--from', repo, '--ref', 'no-such-branch']);
     assert.equal(missing.code, 1);

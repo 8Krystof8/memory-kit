@@ -1,4 +1,4 @@
-<!-- memory-kit v1 · source e0e8fe6b138c · content 2e11e50b6929 · as-of 2026-09-23 · DO NOT EDIT -->
+<!-- memory-kit v1 · source bd44de56aca0 · content 2e11e50b6929 · as-of 2026-09-23 · DO NOT EDIT -->
 # Home
 > Generated from the notes by node system/memory.mjs check --generate: do not edit this page. Quick notes go into inbox/; agents follow AGENTS.md.
 

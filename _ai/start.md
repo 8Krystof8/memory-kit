@@ -1,4 +1,4 @@
-memory-kit v1 · source e0e8fe6b138c · content 6284dabb39ad · as-of 2026-09-23 · DO NOT EDIT
+memory-kit v1 · source bd44de56aca0 · content c3d4e39ff45f · as-of 2026-09-23 · DO NOT EDIT
 # Memory: start
 0 notes · 1 sectors · as of 2026-09-23
 
@@ -24,4 +24,4 @@ memory-kit v1 · source e0e8fe6b138c · content 6284dabb39ad · as-of 2026-09-23
 |---|---|---|---|---|
 | core | Your profile, how to work with you, people, tools, memory. | Who the owner is, preferences, people in several sectors. | 0 | – |
 
-Waiting for you: 0 (waiting.md) · Inbox: 0 · kit 0.1.1
+Waiting for you: 0 (waiting.md) · Inbox: 0 · kit 0.1.2

@@ -128,6 +128,27 @@ zůstávají skryté. Příkaz `node system/memory.mjs connect --list` ukáže, 
 připojené. Kde má která aplikace nastavení a co dělat, když něco nefunguje, najdeš
 v [docs/integrations/mcp.md](docs/integrations/mcp.md) (anglicky).
 
+## Paměť pro projekty s kódem
+
+Programuješ? Jeden příkaz dá každému repozitáři vlastní paměť. Ta žije v tvé paměti, nikdy ne
+v repu s kódem:
+
+```sh
+node system/memory.mjs connect claude-code --projects   # nebo: connect codex --projects
+```
+
+Od té chvíle v terminálu i ve VS Code, na Windows, macOS i Linuxu:
+
+- první session v repozitáři pro něj založí sektor `dev` (přehled, předávka, příkazy, konvence,
+  pasti, slepé uličky, mapa, zápisník), vyplněný z `package.json` a README;
+- každá session začne větví, posledními commity, předávkou a známými pastmi *toho* projektu;
+- když se změnil kód, agent je jednou požádán, ať zapíše předávku a co se naučil;
+- chyba z příkazu se vyhledá v pastech, které už tu byly;
+- na konci session se paměť sama commitne a pushne.
+
+Ručně zapíšeš `zapamatuj --type gotcha "příznak → příčina → oprava"`. Podrobnosti:
+[docs/projects.md](docs/projects.md) (anglicky).
+
 ## Jak to funguje
 
 ```mermaid
@@ -233,6 +254,8 @@ Kanonické anglické názvy fungují vždy, český balíček k nim přidává a
 | `doctor [--json] [--fix]` | `doktor [--oprav]` | zkontroluje nastavení: Node, memory.json, soubory kitu, git hooky, kořeny, připojené aplikace; ke každému problému řekne, jak ho opravit |
 | `upgrade [--yes] [--dry-run] [--from zdroj] [--rollback]` | `aktualizuj --ano --nanecisto --odkud --vratit` | aktualizuje kit na nejnovější verzi: nejdřív ukáže plán, udělá zálohu, ověří výsledek a při chybě vrátí vše zpět; `--rollback` aktualizaci vrátí |
 | `connect <aplikace> [--name n] [--read-only] [--remove]` · `connect --list` | `pripoj --jmeno --jen-cteni --odebrat` · `pripoj --seznam` | přidá paměť do nastavení MCP v AI aplikaci (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI a další) |
+| `connect claude-code\|codex --projects [--remove]` | `pripoj claude-code --projects` | nainstaluje hooky, které dají každému projektu s kódem paměť ([docs/projects.md](docs/projects.md)) |
+| `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision]` | `zapamatuj "text"` | zapíše řádek do paměti projektu (v repu s kódem) nebo do `inbox/` |
 | `mcp [--read-only] [--local]` | `mcp --jen-cteni --lokalni` | MCP server, který si aplikace spouštějí samy (stdio); ručně ho nespouštíš |
 
 Návratové kódy: 0 v pořádku, 1 nalezený problém, 2 chyba použití, 3 vnitřní chyba.
@@ -334,6 +357,7 @@ Podrobná dokumentace je anglicky:
 | jak funguje hledání, čeština, kontrolní otázky | [docs/search.md](docs/search.md) |
 | údržba, kontroly, rozpočty, řešení potíží, plán | [docs/maintenance.md](docs/maintenance.md) |
 | aktualizace kitu, zálohy, vrácení, vydávání verzí | [docs/upgrading.md](docs/upgrading.md) |
+| paměť pro projekty s kódem: hooky, sektor dev, `remember` | [docs/projects.md](docs/projects.md) |
 | AI aplikace přes MCP: každá aplikace, její soubor s nastavením, řešení potíží | [docs/integrations/mcp.md](docs/integrations/mcp.md) |
 | Claude Code · Codex · Gemini CLI · Cursor · ChatGPT · aplikace Claude | [docs/integrations/](docs/integrations/) |
 | JavaScriptové API, výstup JSON a schémata, nástroje MCP | [docs/api.md](docs/api.md) |
@@ -344,7 +368,8 @@ Podrobná dokumentace je anglicky:
 
 Verze 0.1.0 byla první fáze: struktura, kontroly, generované pohledy, hledání, šablony, sektory,
 nastavení, adaptéry a CI. Verze 0.1.1 přidává `upgrade`, `doctor`, MCP server s příkazem `connect`,
-JavaScriptové API, JSON schémata a podporu Windows a macOS. Noční úklid levným modelem, lokální
+JavaScriptové API, JSON schémata a podporu Windows a macOS. Verze 0.1.2 přidává paměť pro projekty
+s kódem: hooky pro Claude Code a Codex, sektor `dev` pro každý repozitář mimo kód a `remember`. Noční úklid levným modelem, lokální
 model pro soukromé sektory, vzdálený MCP server a embeddingy jsou
 v [plánu](docs/maintenance.md#roadmap-not-built-yet). Jejich bezpečnostní pravidla jsou už sepsaná.
 

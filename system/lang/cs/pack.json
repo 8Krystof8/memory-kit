@@ -111,6 +111,7 @@
     "doktor": "doctor",
     "aktualizuj": "upgrade",
     "pripoj": "connect",
+    "zapamatuj": "remember",
     "napoveda": "help"
   },
   "subcommands": {
@@ -590,6 +591,11 @@
     "connect.removed": "{client}: záznam \"{name}\" odebrán z {path}",
     "connect.unchanged": "{client}: paměť už je připojená jako \"{name}\" v {path}",
     "connect.absent": "{client}: {path} nemá záznam \"{name}\", není co odebrat",
+    "remember.saved": "uloženo do {rel}",
+    "remember.inbox": "uloženo do inboxu: {rel} (tady není žádný projekt, zařaď to později)",
+    "remember.secret": "odmítnuto: text obsahuje tajný údaj ({rule}); oprava: odstraň ho, tajné údaje patří do správce hesel",
+    "remember.empty": "není co zapamatovat: dej text do uvozovek nebo na standardní vstup",
+    "remember.type": "neznámý --type \"{type}\"; použij jeden z: {types}",
     "connect.absent_other": "{client}: {path} nemá záznam \"{name}\"; tahle paměť je tam připojená jako \"{other}\" (ten odebereš příkazem connect {id} --remove --name {other})",
     "connect.plan.add": "{client}: přidal by se záznam \"{name}\" do {path}",
     "connect.plan.update": "{client}: aktualizoval by se záznam \"{name}\" v {path}",

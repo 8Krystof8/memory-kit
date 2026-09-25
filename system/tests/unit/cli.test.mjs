@@ -109,7 +109,7 @@ describe('memory.mjs', () => {
     for (const args of [['help'], ['--help'], []]) {
       const res = runCli(fx.root, args);
       assert.equal(res.code, 0, args.join(' '));
-      for (const cmd of ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp']) {
+      for (const cmd of ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp', 'remember', 'hook']) {
         assert.match(res.stdout, new RegExp(`node system/memory\\.mjs ${cmd}\\b`), cmd);
       }
     }
@@ -145,7 +145,7 @@ describe('memory.mjs', () => {
     const line = res.stdout.split('\n').find((l) => l.startsWith('aliases (cs): '));
     assert.ok(line, res.stdout);
     const pairs = line.slice('aliases (cs): '.length).split(', ');
-    for (const pair of ['doktor=doctor', 'aktualizuj=upgrade', 'pripoj=connect', 'napoveda=help']) assert.ok(pairs.includes(pair), pair);
+    for (const pair of ['doktor=doctor', 'aktualizuj=upgrade', 'pripoj=connect', 'zapamatuj=remember', 'napoveda=help']) assert.ok(pairs.includes(pair), pair);
     assert.ok(!pairs.some((p) => p.endsWith('=mcp')), line);
     for (const cmd of ['doctor', 'upgrade', 'connect', 'mcp']) assert.match(res.stdout, new RegExp(`node system/memory\\.mjs ${cmd}\\b`), cmd);
   });

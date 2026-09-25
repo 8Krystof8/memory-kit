@@ -21,6 +21,13 @@ import {
 } from '../../lib/upgrade.mjs';
 import { TODAY, cloneDir, copyKit, overlay, readFile, removeTmpDirs, tmpDir, writeFile, writeJson } from '../helpers.mjs';
 
+// The kit's own version and the synthetic ones around it, so a release does not break the tests.
+const CUR = fs.readFileSync(new URL('../../VERSION', import.meta.url), 'utf8').trim();
+const [MAJ, MIN, PAT] = CUR.split('.').map(Number);
+const NXT = `${MAJ}.${MIN}.${PAT + 1}`;
+const NXT2 = `${MAJ}.${MIN}.${PAT + 2}`;
+const esc = (v) => v.replace(/\./g, '\\.');
+
 after(removeTmpDirs);
 
 const SCRUB = ['MEMORY_SECTORS', 'MEMORY_SEARCH_ENGINE', 'NODE_TEST_CONTEXT', 'NODE_OPTIONS', 'CLAUDE_CODE_REMOTE',
@@ -215,7 +222,7 @@ const vaultSuffix = (rel) => `${path.sep}vault${path.sep}${rel.split('/').join(p
 // Shared kits and vault (built once; every test works on its own copy)
 
 let SRC; // this kit, released
-let HOOK; // a synthetic 0.1.2 whose start, search and eval call the UPG_HOOK module
+let HOOK; // a synthetic next whose start, search and eval call the UPG_HOOK module
 let VAULT; // an en vault of SRC
 let FAULTS; // the fault preload
 
@@ -227,14 +234,14 @@ before(async () => {
   const hook = releasedKit('rec-hook', {
     from: SRC,
     mutate: (dir) => {
-      writeFile(dir, 'system/VERSION', '0.1.2\n');
+      writeFile(dir, 'system/VERSION', `${NXT}\n`);
       for (const lang of ['en', 'cs']) {
         const rel = `system/templates/${lang}/kit/agents-system.md`;
         const text = readFile(dir, rel);
         const nl = text.indexOf('\n');
-        writeFile(dir, rel, text.slice(0, nl).replace(/v\d+\.\d+\.\d+/, 'v0.1.2') + text.slice(nl));
+        writeFile(dir, rel, text.slice(0, nl).replace(/v\d+\.\d+\.\d+/, `v${NXT}`) + text.slice(nl));
       }
-      fs.appendFileSync(path.join(dir, 'system', 'lib', 'fingerprint.mjs'), '// 0.1.2\n');
+      fs.appendFileSync(path.join(dir, 'system', 'lib', 'fingerprint.mjs'), `// ${NXT}\n`);
       writeFile(dir, 'system/lib/next-extra.mjs', 'export const NEXT = true;\n');
       for (const name of WRAPPED) {
         const commands = path.join(dir, 'system', 'lib', 'commands');
@@ -349,7 +356,7 @@ describe('an interrupted upgrade', { concurrency: 4 }, () => {
     const lock = lockState(v.root);
     assert.ok(lock && !lock.running, 'an interrupted upgrade left its lock');
     assert.equal(backupJson(v.root, lock.backup).state, 'started');
-    assert.equal(readVersion(v.root), '0.1.2');
+    assert.equal(readVersion(v.root), NXT);
     assert.ok(!readFile(v.root, note).includes('\r\n'), 'the checks normalized the note');
 
     // The vault keeps working; the owner adds a decision and a rule.
@@ -392,7 +399,7 @@ describe('an interrupted upgrade', { concurrency: 4 }, () => {
     assert.equal(back.code, 0, `${back.stdout}\n${back.stderr}`);
     assert.deepEqual(jsonOf(back).rollback.conflicts, []);
     assert.equal(readFile(v.root, 'memory.json'), edited, 'the owner\'s edit stays');
-    assert.equal(readVersion(v.root), '0.1.1');
+    assert.equal(readVersion(v.root), CUR);
     assert.equal(lockState(v.root), null);
   });
 
@@ -405,7 +412,7 @@ describe('an interrupted upgrade', { concurrency: 4 }, () => {
     assert.match(res.stdout, /the upgrade failed \(apply\): ENOSPC/);
     const m = /restoring the backup failed as well \(.*\); run: (node .+)$/m.exec(res.stdout);
     assert.ok(m, res.stdout);
-    assert.match(m[1], /\.memory-kit[\\/]+backups[\\/]+\d{8}-\d{6}-0\.1\.1-to-0\.1\.2[\\/]+tool[\\/]+rollback\.mjs"?$/);
+    assert.match(m[1], new RegExp(`\\.memory-kit[\\\\/]+backups[\\\\/]+\\d{8}-\\d{6}-${esc(CUR)}-to-${esc(NXT)}[\\\\/]+tool[\\\\/]+rollback\\.mjs"?$`));
     const back = await runPrinted(v.root, m[1]);
     assert.equal(back.code, 0, `${back.stdout}\n${back.stderr}`);
     assertSameTree(beforeSnap, snapshot(v.root), 'restored byte for byte');
@@ -480,7 +487,7 @@ describe('an upgrade that is still running', { concurrency: 4 }, () => {
     // A live process that looks like an upgrader holds the lock.
     const sleeper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'memory.mjs', 'upgrade'], { stdio: 'ignore', windowsHide: true });
     try {
-      writeJson(v.root, LOCK_FILE, { backup: '20260924-100000-0.1.1-to-0.1.2', from: '0.1.1', to: '0.1.2', started: new Date().toISOString(), pid: sleeper.pid, host: os.hostname() });
+      writeJson(v.root, LOCK_FILE, { backup: `20260924-100000-${CUR}-to-${NXT}`, from: CUR, to: NXT, started: new Date().toISOString(), pid: sleeper.pid, host: os.hostname() });
       assert.equal(lockState(v.root).running, true);
       const res = await runKit(HOOK, v.root, ['upgrade', '--yes', '--force', '--json']);
       assert.equal(res.code, 1, res.stdout);
@@ -539,7 +546,7 @@ describe('files the upgrade must keep byte for byte', { concurrency: 4 }, () => 
     assert.equal(jsonOf(res).plan.agents.action, 'replace');
     const afterBuf = fs.readFileSync(abs(v.root, 'AGENTS.md'));
     assert.ok(tail(afterBuf).equals(tail(beforeBuf)), 'the bytes after the kit section');
-    assert.match(afterBuf.toString('latin1').split('\n')[0], /kit:start v0\.1\.2 /);
+    assert.match(afterBuf.toString('latin1').split('\n')[0], new RegExp(`kit:start v${esc(NXT)} `));
   });
 
   test('replaceKitBlockBytes: UTF-8 as text, other bytes spliced, UTF-16 left alone', () => {
@@ -626,7 +633,7 @@ describe('files the upgrade must keep byte for byte', { concurrency: 4 }, () => 
     for (const q of ['invoice', 'budget']) assert.equal((await runCli(v.root, ['search', q])).code, 0);
     const back = await runCli(v.root, ['upgrade', '--rollback']);
     assert.equal(back.code, 0, `${back.stdout}\n${back.stderr}`);
-    assert.equal(readVersion(v.root), '0.1.1');
+    assert.equal(readVersion(v.root), CUR);
     assert.equal(readFile(v.root, log).trim().split('\n').length, 3, 'every search is still logged');
   });
 });
@@ -677,7 +684,7 @@ describe('backup order, sources and git', { concurrency: 4 }, () => {
       const res = await runCli(v.root, ['upgrade', '--json']);
       assert.equal(res.code, 0, `${source}:\n${res.stdout}\n${res.stderr}`);
       const out = jsonOf(res);
-      assert.equal(out.runner.version, '0.1.2', source);
+      assert.equal(out.runner.version, NXT, source);
       assert.equal(out.result.dry_run, true);
     }
     writeJson(v.root, 'memory.json', { ...memory, kit: { source: 'no-such-folder' } });
@@ -715,7 +722,7 @@ describe('backup order, sources and git', { concurrency: 4 }, () => {
     cloneDir(HOOK, repo);
     git(repo, ['init', '-q', '-b', 'main']);
     git(repo, ['add', '-A']);
-    git(repo, ['commit', '-q', '-m', 'memory-kit 0.1.2']);
+    git(repo, ['commit', '-q', '-m', `memory-kit ${NXT}`]);
     // The clones go to a temporary folder of this test (removed with the others), so the clones of
     // tests running at the same time in other files are never touched.
     const temp = tmpDir('rec-clone-tmp');
