@@ -717,6 +717,9 @@
     "upgrade.rollback.conflicts": "tyto soubory se po aktualizaci změnily, proto se nic neobnovilo; --force je obnoví i tak (jejich současná verze se uloží do zálohy):",
     "upgrade.rollback.saved": "tyto soubory se po aktualizaci změnily; tvoje verze každého z nich je uložená v {dir}:",
     "upgrade.rollback.running": "právě běží aktualizace {from} → {to} (proces {pid}); počkej, až doběhne",
+    "upgrade.rollback.hooks": "hooky paměti v {files} spouštějí příkaz hook této paměti, který kit verze {from} nemá (každá session by dostala chybu hooku a Stop by se zablokoval); nejdřív je odeber: node \"{script}\" connect claude-code --projects --remove (a connect codex --projects --remove), nebo z těch souborů smaž položky, které spouštějí system/memory.mjs hook; pak vrať aktualizaci",
+    "upgrade.rollback.hooks_plan": "hooky paměti v {files} by se nejdřív odebraly: kit verze {from} nemá příkaz hook",
+    "upgrade.rollback.hooks_removed": "hooky paměti byly odebrány z {path}: kit verze {from} nemá příkaz hook; po další aktualizaci znovu spusť connect {agent} --projects",
     "upgrade.error.backup_invalid": "zálohu v {dir} nejde přečíst",
     "upgrade.error.restore_failed": "obnova {rel} selhala",
 

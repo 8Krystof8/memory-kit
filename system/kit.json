@@ -44,7 +44,7 @@
       "group": "docs"
     },
     "docs/architecture.md": {
-      "sha256": "61644e49df1aeb4e34e4db1ab236153712debbf75694c2f354f29057f604d132",
+      "sha256": "ff01162dc11076e6b0ec0b1d3f0b4f8a6c6dfb344345d9f0e5766d3ee92cd268",
       "group": "docs"
     },
     "docs/integrations/chatgpt.md": {
@@ -100,7 +100,7 @@
       "group": "docs"
     },
     "docs/upgrading.md": {
-      "sha256": "c7c6858323c8f13c527a409026020f08ec4021761ccc18b3b76209f7e1a2e59c",
+      "sha256": "d365c5972ffe1572803f42751ee8f8ac41283ced6cf463d8f9387e58d6996613",
       "group": "docs"
     },
     "install.ps1": {
@@ -128,7 +128,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "bfe7ec15606a490615fd15d734264f2226befd182a9afd0ded9338121dcced53",
+      "sha256": "cc67b313c479d182c9cc39ebd4a85237c38467905e7c6f09d5c23ab1186586ea",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -216,7 +216,7 @@
       "group": "code"
     },
     "system/lib/commands/upgrade.mjs": {
-      "sha256": "38ead3fd7307c851d1d9c32410f21770616cd1d8356dc8fb87d92efcfa3364e4",
+      "sha256": "4c039eb26443bc9bcd8346aa988ea69b2f1444ceca0e9346e321d9644169ecab",
       "group": "code"
     },
     "system/lib/config.mjs": {
@@ -316,7 +316,7 @@
       "group": "code"
     },
     "system/lib/upgrade.mjs": {
-      "sha256": "6264979f3d5d6984c0c9f9df6be19c9c08ad42c9662e83aec183694e6615cb38",
+      "sha256": "107fbed88112c618f3b9c50af1b1b76ea29a569bb83987233a2960fe16963fc7",
       "group": "code"
     },
     "system/lib/util.mjs": {
@@ -948,7 +948,7 @@
       "group": "tests"
     },
     "system/tests/integration/upgrade.test.mjs": {
-      "sha256": "94b3623fb7e2e5826bcce825a98ffaf965ddfa8ebc78be0de0a387858e56c7d8",
+      "sha256": "17cd58ea95d649840af4f57b46e7eecb097927fb508e3d0eed5d6f856273b273",
       "group": "tests"
     },
     "system/tests/unit/api.test.mjs": {

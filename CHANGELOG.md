@@ -93,6 +93,10 @@ changes for vaults that do not switch the project memory on; the data version st
 
 ### Changed
 
+- `upgrade --rollback` to a kit older than 0.1.2 first takes out the memory hooks of this vault
+  (the older kit has no `hook` command, so every session would get a hook error and every Stop
+  would be blocked) and says so; the recovery tool of the backup refuses instead and names the
+  command to run first.
 - `init` in an interactive terminal without answers opens the setup wizard (`--no-interactive`
   keeps the old behaviour); without a terminal its output is unchanged byte for byte.
 - `upgrade` in a terminal shows the upgrade screen; its plain output is unchanged.

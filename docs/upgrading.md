@@ -302,6 +302,15 @@ these files had changed after the upgrade; your version of each is saved under .
 A new file that the upgrade cannot prove it wrote counts as a conflict too, so a rollback never
 removes it without a copy.
 
+**The memory hooks for code projects go first.** They live in your user settings
+(`~/.claude/settings.json`, `~/.codex/hooks.json`), outside the vault, and run
+`system/memory.mjs hook …` in every repository you open. A kit older than 0.1.2 has no `hook`
+command: its answer would be a hook error in every session, and a blocked Stop. So when the
+rollback goes back to such a kit while those hooks run this vault, `upgrade --rollback` takes them
+out first (as `connect claude-code --projects --remove` does) and says so; `--dry-run` names them.
+The recovery tool cannot do that and refuses instead, naming the command to run first. After the
+next upgrade, `connect claude-code --projects` puts them back.
+
 ### An interrupted upgrade
 
 When the computer crashes or the terminal closes while an upgrade runs, the lock file stays. The
@@ -344,7 +353,8 @@ node .memory-kit/backups/20260924-162948-0.1.1-to-0.1.2/tool/rollback.mjs
 It restores its own backup by the same rules as `upgrade --rollback <id>`. `--dry-run` shows what
 would change, `--force` restores changed files too (after saving them under `conflicts/`), and
 `--json` prints `{ rollback: { ok, … } }`. Its messages are English only. Exit codes: 0 done, 1
-refused (conflicts, or an upgrade still runs), 2 an unknown option. The lock names the backup, so
+refused (conflicts, an upgrade still runs, or memory hooks that the restored kit cannot serve), 2
+an unknown option. The lock names the backup, so
 `.memory-kit/upgrade.lock` tells you which folder to use.
 
 When an upgrade stops before it finishes (the newer upgrader that took over was killed, or

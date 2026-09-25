@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DEFAULT_SOURCE, absOf, compareVersions, loadManifest, parseVersion, readVersion } from '../kit.mjs';
 import {
   UpgradeError, applyUpgrade, cloneKit, isGitUrl, lockState, planUpgrade, readVaultConfig, recoveryTool, rollbackUpgrade,
-  samePath,
+  samePath, vaultHooks,
 } from '../upgrade.mjs';
 import { isDir, isFile, parseCli, usageError } from '../util.mjs';
 
@@ -104,6 +104,9 @@ const DEFAULTS = {
   'upgrade.rollback.conflicts': 'these files changed after the upgrade, so nothing was restored; --force restores them anyway (their current version is saved in the backup):',
   'upgrade.rollback.saved': 'these files had changed after the upgrade; your version of each is saved under {dir}:',
   'upgrade.rollback.running': 'an upgrade {from} → {to} is running right now (process {pid}); wait for it to finish',
+  'upgrade.rollback.hooks': 'the memory hooks in {files} run this vault\'s hook command, which the kit of {from} does not have (every session would get a hook error, and a Stop would be blocked); take them out first: node "{script}" connect claude-code --projects --remove (and connect codex --projects --remove), or delete the entries that run system/memory.mjs hook from those files; then roll back',
+  'upgrade.rollback.hooks_plan': 'the memory hooks in {files} would be taken out first: the kit of {from} has no hook command',
+  'upgrade.rollback.hooks_removed': 'the memory hooks were taken out of {path}: the kit of {from} has no hook command; after the next upgrade, run connect {agent} --projects again',
   'upgrade.error.backup_invalid': 'the backup in {dir} cannot be read',
   'upgrade.error.restore_failed': 'restoring {rel} failed',
   'upgrade.ui.plan': 'Plan',
@@ -291,10 +294,39 @@ const writeJson = (value) => process.stdout.write(`${JSON.stringify(value, null,
 // ---------------------------------------------------------------------------------------------
 // Rollback
 
-function runRollback(cfg, context, values, id, out, hints) {
-  let res;
+/**
+ * The project hooks of the vault, when the kit a rollback restores has no hook command: taken out
+ * with the hook installer of this kit (connect … --projects --remove), so no session of any
+ * repository runs a command the older kit refuses. What cannot be taken out makes rollbackUpgrade
+ * refuse, with the way to do it by hand. → the lines to print.
+ */
+async function dropHooksFirst(cfg, root, id, force) {
+  let plan;
   try {
-    res = rollbackUpgrade(context.root, { id, force: Boolean(values.force), dryRun: Boolean(values['dry-run']) });
+    plan = rollbackUpgrade(root, { id, force, dryRun: true });
+  } catch {
+    return []; // the real run reports it
+  }
+  if (!plan.hooks?.length) return [];
+  const { installProjects } = await import('../hooksetup.mjs');
+  const lines = [];
+  for (const { agent } of vaultHooks(root)) {
+    try {
+      const res = await installProjects(root, { agent, remove: true, t: cfg?.t ?? null });
+      if (res.action === 'removed') lines.push(say(cfg, 'upgrade.rollback.hooks_removed', { path: res.file, from: plan.from ?? '–', agent }));
+    } catch {
+      /* still there: rollbackUpgrade refuses and says how */
+    }
+  }
+  return lines;
+}
+
+async function runRollback(cfg, context, values, id, out, hints) {
+  let res;
+  const dryRun = Boolean(values['dry-run']);
+  try {
+    if (!dryRun) for (const line of await dropHooksFirst(cfg, context.root, id, Boolean(values.force))) out.line(line);
+    res = rollbackUpgrade(context.root, { id, force: Boolean(values.force), dryRun });
   } catch (err) {
     if (!(err instanceof UpgradeError)) throw err;
     const message = errorMessage(cfg, err);
@@ -321,6 +353,7 @@ function runRollback(cfg, context, values, id, out, hints) {
     out.line(say(cfg, res.lockRemoved ? 'upgrade.rollback.lock_removed' : 'upgrade.rollback.lock_would_remove'));
   } else if (!res.applied) {
     out.line(say(cfg, 'upgrade.rollback.plan', vars));
+    if (res.hooks?.length) out.line(say(cfg, 'upgrade.rollback.hooks_plan', { files: res.hooks.join(', '), from: res.from ?? '–' }));
     if (res.conflicts.length) {
       out.line(say(cfg, 'upgrade.rollback.conflicts'));
       for (const rel of res.conflicts) out.line(`  ${rel}`);
@@ -468,7 +501,7 @@ export async function run(argv, cfg, ctx = {}) {
     },
   };
 
-  if (values.rollback) return runRollback(cfg, context, values, positionals[0], out, hints);
+  if (values.rollback) return await runRollback(cfg, context, values, positionals[0], out, hints);
 
   const src = resolveSource(values, context, runnerIsVault);
   if (src.usage) {

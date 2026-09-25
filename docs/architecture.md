@@ -1614,7 +1614,13 @@ upgraded), the runner is the source.
   the temporary files `.<name>.tmp-<pid>-<random>` of the backup's own `pid` next to recorded files
   are removed (`temp`), and the folders the upgrade created, when empty. The backup is marked
   `restored` and the lock removed. A lock whose backup is gone: `rollback_orphan_lock`, `--force`
-  removes only the lock (`--dry-run`: `upgrade.rollback.lock_would_remove`).
+  removes only the lock (`--dry-run`: `upgrade.rollback.lock_would_remove`). A backup that removes
+  `system/lib/commands/hook.mjs` (an upgrade from before 0.1.2) is refused with `rollback_hooks`
+  while `$CLAUDE_CONFIG_DIR/settings.json` or `$CODEX_HOME/hooks.json` holds hooks that run this
+  vault's `memory.mjs hook` (`vaultHooks`; the older CLI answers `hook` with exit 2, a blocked
+  Stop); a dry run lists them in `hooks`. The vault's CLI takes them out first with
+  `installProjects(root, {agent, remove: true})` (`upgrade.rollback.hooks_removed`); the recovery
+  tool only refuses.
 - **Lock:** `lockState` gives `{rel, backup, from, to, started, pid, host, valid, running,
   recover}`. `running` = the same host, a live pid (`process.kill(pid, 0)`, EPERM counts as alive),
   a lock file younger than 2 h and, where `/proc/<pid>/cmdline` exists, a command line containing
