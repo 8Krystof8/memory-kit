@@ -873,6 +873,60 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     git(repo, ['checkout', '--', 'index.js']);
   });
 
+  test('stop: a compaction keeps the baseline, a file edited again counts, another session in the repository is named', () => {
+    const v = vault('en');
+    const repo = codeRepo();
+    assert.equal(projectJson(v, 'add', repo).code, 0);
+    const startAs = (sid, source) => hook(v, 'session-start', { cwd: repo, session_id: sid, hook_event_name: 'SessionStart', source });
+    const stopOf = (sid) => hook(v, 'stop', { cwd: repo, session_id: sid, stop_hook_active: false }).stdout;
+    // (a) Code changed, then the session was compacted: the change still counts.
+    startAs('c1', 'startup');
+    fs.writeFileSync(path.join(repo, 'cart.js'), 'export const cart = [];\n');
+    startAs('c1', 'compact');
+    const asked = JSON.parse(stopOf('c1'));
+    assert.equal(asked.decision, 'block');
+    assert.match(asked.reason, /^Project memory: the code changed in this session/, 'no other session here');
+    fs.rmSync(path.join(repo, 'cart.js'));
+    // (b) A file uncommitted since before the session, edited again: the same count, still a change.
+    fs.appendFileSync(path.join(repo, 'index.js'), 'console.log(2);\n');
+    startAs('c2', 'startup');
+    assert.equal(stopOf('c2'), '', 'nothing done yet');
+    fs.appendFileSync(path.join(repo, 'index.js'), 'console.log(3);\n');
+    assert.equal(JSON.parse(stopOf('c2')).decision, 'block');
+    git(repo, ['checkout', '--', 'index.js']);
+    // (c) Two sessions in one repository: the one that did not write hears that another works here.
+    startAs('c3', 'startup');
+    startAs('c4', 'startup');
+    fs.writeFileSync(path.join(repo, 'b.js'), 'export {};\n');
+    const shared = JSON.parse(stopOf('c4'));
+    assert.match(shared.reason, /^Project memory: the code in this repository changed since this session started \(another session works here too/);
+    fs.rmSync(path.join(repo, 'b.js'));
+  });
+
+  test('stop and session start read the code repository without taking its index lock; a failed git status asks nothing', { skip: process.platform === 'win32' && 'index mtimes' }, () => {
+    const v = vault('en');
+    const repo = codeRepo();
+    assert.equal(projectJson(v, 'add', repo).code, 0);
+    const index = path.join(repo, '.git', 'index');
+    // A tracked file touched but not changed: git status would refresh the index and rewrite it.
+    const past = new Date(Date.now() - 3600000);
+    fs.utimesSync(path.join(repo, 'index.js'), past, past);
+    const before = fs.statSync(index).mtimeMs;
+    start(v, repo, 'l1');
+    assert.equal(hook(v, 'stop', { cwd: repo, session_id: 'l1', stop_hook_active: false }).stdout, '');
+    assert.equal(fs.statSync(index).mtimeMs, before, '.git/index was not rewritten');
+    assert.ok(!fs.existsSync(`${index}.lock`));
+    // git cannot read the repository for a moment: nothing asked, the baseline kept.
+    fs.appendFileSync(path.join(repo, 'index.js'), 'console.log(5);\n');
+    const record = fs.readFileSync(path.join(v.root, '.memory-kit', 'capture', 'sessions', 'l1.json'), 'utf8');
+    fs.renameSync(path.join(repo, '.git'), path.join(repo, '.git-away'));
+    assert.equal(hook(v, 'stop', { cwd: repo, session_id: 'l1', stop_hook_active: false }).stdout, '');
+    assert.equal(fs.readFileSync(path.join(v.root, '.memory-kit', 'capture', 'sessions', 'l1.json'), 'utf8'), record);
+    fs.renameSync(path.join(repo, '.git-away'), path.join(repo, '.git'));
+    assert.equal(JSON.parse(hook(v, 'stop', { cwd: repo, session_id: 'l1', stop_hook_active: false }).stdout).decision, 'block', 'back: the change counts');
+    git(repo, ['checkout', '--', 'index.js']);
+  });
+
   test('session records: also in the vault and outside projects, old ones pruned; Codex in the vault gets the start view', () => {
     const v = vault('en');
     const sessions = path.join(v.root, '.memory-kit', 'capture', 'sessions');

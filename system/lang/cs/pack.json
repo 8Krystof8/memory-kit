@@ -746,6 +746,7 @@
     "hook.sync_failed": "Pozor: poslední synchronizace paměti selhala ({when}, krok {step}): {error}. Oprava: {fix}",
     "hook.errors": "Pozor: neúspěšné běhy hooků paměti od posledního upozornění: {n}; podrobnosti: {cmd} doctor",
     "hook.checkpoint": "Paměť projektu: v této session se změnil kód a předávka zatím ne. Než skončíš, stručně zapiš do paměti: 1) přepiš {handoff} (hotovo, další kroky, otevřené otázky, větev); 2) opravené chyby jako pasti: {cmd} remember --project {id} --type gotcha \"příznak → příčina → oprava\"; 3) co nefungovalo: --type dead-end; 4) nová rozhodnutí: --type decision. Nic nevymýšlej, jen co se opravdu stalo. Pak skonči.",
+    "hook.checkpoint_shared": "Paměť projektu: kód v tomto repozitáři se od začátku této session změnil (pracuje tu i jiná session, takže nemusí jít jen o tvé změny) a předávka zatím ne. Než skončíš, stručně zapiš, co udělala tahle session: 1) přepiš {handoff} (hotovo, další kroky, otevřené otázky, větev); 2) opravené chyby jako pasti: {cmd} remember --project {id} --type gotcha \"příznak → příčina → oprava\"; 3) co nefungovalo: --type dead-end; 4) nová rozhodnutí: --type decision. Nic nevymýšlej, jen co se opravdu stalo. Pak skonči.",
     "hook.lookup": "Paměť projektu: podobná chyba tu už byla:",
     "hook.commit_message": "Paměť: session {day}",
     "hook.merge_busy": "v paměti není dokončený merge, rebase, cherry-pick nebo revert",

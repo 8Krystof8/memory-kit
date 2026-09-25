@@ -35,7 +35,11 @@ changes for vaults that do not switch the project memory on; the data version st
   than 22). Session start: in a project, a brief (git state, handoff, conventions, gotchas, dead
   ends) and the start view narrowed to it; in a repository the vault does not know, a one-time
   two-line hint to the user (`project add`, `project ignore`); nothing extra inside the vault or
-  outside git. Stop: one request per session to write the handoff when the code changed. A failed
+  outside git. Stop: one request per session to write the handoff when the code changed (a new
+  commit, or uncommitted files that differ in their list, size or time from the session's start,
+  which a compaction or resume keeps; worded neutrally when another session works in the same
+  repository). The hooks read the code repository without git's optional locks, so they never
+  take its `index.lock` or rewrite its index, and a git status that fails asks nothing. A failed
   Bash or PowerShell command (Claude Code) with at least 20 characters of error text, not an
   interrupt: a lookup in gotchas and dead ends, once per error and at most five per session; every
   other failed tool call ends before the vault config is loaded. Session end: with `autosync` on, a

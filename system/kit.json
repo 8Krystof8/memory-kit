@@ -92,7 +92,7 @@
       "group": "docs"
     },
     "docs/projects.md": {
-      "sha256": "90b442ac97d15571b39e3a1cb34df688da1c63e3317f611f0b927a62423d6fc2",
+      "sha256": "ea1fd806e8ffd9b5a7a888004071ccb926ed41270b6186d66689660627e79cd8",
       "group": "docs"
     },
     "docs/search.md": {
@@ -128,7 +128,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "aa7effc97d386a11207c1175899759d7ca1c17262296d6a92acee79949010e12",
+      "sha256": "8b62a3696d72468112f824955f3339efbc7bc4f6388ab85a6432eb3e2adc69e8",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -176,7 +176,7 @@
       "group": "code"
     },
     "system/lib/commands/hook.mjs": {
-      "sha256": "dbacad15843a714fb16a799375bd461921ff05ac23cc701f83d613b9a9df8ce3",
+      "sha256": "087262376fb3005f893dbaff0e72cc76d6aafb7f5a3d94427669e1a8baaad0bc",
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
@@ -288,7 +288,7 @@
       "group": "code"
     },
     "system/lib/projects.mjs": {
-      "sha256": "a94b85cd1fa32bee506c0e097b32d548684ac3c29183b593dcb1ff11f59d63ca",
+      "sha256": "7adb7289fe70d1e7b2179c5d7d89e57fd7dea5a8d5dfe522dc02705ce493ac47",
       "group": "code"
     },
     "system/lib/repofacts.mjs": {
@@ -936,7 +936,7 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "315773b80260ddc7d32260e8792c0c3600b5d9e516a97dab313e8e11255647c0",
+      "sha256": "ef2a94a333dfb8ab076b52ad512d678737862b121a74490478f19316fe2228d1",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {

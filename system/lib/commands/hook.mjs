@@ -30,7 +30,7 @@ import { createHash } from 'node:crypto';
 import {
   identifyIn, insideVault, findProject, ensureProject, isIgnored, projectSettings, projectBrief, gitState, lookupError,
   devLines, noteAbs, sectorExists, hintMarker, repoHash, readSession, writeSession, pruneSessions, sessionsDir, safeId,
-  takeAutosyncLock, autosyncLockFile, vaultCommand, keepWorkDirOut,
+  takeAutosyncLock, autosyncLockFile, vaultCommand, keepWorkDirOut, baselineOf, codeChanged, otherSessions,
 } from '../projects.mjs';
 import { hookSummary, logHook } from '../hooklog.mjs';
 import { readHookInput, lookupCandidate, isProbe } from '../hookinput.mjs';
@@ -48,6 +48,7 @@ const DEFAULTS = {
   'hook.sync_failed': 'Warning: the last memory sync failed ({when}, step {step}): {error}. Fix: {fix}',
   'hook.errors': 'Warning: failed memory hook runs since the last warning: {n}; see: {cmd} doctor',
   'hook.checkpoint': 'Project memory: the code changed in this session and the handoff did not. Before you finish, record briefly: 1) rewrite {handoff} (done, next steps, open questions, branch); 2) errors you fixed as gotchas: {cmd} remember --project {id} --type gotcha "symptom → cause → fix"; 3) what did not work: --type dead-end; 4) new decisions: --type decision. Only what really happened. Then finish.',
+  'hook.checkpoint_shared': 'Project memory: the code in this repository changed since this session started (another session works here too, so not all of it may be yours) and the handoff did not. Before you finish, record briefly what this session did: 1) rewrite {handoff} (done, next steps, open questions, branch); 2) errors you fixed as gotchas: {cmd} remember --project {id} --type gotcha "symptom → cause → fix"; 3) what did not work: --type dead-end; 4) new decisions: --type decision. Only what really happened. Then finish.',
   'hook.lookup': 'Project memory: a similar error was met before:',
   'hook.commit_message': 'Memory: session {day}',
   'hook.merge_busy': 'a merge, rebase, cherry-pick or revert is not finished in the vault',
@@ -186,7 +187,13 @@ async function sessionView(cfg, agent, input, entry, notices) {
   }
   if (found.store === 'git') entry.repo = found.key;
   const g = gitState(ident.top);
-  writeSession(cfg, sid, { top: ident.top, sector: found.id, store: found.store, head: g.head, dirty: g.dirty, day: todayLocal() });
+  // A compaction, a resume or a fork of the same session keeps the baseline and the start: the
+  // changes made before it still count at Stop. Unknown git state: no baseline (Stop takes one).
+  const prev = readSession(cfg, sid);
+  const same = prev?.top && path.resolve(prev.top) === path.resolve(ident.top) && prev.sector === found.id && Object.hasOwn(prev, 'head');
+  const base = same ? { head: prev.head, dirty: prev.dirty, ...(Object.hasOwn(prev, 'fp') ? { fp: prev.fp } : {}), ...(prev.started ? { started: prev.started } : {}) }
+    : g.ok ? baselineOf(g) : {};
+  writeSession(cfg, sid, { top: ident.top, sector: found.id, store: found.store, ...base, day: todayLocal() });
   const { renderStartView } = await import('../startview.mjs');
   const core = coreSector(cfg);
   const view = await renderStartView(cfg, { sectors: [found.id, ...(core && core !== found.id ? [core] : [])] });
@@ -201,24 +208,28 @@ function stop(cfg, input) {
   if (!s?.sector || !s.top || !sectorExists(cfg, s.sector)) return '';
   const marker = path.join(cfg.root, '.memory-kit', 'capture', 'nudged', sid);
   if (fs.existsSync(marker)) return '';
-  const g = gitState(s.top);
-  // A session linked without a baseline (by an older version): the state of now becomes it.
+  const g = gitState(s.top, { log: false });
+  // git failed or timed out: nothing is known, the baseline stays and nothing is asked.
+  if (!g.ok) return '';
+  // A session linked without a baseline (by an older version, or git failed at the start): the
+  // state of now becomes it.
   if (!Object.hasOwn(s, 'head')) {
-    writeSession(cfg, sid, { ...s, head: g.head, dirty: g.dirty });
+    writeSession(cfg, sid, { ...s, ...baselineOf(g) });
     return '';
   }
-  const changed = (g.head && g.head !== s.head) || g.dirty !== s.dirty;
-  if (!changed) return '';
+  if (!codeChanged(s, g)) return '';
   const handoff = noteAbs(cfg, s.sector, 'handoff');
   // The agent already rewrote the handoff during this session: nothing to ask.
   try {
-    const started = fs.statSync(path.join(sessionsDir(cfg), `${sid}.json`)).mtimeMs;
+    const started = Date.parse(s.started ?? '') || fs.statSync(path.join(sessionsDir(cfg), `${sid}.json`)).mtimeMs;
     if (fs.statSync(handoff).mtimeMs > started) return '';
   } catch {
     /* no handoff note or no session file */
   }
   writeAtomic(marker, `${todayLocal()}\n`);
-  return JSON.stringify({ decision: 'block', reason: say(cfg, 'hook.checkpoint', { handoff, cmd: vaultCommand(cfg), id: s.sector }) });
+  // Another session works in the same repository: the change may be its own, so say so.
+  const key = otherSessions(cfg, s.top, sid).length ? 'hook.checkpoint_shared' : 'hook.checkpoint';
+  return JSON.stringify({ decision: 'block', reason: say(cfg, key, { handoff, cmd: vaultCommand(cfg), id: s.sector }) });
 }
 
 /** The first line with some letters in it, digits folded, for deduplication. */

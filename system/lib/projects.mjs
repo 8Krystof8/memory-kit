@@ -54,7 +54,12 @@ export class ProjectError extends Error {
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-const runRaw = (cmd, args, cwd, timeout = 5000) => spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+// Every git call here reads a code repository that may be in use (another session, the user in a
+// terminal): GIT_OPTIONAL_LOCKS=0 keeps git status from taking index.lock and rewriting the index.
+const GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+const runRaw = (cmd, args, cwd, timeout = 5000) => spawnSync(cmd, args, {
+  cwd, encoding: 'utf8', timeout, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], env: GIT_ENV,
+});
 
 function run(cmd, args, cwd, timeout = 5000) {
   const res = runRaw(cmd, args, cwd, timeout);
@@ -756,8 +761,37 @@ export function readSession(cfg, sid) {
   return readSessionFile(cfg.root, sid);
 }
 
+/** Writes a session record; started (when the session began here) is kept, or set now. */
 export function writeSession(cfg, sid, data) {
-  if (sid) writeAtomic(path.join(sessionsDir(cfg), `${sid}.json`), `${JSON.stringify({ ...data, t: new Date().toISOString() })}\n`);
+  const now = new Date().toISOString();
+  if (sid) writeAtomic(path.join(sessionsDir(cfg), `${sid}.json`), `${JSON.stringify({ started: now, ...data, t: now })}\n`);
+}
+
+/** The code state a session compares against at Stop: { head, dirty, fp } of gitState(). */
+export const baselineOf = (g) => ({ head: g.head, dirty: g.dirty, fp: g.fp });
+
+/** True when the code moved from the baseline s: a new head, or other uncommitted changes. */
+export function codeChanged(s, g) {
+  if (g.head && g.head !== s.head) return true;
+  return typeof s.fp === 'string' ? g.fp !== s.fp : g.dirty !== s.dirty;
+}
+
+/** The other session records of a repository written within `within` ms: [{ sid, ...record }]. */
+export function otherSessions(cfg, top, sid, { now = Date.now(), within = 86400000 } = {}) {
+  let names = [];
+  try {
+    names = fs.readdirSync(sessionsDir(cfg)).filter((n) => n.endsWith('.json'));
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const name of names) {
+    const other = name.slice(0, -5);
+    if (other === sid) continue;
+    const r = readJsonFile(path.join(sessionsDir(cfg), name));
+    if (r?.top && path.resolve(r.top) === path.resolve(top) && now - (Date.parse(r.t ?? '') || 0) < within) out.push({ sid: other, ...r });
+  }
+  return out;
 }
 
 /**
@@ -781,8 +815,9 @@ export function linkSessions(cfg, top, sector, store) {
       if (fs.statSync(abs).mtimeMs < since) continue;
       const s = JSON.parse(fs.readFileSync(abs, 'utf8'));
       if (s?.sector || !s?.top || path.resolve(s.top) !== path.resolve(top)) continue;
-      g ??= gitState(top);
-      writeAtomic(abs, `${JSON.stringify({ ...s, sector, store, head: g.head, dirty: g.dirty })}\n`);
+      g ??= gitState(top, { log: false });
+      // The session's work in the project starts now: the notes project add just wrote are older.
+      writeAtomic(abs, `${JSON.stringify({ ...s, sector, store, ...(g.ok ? baselineOf(g) : {}), started: new Date().toISOString() })}\n`);
       linked++;
     } catch {
       /* a session file of another version */
@@ -833,19 +868,49 @@ export function lastSessions(cfg) {
 // ---------------------------------------------------------------------------------------------
 // The brief and the error lookup
 
-/** The git state of the code repository: { branch, dirty, commits, head } (two git calls). */
-export function gitState(top) {
-  const status = run('git', ['status', '--porcelain=v2', '--branch'], top) ?? '';
+const FP_STAT_MAX = 500; // dirty paths whose size and time go into the fingerprint
+
+/**
+ * The git state of the code repository: { ok, branch, dirty, fp, commits, head }. ok is false when
+ * git status failed or timed out (then nothing else is known). dirty counts the changed paths; fp
+ * is a fingerprint of them (their status lines plus the size and modification time of each), so
+ * a file edited again while it was already uncommitted counts as a change. commits: the last three
+ * (a second git call, left out with log: false). Git runs without optional locks (GIT_ENV).
+ */
+export function gitState(top, { log = true } = {}) {
+  const res = runRaw('git', ['status', '--porcelain=v2', '--branch', '-z'], top);
+  if (res.status !== 0 || typeof res.stdout !== 'string') return { ok: false, branch: '?', dirty: 0, fp: null, commits: [], head: null };
   let branch = '?';
   let head = null;
-  let dirty = 0;
-  for (const line of status.split('\n')) {
+  const entries = [];
+  const fields = res.stdout.split('\0');
+  for (let i = 0; i < fields.length; i++) {
+    const line = fields[i];
+    if (!line) continue;
     if (line.startsWith('# branch.head ')) branch = line.slice(14).trim();
     else if (line.startsWith('# branch.oid ')) head = /^[0-9a-f]{7,}$/.test(line.slice(13).trim()) ? line.slice(13).trim() : null;
-    else if (line.trim() && !line.startsWith('#')) dirty++;
+    else if (!line.startsWith('#')) {
+      // "1 XY … <path>", "2 XY … <path>" then the original path, "u XY … <path>", "? <path>".
+      const kind = line[0];
+      const cut = { 1: 8, 2: 9, u: 10 }[kind];
+      const rel = cut ? line.split(' ').slice(cut).join(' ') : line.slice(2);
+      entries.push({ line, rel });
+      if (kind === '2') entries.at(-1).line += `\0${fields[++i] ?? ''}`;
+    }
   }
-  const commits = head ? (run('git', ['log', '-3', '--format=%h %s (%cr)'], top) ?? '').split('\n').filter(Boolean) : [];
-  return { branch, dirty, commits, head };
+  const hash = createHash('sha256');
+  for (const [i, e] of entries.sort((a, b) => (a.line < b.line ? -1 : a.line > b.line ? 1 : 0)).entries()) {
+    hash.update(`${e.line}\0`);
+    if (i >= FP_STAT_MAX) continue;
+    try {
+      const st = fs.statSync(path.join(top, e.rel));
+      hash.update(`${st.size}:${st.mtimeMs}\0`);
+    } catch {
+      hash.update('gone\0');
+    }
+  }
+  const commits = log && head ? (run('git', ['log', '-3', '--format=%h %s (%cr)'], top) ?? '').split('\n').filter(Boolean) : [];
+  return { ok: true, branch, dirty: entries.length, fp: hash.digest('hex').slice(0, 16), commits, head };
 }
 
 function bodyOf(cfg, sector, role, max) {
