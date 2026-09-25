@@ -1375,10 +1375,11 @@ node system/memory.mjs sector sleep|wake|off <id>
 node system/memory.mjs sector list
 node system/memory.mjs sync [--no-push]
 node system/memory.mjs eval [--file path] [--min 0.9] [--engine fts5|scan] [--json]
-node system/memory.mjs doctor [--json] [--fix]
+node system/memory.mjs doctor [--json] [--fix] [--probe]
 node system/memory.mjs upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--yes] [--dry-run] [--force] [--rollback [id]] [--no-verify] [--json]
 node system/memory.mjs connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json]
 node system/memory.mjs connect --list [--json]
+node system/memory.mjs connect claude-code|codex --projects [--auto-add|--no-auto-add] [--store local|git] [--autosync|--no-autosync] [--form shell|exec] [--dry-run] [--remove] [--json]
 node system/memory.mjs mcp [--read-only] [--local]
 ```
 Default check mode is strict. Everything accepts `--root <path>` (handled by memory.mjs). Every
@@ -1587,7 +1588,7 @@ upgraded), the runner is the source.
   3 internal.
 
 ### 10.7 doctor
-`doctor [--json] [--fix]` checks the installation, read-only. It runs with `cfg = null` when
+`doctor [--json] [--fix] [--probe]` checks the installation, read-only. It runs with `cfg = null` when
 memory.json or a pack cannot be loaded (messages then come from the en pack and, when it loads,
 the pack named by memory.json `lang`) and never exits 3 because of a broken config: it reports it.
 Every check is `{id, status: ok|warn|fail, message, fix}` (`fix` a command or instruction, or
@@ -1612,6 +1613,7 @@ null), in this order:
 | `generated.fresh` | `runChecks` limited to the GEN_* rules and GITIGNORE_LOCAL: EDITED, FAILED, BUDGET fail; MISSING, STALE, ORPHAN, GITIGNORE_LOCAL warn |
 | `platform` | OS, release, architecture, Node.js path, home folder, a UTF-8 probe; warns when HOME differs from the user folder on Windows or the vault lies in OneDrive, Dropbox, iCloud Drive, Google Drive or Box |
 | `mcp.clients` | `clients.inspectClients` (read-only): the apps connected to this vault; warns on an unreadable config, an entry whose command no longer exists, an entry serving a vault that is gone; never fails |
+| `projects.hooks` | the memory hooks for code projects (`connect … --projects`, `lib/hooksetup.mjs`): ok ("not set up") unless memory.json `projects.enabled` is true; then the hooks in `$CLAUDE_CONFIG_DIR/settings.json` and `$CODEX_HOME/hooks.json` (none: warn), SessionStart, Stop and SessionEnd present (warn), the script they run is this vault's `system/memory.mjs` (gone: fail, another vault: warn), the node they start runs and is new enough (fail), the exec form below Claude Code 2.1.139 and PostToolUseFailure below 2.1.101 (fail, oldest version seen by `claude --version`, the editor extensions and the transcripts), `disableAllHooks`, a Codex `[features] hooks = false` or a Codex below 0.124 (warn), no run in `.memory-kit/logs/hooks.jsonl` although sessions started after the settings changed (warn: workspace trust, old version), failures of the last 7 days (up to 3 listed, with their fixes) and a failed last sync (warn). `--probe` also runs the SessionStart command once as the agent does (`/bin/sh -c`; on Windows `bash -c` with Git Bash, else PowerShell; exec form without a shell; Codex `$SHELL -lc` or `cmd.exe /C`) in an empty temporary folder with the input `{session_id: "doctor-probe", cwd, hook_event_name: "SessionStart", source: "startup"}`: it passes on exit 0 with empty stdout (anything printed there would reach the agent, usually shell profile noise) within 1.5 s (slower: warn) |
 
 A check that cannot run (for example `roots` when memory.json does not load) is ok with the message
 `not checked: <reason>` and is marked `·` in human output; the others are marked `✓`, `!` and `✗`

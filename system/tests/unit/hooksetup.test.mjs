@@ -1,0 +1,828 @@
+// connect claude-code|codex --projects (lib/hooksetup.mjs): the shell-form command for macOS,
+// Linux and Windows (spaces, diacritics, characters no shell passes on), which node a hook starts,
+// the Claude Code and Codex versions seen here (the command, the editor extensions, the
+// transcripts), which events a version may get, the settings file edit (foreign hooks, places,
+// removal, backups, files that are not plain JSON), memory.json "projects" with its safe defaults,
+// the CLI, and the proof that the generated command reaches the hook unchanged through the shells
+// that really run it.
+
+import { after, before, describe, test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import {
+  AGENTS, EVENTS, IO, SAFE_DEFAULTS, chooseNode, claudeVersions, cliVersion, cmpVersion, codexInfo, eventsFor, extensionVersions,
+  formatInstall, gitBashPath, hookGroups, hookHandler, hookScript, installProjects, isOurs, localRootOf, maxVersion, minVersion,
+  newestSessionStart, nextProjects, ourHooks, parseHandler, parseVersion, planForm, planHooks, probePayload, probeSpec, runProbe,
+  say, settingsPath, shellCommand, transcriptVersions, unsafeChars,
+} from '../../lib/hooksetup.mjs';
+import { KIT_ROOT, bareRoot, fixtureVault, removeTmpDirs, runCli, tmpDir } from '../helpers.mjs';
+
+after(removeTmpDirs);
+
+const IS_WIN = process.platform === 'win32';
+const NODE_DIR = path.dirname(process.execPath);
+const read = (file) => fs.readFileSync(file, 'utf8');
+const json = (file) => JSON.parse(read(file));
+
+function put(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+  return file;
+}
+
+/** Probes that decide nothing on the machine that runs the tests. */
+function fakeIO(over = {}) {
+  return {
+    nodeOnPath: () => '22.22.0',
+    shortPath: () => null,
+    claudeVersions: () => ({ observed: [{ source: 'cli', version: '2.1.200' }], min: '2.1.200' }),
+    codexInfo: () => ({ observed: [{ source: 'cli', version: '0.140.0' }], min: '0.140.0', off: null }),
+    hasRemote: () => false,
+    ...over,
+  };
+}
+
+/** A vault installProjects accepts (memory.json and a system/memory.mjs) and an empty home. */
+function setup(config = {}) {
+  const root = bareRoot('en', config);
+  put(path.join(root, 'system', 'memory.mjs'), '// the vault CLI\n');
+  const home = tmpDir('home');
+  return { root, home, claude: path.join(home, '.claude', 'settings.json'), codex: path.join(home, '.codex', 'hooks.json') };
+}
+
+const install = (s, { io, ...opts } = {}) => installProjects(s.root, { agent: 'claude-code', env: {}, home: s.home, t: null, ...opts, io: fakeIO(io) });
+const projectsOf = (root) => json(path.join(root, 'memory.json')).projects;
+
+// ---------------------------------------------------------------------------------------------
+// The command strings
+
+describe('the shell form', () => {
+  test('macOS and Linux: node bare, the script in double quotes', () => {
+    const script = hookScript('/home/jan/Jan Novák/my memory', 'linux');
+    assert.equal(script, '/home/jan/Jan Novák/my memory/system/memory.mjs');
+    assert.equal(shellCommand('node', script, 'claude-code', 'session-start'), 'node "/home/jan/Jan Novák/my memory/system/memory.mjs" hook claude-code session-start');
+  });
+
+  test('Windows: forward slashes, spaces and diacritics inside the quotes', () => {
+    const script = hookScript('C:\\Users\\Jan Novák\\Moje paměť', 'win32');
+    assert.equal(script, 'C:/Users/Jan Novák/Moje paměť/system/memory.mjs');
+    assert.equal(shellCommand('node', script, 'codex', 'stop'), 'node "C:/Users/Jan Novák/Moje paměť/system/memory.mjs" hook codex stop');
+  });
+
+  test('characters no shell passes on safely are named', () => {
+    assert.deepEqual(unsafeChars('/home/jan/memory', 'linux'), []);
+    assert.deepEqual(unsafeChars("/home/jan/Jan's (old) memory & more", 'linux'), []);
+    assert.deepEqual(unsafeChars('/home/$USER/100% "x"', 'linux'), ['"', '$', '%']);
+    assert.deepEqual(unsafeChars('/home/jan/`x`!', 'darwin'), ['`', '!']);
+    assert.deepEqual(unsafeChars('/home/jan/a\\b', 'linux'), ['\\'], 'a backslash in a POSIX name');
+    assert.deepEqual(unsafeChars('C:/Users/Jan/a\nb', 'win32'), ['\\n']);
+    assert.deepEqual(unsafeChars('C:/Users/Jan Novák/paměť', 'win32'), []);
+  });
+});
+
+describe('which node a hook starts', () => {
+  test('node on the PATH when it is new enough', () => {
+    assert.deepEqual(chooseNode({ platform: 'linux', pathVersion: '22.5.0', execPath: '/opt/node/bin/node' }), { word: 'node', exe: 'node', via: 'path' });
+    assert.deepEqual(chooseNode({ platform: 'win32', pathVersion: '24.1.0', execPath: 'C:\\Program Files\\nodejs\\node.exe' }).word, 'node');
+  });
+
+  test('macOS and Linux: the absolute path in double quotes', () => {
+    const n = chooseNode({ platform: 'darwin', pathVersion: '20.11.0', execPath: '/Users/jan/.nvm/versions/node/v22.9.0/bin/node' });
+    assert.equal(n.word, '"/Users/jan/.nvm/versions/node/v22.9.0/bin/node"');
+    assert.equal(n.via, 'absolute');
+    assert.equal(chooseNode({ platform: 'linux', pathVersion: null, execPath: '/opt/$x/node' }).word, null);
+  });
+
+  test('Windows: a bare path, else the 8.3 short name, else none', () => {
+    const plain = chooseNode({ platform: 'win32', pathVersion: null, execPath: 'C:\\nodejs\\node.exe' });
+    assert.deepEqual([plain.word, plain.via], ['C:/nodejs/node.exe', 'absolute']);
+    const spaced = 'C:\\Program Files\\nodejs\\node.exe';
+    const short = chooseNode({ platform: 'win32', pathVersion: null, execPath: spaced, shortPath: () => 'C:\\PROGRA~1\\nodejs\\node.exe' });
+    assert.deepEqual([short.word, short.via, short.exe], ['C:/PROGRA~1/nodejs/node.exe', 'short', spaced]);
+    const none = chooseNode({ platform: 'win32', pathVersion: null, execPath: spaced, shortPath: () => null });
+    assert.deepEqual([none.word, none.quoted], [null, '"C:/Program Files/nodejs/node.exe"']);
+    // 8.3 names switched off: cmd.exe answers with the long path, which is no bare word either.
+    assert.equal(chooseNode({ platform: 'win32', pathVersion: null, execPath: spaced, shortPath: () => spaced }).word, null);
+  });
+});
+
+describe('the form of the hooks', () => {
+  const posixNode = { word: 'node', exe: 'node', via: 'path' };
+  const script = '/home/jan/memory/system/memory.mjs';
+
+  test('the shell form by default, on any Claude Code version', () => {
+    for (const min of [null, '1.0.90', '2.1.100', '2.1.300']) {
+      const plan = planForm({ agent: 'claude-code', platform: 'linux', script, min, node: posixNode });
+      assert.deepEqual([plan.form, plan.nodeWord, plan.warnings], ['shell', 'node', []], String(min));
+    }
+  });
+
+  test('--form exec is kept, with a warning when a version here cannot run it', () => {
+    const at = (min) => planForm({ agent: 'claude-code', platform: 'linux', script, requested: 'exec', min, node: posixNode });
+    assert.deepEqual([at('2.1.139').form, at('2.1.139').warnings], ['exec', []]);
+    assert.deepEqual(at(null).warnings.map((w) => w.key), ['connect.projects.warn.exec_unknown']);
+    assert.deepEqual(at('2.1.138').warnings, [{ key: 'connect.projects.warn.exec_old', vars: { version: '2.1.138' } }]);
+  });
+
+  test('a vault path no shell passes on: exec when every version allows it, else refused', () => {
+    const bad = '/home/jan/100% $x/system/memory.mjs';
+    const ok = planForm({ agent: 'claude-code', platform: 'linux', script: bad, min: '2.1.150', node: posixNode });
+    assert.equal(ok.form, 'exec');
+    assert.equal(ok.warnings[0].key, 'connect.projects.warn.exec_path');
+    for (const min of [null, '2.1.138']) {
+      const no = planForm({ agent: 'claude-code', platform: 'linux', script: bad, min, node: posixNode });
+      assert.equal(no.refused.key, 'connect.projects.refused.unsafe_path');
+      assert.equal(no.refused.fixKey, 'connect.projects.refused.unsafe_path_claude_fix');
+      assert.equal(no.refused.vars.chars, '$ %');
+    }
+    const codex = planForm({ agent: 'codex', platform: 'win32', script: 'C:/Users/100%/system/memory.mjs', min: '0.140.0', node: posixNode });
+    assert.equal(codex.refused.fixKey, 'connect.projects.refused.unsafe_path_fix');
+  });
+
+  test('Windows: a node path with spaces and no short name', () => {
+    const node = chooseNode({ platform: 'win32', pathVersion: null, execPath: 'C:\\Program Files\\nodejs\\node.exe' });
+    const exec = planForm({ agent: 'claude-code', platform: 'win32', script: 'C:/m/system/memory.mjs', min: '2.1.200', node });
+    assert.deepEqual([exec.form, exec.exe, exec.warnings[0].key], ['exec', 'C:\\Program Files\\nodejs\\node.exe', 'connect.projects.warn.exec_node']);
+    const quoted = planForm({ agent: 'claude-code', platform: 'win32', script: 'C:/m/system/memory.mjs', min: '2.1.100', node });
+    assert.equal(quoted.form, 'shell');
+    assert.equal(quoted.nodeWord, '"C:/Program Files/nodejs/node.exe"');
+    assert.ok(quoted.warnings.some((w) => w.key === 'connect.projects.warn.node_quoted'));
+    // cmd.exe (Codex) reads a quoted program path.
+    const codex = planForm({ agent: 'codex', platform: 'win32', script: 'C:/m/system/memory.mjs', min: '0.140.0', node });
+    assert.equal(codex.nodeWord, '"C:/Program Files/nodejs/node.exe"');
+    assert.deepEqual(codex.warnings.map((w) => w.key), ['connect.projects.warn.node_absolute']);
+  });
+
+  test('Codex has only the shell form', () => {
+    const plan = planForm({ agent: 'codex', platform: 'linux', script, requested: 'exec', min: '0.140.0', node: posixNode });
+    assert.equal(plan.form, 'shell');
+    assert.deepEqual(plan.warnings.map((w) => w.key), ['connect.projects.warn.codex_exec']);
+  });
+});
+
+describe('events by version', () => {
+  test('PostToolUseFailure only when every Claude Code seen is 2.1.101 or newer', () => {
+    const names = (min) => eventsFor('claude-code', min).events.map(([n]) => n);
+    assert.deepEqual(names('2.1.101'), ['SessionStart', 'Stop', 'PostToolUseFailure', 'SessionEnd']);
+    assert.deepEqual(names('2.2.0'), ['SessionStart', 'Stop', 'PostToolUseFailure', 'SessionEnd']);
+    for (const min of [null, '2.1.100', '2.0.56', '1.0.90']) {
+      assert.deepEqual(names(min), ['SessionStart', 'Stop', 'SessionEnd'], String(min));
+      assert.deepEqual(eventsFor('claude-code', min).omitted, ['PostToolUseFailure']);
+    }
+    assert.deepEqual(eventsFor('codex', null).events.map(([n]) => n), ['SessionStart', 'Stop', 'SessionEnd']);
+  });
+
+  test('matchers and timeouts', () => {
+    const groups = hookGroups('claude-code', EVENTS['claude-code'], { form: 'shell', nodeWord: 'node' }, { script: '/v/system/memory.mjs', platform: 'linux' });
+    assert.equal(groups.SessionStart.matcher, 'startup|resume|clear|compact');
+    assert.equal(groups.PostToolUseFailure.matcher, 'Bash|PowerShell');
+    assert.equal(groups.Stop.matcher, undefined);
+    assert.deepEqual(Object.fromEntries(Object.entries(groups).map(([k, g]) => [k, g.hooks[0].timeout])), { SessionStart: 20, Stop: 10, PostToolUseFailure: 5, SessionEnd: 5 });
+    assert.ok(EVENTS.codex.every(([, , , timeout]) => timeout <= 20) && EVENTS.codex.find(([n]) => n === 'SessionEnd')[3] <= 3);
+  });
+
+  test('entries: exec form, and Codex with commandWindows on Windows only', () => {
+    assert.deepEqual(hookHandler('claude-code', 'stop', 10, { form: 'exec', exe: 'node' }, { script: '/v/system/memory.mjs' }),
+      { type: 'command', command: 'node', args: ['/v/system/memory.mjs', 'hook', 'claude-code', 'stop'], timeout: 10 });
+    assert.deepEqual(hookHandler('codex', 'stop', 10, { form: 'shell', nodeWord: 'node' }, { script: '/v/system/memory.mjs', platform: 'linux' }),
+      { type: 'command', command: 'node "/v/system/memory.mjs" hook codex stop', timeout: 10 });
+    const win = hookHandler('codex', 'stop', 10, { form: 'shell', nodeWord: 'node' }, { script: 'C:/Users/Jan Novák/m/system/memory.mjs', platform: 'win32' });
+    assert.equal(win.command, 'node "C:/Users/Jan Novák/m/system/memory.mjs" hook codex stop');
+    assert.equal(win.commandWindows, win.command);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Versions
+
+describe('versions', () => {
+  test('parse and compare', () => {
+    assert.equal(parseVersion('2.1.282 (Claude Code)'), '2.1.282');
+    assert.equal(parseVersion('codex-cli 0.124.0\n'), '0.124.0');
+    assert.equal(parseVersion('nothing'), null);
+    assert.equal(cmpVersion('2.1.100', '2.1.101'), -1);
+    assert.equal(cmpVersion('2.10.0', '2.9.9'), 1);
+    assert.equal(minVersion(['2.1.200', 'x', '2.1.99', '2.1.150']), '2.1.99');
+    assert.equal(maxVersion(['2.1.200', '2.1.99']), '2.1.200');
+    assert.equal(minVersion([]), null);
+  });
+
+  test('`claude --version`: directly on macOS and Linux, through cmd.exe on Windows', () => {
+    const calls = [];
+    const run = (command, args, options) => {
+      calls.push({ command, args, verbatim: options.windowsVerbatimArguments === true, timeout: options.timeout, hide: options.windowsHide });
+      return { status: 0, stdout: '2.1.282 (Claude Code)\n' };
+    };
+    assert.equal(cliVersion('claude', { platform: 'linux', env: {}, run }), '2.1.282');
+    assert.equal(cliVersion('claude', { platform: 'win32', env: { ComSpec: 'C:\\Windows\\system32\\cmd.exe' }, run }), '2.1.282');
+    assert.deepEqual(calls[0], { command: 'claude', args: ['--version'], verbatim: false, timeout: 5000, hide: true });
+    assert.deepEqual(calls[1], { command: 'C:\\Windows\\system32\\cmd.exe', args: ['/d', '/s', '/c', '"claude --version"'], verbatim: true, timeout: 5000, hide: true });
+    assert.equal(cliVersion('claude', { platform: 'linux', env: {}, run: () => ({ status: 1, stdout: '' }) }), null);
+    assert.equal(cliVersion('claude', { platform: 'linux', env: {}, run: () => ({ error: new Error('ENOENT') }) }), null);
+    assert.equal(cliVersion('claude', { platform: 'linux', env: {}, run: () => { throw new Error('EINVAL'); } }), null);
+  });
+
+  test('the newest extension of every VS Code-family editor', () => {
+    const home = tmpDir('ext-home');
+    for (const dir of ['.vscode/extensions/anthropic.claude-code-2.1.120-linux-x64', '.vscode/extensions/anthropic.claude-code-2.1.140-linux-x64',
+      '.vscode/extensions/ms-python.python-2026.1.0', '.cursor/extensions/anthropic.claude-code-2.1.99', '.windsurf/extensions/other']) {
+      fs.mkdirSync(path.join(home, dir), { recursive: true });
+    }
+    assert.deepEqual(extensionVersions(home), [
+      { source: 'extension', editor: 'VS Code', version: '2.1.140' },
+      { source: 'extension', editor: 'Cursor', version: '2.1.99' },
+    ]);
+    assert.deepEqual(extensionVersions(tmpDir('empty-home')), []);
+  });
+
+  test('transcripts: the last version line of the newest few, read from their end only', () => {
+    const dir = tmpDir('claude-config');
+    const line = (o) => `${JSON.stringify(o)}\n`;
+    const pad = line({ type: 'assistant', message: { content: 'x'.repeat(1000) } }).repeat(400); // about 400 KB
+    const at = (rel, text, secondsAgo) => {
+      const file = put(path.join(dir, 'projects', ...rel.split('/')), text);
+      const t = new Date(Date.now() - secondsAgo * 1000);
+      fs.utimesSync(file, t, t);
+    };
+    // The version line near the end wins; a line in a tool result ("version" nested) does not count.
+    at('-home-jan-shop/a.jsonl', line({ version: '2.1.50' }) + pad + line({ version: '2.1.150', entrypoint: 'cli' }) + line({ type: 'x', payload: { version: '9.9.9' } }), 10);
+    // Only at the start of a big file: beyond the bounded read.
+    at('-home-jan-shop/b.jsonl', line({ version: '2.0.10' }) + pad, 20);
+    at('-home-jan-web/c.jsonl', line({ version: '2.1.160', entrypoint: 'claude-vscode' }), 30);
+    at('-home-jan-web/d.jsonl', `${line({ version: '2.1.150', entrypoint: 'claude-vscode' })}{"torn`, 40);
+    at('-home-jan-web/e.jsonl', line({ version: '2.1.170' }), 50);
+    at('-home-jan-web/f.jsonl', line({ version: '1.0.1' }), 60); // the sixth newest: not read
+    at('-home-jan-web/sub/g.jsonl', line({ version: '1.0.2' }), 5); // a subagent transcript: not a session
+    assert.deepEqual(transcriptVersions(dir), [
+      { source: 'sessions', version: '2.1.170', entrypoints: [] },
+      { source: 'sessions', version: '2.1.160', entrypoints: ['claude-vscode'] },
+      { source: 'sessions', version: '2.1.150', entrypoints: ['cli', 'claude-vscode'] },
+    ]);
+    assert.deepEqual(transcriptVersions(tmpDir('no-config')), []);
+  });
+
+  test('claudeVersions: all three sources, CLAUDE_CONFIG_DIR, and the oldest', () => {
+    const home = tmpDir('cv-home');
+    fs.mkdirSync(path.join(home, '.vscode', 'extensions', 'anthropic.claude-code-2.1.130-win32-x64'), { recursive: true });
+    const config = tmpDir('cv-config');
+    put(path.join(config, 'projects', 'p', 's.jsonl'), `${JSON.stringify({ version: '2.1.140', entrypoint: 'cli' })}\n`);
+    put(path.join(home, '.claude', 'projects', 'p', 's.jsonl'), `${JSON.stringify({ version: '1.0.0' })}\n`); // not used: CLAUDE_CONFIG_DIR wins
+    const run = () => ({ status: 0, stdout: '2.1.150 (Claude Code)' });
+    const seen = claudeVersions({ env: { CLAUDE_CONFIG_DIR: config }, home, platform: 'linux', run });
+    assert.deepEqual(seen.observed.map((o) => `${o.source}:${o.version}`), ['cli:2.1.150', 'extension:2.1.130', 'sessions:2.1.140']);
+    assert.equal(seen.min, '2.1.130');
+    assert.equal(claudeVersions({ env: {}, home: tmpDir('none'), platform: 'linux', run: () => ({ status: 1 }) }).min, null);
+  });
+
+  test('codexInfo: the version and a config.toml that turns hooks off', () => {
+    const home = tmpDir('codex-home');
+    const run = () => ({ status: 0, stdout: 'codex-cli 0.123.0\n' });
+    assert.deepEqual(codexInfo({ env: {}, home, platform: 'linux', run }), { observed: [{ source: 'cli', version: '0.123.0' }], min: '0.123.0', off: null });
+    const config = put(path.join(home, '.codex', 'config.toml'), 'model = "x"\n\n[features]\ncodex_hooks = false\n');
+    assert.deepEqual(codexInfo({ env: {}, home, platform: 'linux', run }).off, { path: config, key: 'codex_hooks' });
+    put(config, 'features.hooks = false\n');
+    assert.equal(codexInfo({ env: {}, home, platform: 'linux', run }).off.key, 'hooks');
+    put(config, '[features]\nhooks = true\n');
+    assert.equal(codexInfo({ env: {}, home, platform: 'linux', run }).off, null);
+    const other = tmpDir('codex-home-env');
+    put(path.join(other, 'config.toml'), '[features]\nhooks = false\n');
+    assert.equal(codexInfo({ env: { CODEX_HOME: other }, home, platform: 'linux', run }).off.path, path.join(other, 'config.toml'));
+  });
+
+  test('newestSessionStart reads the first timestamp of the newest transcripts', () => {
+    const home = tmpDir('sessions-home');
+    put(path.join(home, '.claude', 'projects', 'p', 'a.jsonl'), '{"type":"summary"}\n{"timestamp":"2026-09-20T10:00:00.000Z","version":"2.1.200"}\n');
+    put(path.join(home, '.claude', 'projects', 'q', 'b.jsonl'), '{"timestamp":"2026-09-22T08:30:00.000Z"}\n');
+    assert.equal(newestSessionStart('claude-code', { env: {}, home, platform: 'linux' }), Date.parse('2026-09-22T08:30:00.000Z'));
+    put(path.join(home, '.codex', 'sessions', '2026', '09', '24', 'rollout-2026-09-24T09-00-00-abc.jsonl'), '{"timestamp":"2026-09-24T09:00:00.000Z","type":"session_meta"}\n');
+    assert.equal(newestSessionStart('codex', { env: {}, home, platform: 'linux' }), Date.parse('2026-09-24T09:00:00.000Z'));
+    assert.equal(newestSessionStart('codex', { env: {}, home: tmpDir('nothing'), platform: 'linux' }), 0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The settings object
+
+describe('planHooks', () => {
+  const plan = { form: 'shell', nodeWord: 'node' };
+  const groupsFor = (script, events = EVENTS['claude-code']) => hookGroups('claude-code', events, plan, { script, platform: 'linux' });
+  const ours = groupsFor('/v/system/memory.mjs');
+  const foreignStop = { hooks: [{ type: 'command', command: 'echo done' }] };
+  const vaultStart = { matcher: 'startup', hooks: [{ type: 'command', command: 'node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start' }] };
+
+  test('adds ours once, keeps every foreign key and hook, and is idempotent', () => {
+    const settings = { model: 'opus', env: { A: '1' }, hooks: { Stop: [foreignStop], SessionStart: [vaultStart] }, permissions: { allow: ['Bash(ls)'] } };
+    const once = planHooks(settings, 'claude-code', { groups: ours });
+    assert.deepEqual(planHooks(once, 'claude-code', { groups: ours }), once);
+    assert.deepEqual(Object.keys(once), ['model', 'env', 'hooks', 'permissions']);
+    assert.deepEqual(once.hooks.Stop, [foreignStop, ours.Stop]);
+    assert.deepEqual(once.hooks.SessionStart, [vaultStart, ours.SessionStart], 'the vault project hook is not ours');
+    assert.deepEqual(Object.keys(once.hooks), ['Stop', 'SessionStart', 'PostToolUseFailure', 'SessionEnd']);
+    assert.deepEqual(settings.hooks.Stop, [foreignStop], 'the input is not changed');
+  });
+
+  test('our group keeps its place when it changes, and foreign groups after it stay after it', () => {
+    const settings = { hooks: { Stop: [ours.Stop, foreignStop] } };
+    const moved = groupsFor('/w/system/memory.mjs');
+    const next = planHooks(settings, 'claude-code', { groups: moved });
+    assert.deepEqual(next.hooks.Stop, [moved.Stop, foreignStop]);
+  });
+
+  test('a group shared with a foreign hook keeps it; old exec-form entries are replaced', () => {
+    const oldExec = { type: 'command', command: '/usr/bin/node', args: ['/v/system/memory.mjs', 'hook', 'claude-code', 'stop'] };
+    const shared = { hooks: [{ type: 'command', command: 'echo a' }, oldExec] };
+    const next = planHooks({ hooks: { Stop: [shared] } }, 'claude-code', { groups: ours });
+    assert.deepEqual(next.hooks.Stop, [{ hooks: [{ type: 'command', command: 'echo a' }] }, ours.Stop]);
+  });
+
+  test('without PostToolUseFailure an old entry of it goes away', () => {
+    const all = planHooks({}, 'claude-code', { groups: ours });
+    const fewer = groupsFor('/v/system/memory.mjs', eventsFor('claude-code', null).events);
+    assert.equal(planHooks(all, 'claude-code', { groups: fewer }).hooks.PostToolUseFailure, undefined);
+  });
+
+  test('remove takes out only ours and gives back the file it found', () => {
+    const settings = { hooks: { Stop: [foreignStop] }, theme: 'dark' };
+    const added = planHooks(settings, 'claude-code', { groups: ours });
+    assert.deepEqual(planHooks(added, 'claude-code', { remove: true }), settings);
+    assert.deepEqual(planHooks(planHooks({}, 'claude-code', { groups: ours }), 'claude-code', { remove: true }), {});
+    assert.deepEqual(planHooks({ hooks: {} }, 'claude-code', { remove: true }), { hooks: {} }, 'an empty hooks object of the owner stays');
+    assert.deepEqual(planHooks({ hooks: { Stop: [] } }, 'claude-code', { groups: {} }), { hooks: { Stop: [] } });
+  });
+
+  test('Codex hooks of this agent only; Claude Code entries in the same file stay', () => {
+    const claude = ours.Stop;
+    const codex = hookGroups('codex', EVENTS.codex, plan, { script: '/v/system/memory.mjs', platform: 'linux' });
+    const next = planHooks({ hooks: { Stop: [claude] } }, 'codex', { groups: codex });
+    assert.deepEqual(next.hooks.Stop, [claude, codex.Stop]);
+  });
+
+  test('isOurs, parseHandler and ourHooks', () => {
+    const shell = ours.SessionStart.hooks[0];
+    assert.ok(isOurs(shell, 'claude-code'));
+    assert.ok(!isOurs(shell, 'codex'));
+    assert.ok(!isOurs(vaultStart.hooks[0], 'claude-code'));
+    assert.ok(!isOurs({ command: 'echo hook claude-code' }, 'claude-code'));
+    assert.deepEqual(parseHandler(shell), { form: 'shell', node: 'node', script: '/v/system/memory.mjs', agent: 'claude-code', event: 'session-start' });
+    assert.deepEqual(parseHandler({ command: '"C:/Program Files/nodejs/node.exe" "C:/Users/Jan Novák/m/system/memory.mjs" hook codex stop' }),
+      { form: 'shell', node: 'C:/Program Files/nodejs/node.exe', script: 'C:/Users/Jan Novák/m/system/memory.mjs', agent: 'codex', event: 'stop' });
+    assert.deepEqual(parseHandler({ command: 'node', args: ['/v/system/memory.mjs', 'hook', 'claude-code', 'stop'] }),
+      { form: 'exec', node: 'node', script: '/v/system/memory.mjs', agent: 'claude-code', event: 'stop' });
+    assert.equal(parseHandler({ command: 'echo x' }), null);
+    const found = ourHooks(planHooks({ hooks: { Stop: [foreignStop] } }, 'claude-code', { groups: ours }), 'claude-code');
+    assert.deepEqual(found.map((h) => h.name), ['Stop', 'SessionStart', 'PostToolUseFailure', 'SessionEnd']);
+  });
+});
+
+describe('memory.json "projects"', () => {
+  test('safe defaults: nothing added, stored in git or pushed by itself', () => {
+    assert.deepEqual(SAFE_DEFAULTS, { auto_add: false, store: 'local', autosync: false });
+    assert.deepEqual(nextProjects(undefined, {}), { enabled: true, auto_add: false, store: 'local', autosync: false, checkpoint: true, error_lookup: true });
+  });
+
+  test('a run without choices keeps the earlier ones and every other key', () => {
+    const prev = { auto_add: true, store: 'git', autosync: true, checkpoint: false, repos: { 'github.com/acme/shop': 'dev' }, extra: 1 };
+    assert.deepEqual(nextProjects(prev, {}), { enabled: true, auto_add: true, store: 'git', autosync: true, checkpoint: false, error_lookup: true, repos: { 'github.com/acme/shop': 'dev' }, extra: 1 });
+    assert.deepEqual(nextProjects(prev, { autoAdd: false, store: 'local' }).auto_add, false);
+    assert.equal(nextProjects(prev, { store: 'local' }).store, 'local');
+    assert.equal(nextProjects({ store: 'cloud', auto_add: 'yes' }, {}).store, 'local', 'an invalid value falls back');
+    assert.equal(nextProjects({ auto_add: 'yes' }, {}).auto_add, false);
+  });
+
+  test('remove turns only enabled off', () => {
+    const prev = { enabled: true, auto_add: true, store: 'git', autosync: true };
+    assert.deepEqual(nextProjects(prev, { remove: true, autoAdd: false }), { enabled: false, auto_add: true, store: 'git', autosync: true, checkpoint: true, error_lookup: true });
+    assert.equal(nextProjects(prev, { remove: true, keepEnabled: true }).enabled, true);
+  });
+
+  test('the local root: the one in memory.json, else ../<vault>-private', () => {
+    const base = tmpDir('lr');
+    const root = path.join(base, 'Moje paměť');
+    assert.deepEqual(localRootOf(root, {}), { path: path.join(base, 'Moje paměť-private'), exists: false, configured: false });
+    fs.mkdirSync(path.join(base, 'soukrome'));
+    const raw = { roots: [{ id: 'main', path: '.', privacy: 'github' }, { id: 'p', path: '../soukrome', privacy: 'local' }] };
+    assert.deepEqual(localRootOf(root, raw), { path: path.join(base, 'soukrome'), exists: true, configured: true });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// installProjects
+
+describe('installProjects', () => {
+  test('a first run: the settings file, memory.json with the safe defaults, no printing', async () => {
+    const s = setup();
+    const before = json(path.join(s.root, 'memory.json'));
+    const res = await install(s);
+    assert.equal(res.exit, 0);
+    assert.equal(res.action, 'installed');
+    assert.equal(res.file, s.claude);
+    assert.equal(res.changed, true);
+    assert.equal(res.backup, null, 'a new file has nothing to back up');
+    assert.equal(res.form, 'shell');
+    assert.deepEqual(res.events, ['SessionStart', 'Stop', 'PostToolUseFailure', 'SessionEnd']);
+    assert.equal(res.command, `node "${hookScript(s.root)}" hook claude-code session-start`);
+    assert.deepEqual(res.defaults, { auto_add: true, store: true, autosync: true });
+    assert.deepEqual(res.warnings, []);
+    const settings = json(s.claude);
+    assert.equal(settings.hooks.SessionStart[0].hooks[0].command, res.command);
+    assert.ok(read(s.claude).endsWith('}\n'));
+    const after = json(path.join(s.root, 'memory.json'));
+    assert.deepEqual(after.projects, { enabled: true, auto_add: false, store: 'local', autosync: false, checkpoint: true, error_lookup: true });
+    const { projects, ...rest } = after;
+    assert.deepEqual(rest, before, 'every other key of memory.json stays');
+    assert.deepEqual(Object.keys(after), [...Object.keys(before), 'projects']);
+    assert.ok(!fs.existsSync(res.localRoot.path), 'the local root is not made here');
+    assert.deepEqual(res.localRoot, { path: path.join(path.dirname(s.root), 'vault-private'), exists: false, configured: false });
+  });
+
+  test('a second run changes nothing and makes no backup', async () => {
+    const s = setup();
+    await install(s);
+    const text = read(s.claude);
+    const memory = read(path.join(s.root, 'memory.json'));
+    const res = await install(s);
+    assert.deepEqual([res.action, res.changed, res.backup, res.memoryChanged], ['unchanged', false, null, false]);
+    assert.equal(read(s.claude), text);
+    assert.equal(read(path.join(s.root, 'memory.json')), memory);
+    assert.ok(!fs.existsSync(path.join(s.root, '.memory-kit')));
+  });
+
+  test('choices stick until changed; other keys of "projects" stay', async () => {
+    const s = setup({ projects: { repos: { 'github.com/acme/shop': 'dev' }, checkpoint: false } });
+    let res = await install(s, { autoAdd: true, store: 'git' });
+    assert.deepEqual(res.defaults, { auto_add: false, store: false, autosync: true });
+    res = await install(s);
+    assert.deepEqual(projectsOf(s.root), { enabled: true, auto_add: true, store: 'git', autosync: false, checkpoint: false, error_lookup: true, repos: { 'github.com/acme/shop': 'dev' } });
+    await install(s, { autoAdd: false });
+    assert.equal(projectsOf(s.root).auto_add, false);
+    assert.equal(projectsOf(s.root).store, 'git');
+  });
+
+  test('--autosync: refused without a remote or in mode local, kept with a warning', async () => {
+    const s = setup();
+    const res = await install(s, { autosync: true });
+    assert.deepEqual([res.exit, res.action], [1, 'refused']);
+    assert.match(res.error, /--autosync needs a git remote/);
+    assert.match(res.fix, /git remote add origin/);
+    assert.ok(!fs.existsSync(s.claude), 'nothing written');
+    assert.equal(projectsOf(s.root), undefined);
+
+    const local = setup({ mode: 'local' });
+    const r2 = await install(local, { autosync: true, io: { hasRemote: () => true } });
+    assert.equal(r2.exit, 1);
+    assert.match(r2.error, /"mode" is local/);
+
+    const ok = await install(s, { autosync: true, io: { hasRemote: () => true } });
+    assert.equal(ok.exit, 0);
+    assert.equal(projectsOf(s.root).autosync, true);
+    const kept = await install(s);
+    assert.equal(kept.exit, 0);
+    assert.match(kept.warnings.join('\n'), /no git remote/);
+  });
+
+  test('an existing file: foreign content kept, a private backup, its style kept', async () => {
+    const s = setup();
+    const original = `{\n    "model": "opus",\n    "hooks": {\n        "Stop": [{ "hooks": [{ "type": "command", "command": "echo done" }] }]\n    }\n}\n`;
+    put(s.claude, original);
+    const res = await install(s, { now: new Date(2026, 8, 25, 10, 4, 5) });
+    assert.equal(res.action, 'installed');
+    assert.equal(path.basename(res.backup), 'claude-code-hooks-20260925-100405.json');
+    assert.equal(path.dirname(res.backup), path.join(s.root, '.memory-kit', 'backups', 'connect'));
+    assert.equal(read(res.backup), original);
+    if (!IS_WIN) assert.equal(fs.statSync(res.backup).mode & 0o777, 0o600);
+    const text = read(s.claude);
+    assert.match(text, /^\{\n {4}"model": "opus",\n/, 'four spaces, as the file had');
+    const settings = JSON.parse(text);
+    assert.equal(settings.model, 'opus');
+    assert.equal(settings.hooks.Stop[0].hooks[0].command, 'echo done');
+    assert.equal(settings.hooks.Stop.length, 2);
+  });
+
+  test('a file that is not plain JSON is never rewritten; the snippet comes back', async () => {
+    const s = setup();
+    const text = '{\n  // my settings\n  "model": "opus"\n}\n';
+    put(s.claude, text);
+    const res = await install(s);
+    assert.deepEqual([res.exit, res.action], [1, 'refused']);
+    assert.match(res.error, /is not plain JSON/);
+    assert.deepEqual(Object.keys(JSON.parse(res.snippet).hooks), ['SessionStart', 'Stop', 'PostToolUseFailure', 'SessionEnd']);
+    assert.equal(read(s.claude), text);
+    assert.equal(projectsOf(s.root).enabled, true, 'memory.json is set, so pasted hooks work');
+    const lines = formatInstall(res, null);
+    assert.match(lines[0], /^memory: .* is not plain JSON/);
+    assert.ok(lines.includes(res.snippet));
+    put(s.claude, '{"hooks": []}');
+    const layout = await install(s);
+    assert.match(layout.error, /does not have the expected layout/);
+  });
+
+  test('remove: our hooks go, enabled turns false, the rest stays; the other agent keeps it on', async () => {
+    const s = setup();
+    put(s.claude, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo done' }] }] } }, null, 2));
+    await install(s, { autoAdd: true });
+    const res = await install(s, { remove: true });
+    assert.deepEqual([res.action, res.changed], ['removed', true]);
+    assert.deepEqual(json(s.claude), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo done' }] }] } });
+    assert.deepEqual(projectsOf(s.root), { enabled: false, auto_add: true, store: 'local', autosync: false, checkpoint: true, error_lookup: true });
+    assert.match(formatInstall(res, null).join('\n'), /enabled is now false/);
+    const again = await install(s, { remove: true });
+    assert.deepEqual([again.action, again.changed, again.exit], ['absent', false, 0]);
+
+    await install(s);
+    await install(s, { agent: 'codex' });
+    const kept = await install(s, { remove: true });
+    assert.equal(kept.keptBy, 'codex');
+    assert.equal(projectsOf(s.root).enabled, true);
+  });
+
+  test('dry run: the plan without a write', async () => {
+    const s = setup();
+    const res = await install(s, { dryRun: true });
+    assert.deepEqual([res.action, res.changed, res.memoryChanged], ['installed', true, true]);
+    assert.ok(!fs.existsSync(s.claude));
+    assert.equal(projectsOf(s.root), undefined);
+    const lines = formatInstall(res, null);
+    assert.match(lines[0], /would install memory hooks/);
+    assert.equal(lines.at(-1), 'dry run: nothing was changed');
+  });
+
+  test('versions decide the events and warn', async () => {
+    const s = setup();
+    const unknown = await install(s, { io: { claudeVersions: () => ({ observed: [], min: null }) } });
+    assert.deepEqual(unknown.events, ['SessionStart', 'Stop', 'SessionEnd']);
+    assert.deepEqual(unknown.omitted, ['PostToolUseFailure']);
+    assert.match(unknown.warnings[0], /no Claude Code version was found/);
+    const old = await install(s, { io: { claudeVersions: () => ({ observed: [{ source: 'cli', version: '2.1.100' }], min: '2.1.100' }) } });
+    assert.match(old.warnings[0], /Claude Code 2\.1\.100 is older than 2\.1\.101/);
+    assert.equal(json(s.claude).hooks.PostToolUseFailure, undefined);
+  });
+
+  test('a vault path no shell passes on: refused, or the exec form on new versions', async () => {
+    const base = tmpDir('unsafe');
+    const root = path.join(base, '100% $memory');
+    fs.cpSync(bareRoot('en'), root, { recursive: true });
+    put(path.join(root, 'system', 'memory.mjs'), '// cli\n');
+    const home = tmpDir('home');
+    const s = { root, home, claude: path.join(home, '.claude', 'settings.json') };
+    const refused = await install(s, { io: { claudeVersions: () => ({ observed: [], min: null }) } });
+    assert.equal(refused.exit, 1);
+    assert.match(refused.error, /contains \$ %/);
+    assert.ok(!fs.existsSync(s.claude));
+    const exec = await install(s, { io: { claudeVersions: () => ({ observed: [{ source: 'cli', version: '2.1.200' }], min: '2.1.200' }) } });
+    assert.equal(exec.form, 'exec');
+    assert.deepEqual(json(s.claude).hooks.Stop[0].hooks[0].args, [hookScript(root), 'hook', 'claude-code', 'stop']);
+    const codex = await install(s, { agent: 'codex' });
+    assert.equal(codex.exit, 1, 'Codex has no exec form');
+  });
+
+  test('Codex: hooks.json, byte for byte the same on a second run, warnings from its version and config', async () => {
+    const s = setup();
+    const res = await install(s, { agent: 'codex', io: { codexInfo: () => ({ observed: [{ source: 'cli', version: '0.123.0' }], min: '0.123.0', off: { path: '/h/.codex/config.toml', key: 'hooks' } }) } });
+    assert.equal(res.file, s.codex);
+    const text = read(s.codex);
+    const hooks = JSON.parse(text).hooks;
+    assert.deepEqual(Object.keys(hooks), ['SessionStart', 'Stop', 'SessionEnd']);
+    assert.deepEqual(hooks.SessionEnd, [{ hooks: [{ type: 'command', command: `node "${hookScript(s.root)}" hook codex session-end`, timeout: 3 }] }]);
+    assert.equal(hooks.Stop[0].hooks[0].commandWindows, undefined, 'commandWindows only on Windows');
+    assert.match(res.warnings.join('\n'), /Codex 0\.123\.0 runs hooks only with \[features\] hooks = true/);
+    assert.match(res.warnings.join('\n'), /turns hooks off \(\[features\] hooks = false\)/);
+    await install(s, { agent: 'codex' });
+    assert.equal(read(s.codex), text);
+    assert.match(formatInstall(res, null).join('\n'), /open \/hooks and trust the memory hooks/);
+    const win = await install(s, { agent: 'codex', platform: 'win32', io: { codexInfo: () => ({ observed: [{ source: 'cli', version: '0.125.0' }], min: '0.125.0', off: null }) } });
+    assert.match(win.warnings.join('\n'), /Codex 0\.125\.0 on Windows reads commandWindows only from 0\.131/);
+  });
+
+  test('warnings: disableAllHooks, hooks of another memory, node not on the PATH', async () => {
+    const s = setup();
+    const other = hookGroups('claude-code', EVENTS['claude-code'], { form: 'shell', nodeWord: 'node' }, { script: '/elsewhere/system/memory.mjs', platform: 'linux' });
+    put(s.claude, JSON.stringify({ disableAllHooks: true, hooks: { Stop: [other.Stop] } }));
+    const res = await install(s, { io: { nodeOnPath: () => '20.0.0' }, execPath: '/opt/node 22/bin/node', platform: 'linux' });
+    const text = res.warnings.join('\n');
+    assert.match(text, /"disableAllHooks": true/);
+    assert.match(text, /another memory \(\/elsewhere\/system\/memory\.mjs\)/);
+    assert.match(text, /the hooks start \/opt\/node 22\/bin\/node/);
+    assert.ok(res.command.startsWith('"/opt/node 22/bin/node" "'));
+    assert.equal(json(s.claude).hooks.Stop.length, 1, 'the other memory\'s hook was replaced');
+  });
+
+  test('a settings file that is a link is edited where it leads', { skip: IS_WIN && 'symlinks need rights on Windows' }, async () => {
+    const s = setup();
+    const real = put(path.join(tmpDir('dotfiles'), 'claude-settings.json'), '{"model":"opus"}\n');
+    fs.mkdirSync(path.dirname(s.claude), { recursive: true });
+    fs.symlinkSync(real, s.claude);
+    await install(s);
+    assert.ok(fs.lstatSync(s.claude).isSymbolicLink());
+    assert.equal(json(real).model, 'opus');
+    assert.ok(json(real).hooks.SessionStart);
+  });
+
+  test('messages: English defaults, a pack translation wins', () => {
+    assert.equal(say(null, 'connect.projects.events', { list: 'Stop' }), 'events: Stop');
+    assert.equal(say((k) => (k === 'connect.projects.events' ? 'události: {list}'.replace('{list}', 'Stop') : k), 'connect.projects.events', { list: 'Stop' }), 'události: Stop');
+    assert.deepEqual(Object.keys(AGENTS), ['claude-code', 'codex']);
+  });
+});
+
+describe('formatInstall', () => {
+  test('a short summary: file, events, form, versions, settings with (default), privacy, next steps', async () => {
+    const s = setup();
+    const res = await install(s, {
+      io: { claudeVersions: () => ({ observed: [{ source: 'cli', version: '2.1.200' }, { source: 'extension', editor: 'VS Code', version: '2.1.190' }, { source: 'sessions', version: '2.1.195', entrypoints: ['cli'] }], min: '2.1.190' }) },
+    });
+    const lines = formatInstall(res, null);
+    assert.equal(lines[0], `Claude Code: memory hooks installed in ${s.claude}`);
+    assert.equal(lines[1], '  events: SessionStart, Stop, PostToolUseFailure, SessionEnd');
+    assert.equal(lines[2], `  form: shell command, ${res.command}`);
+    assert.equal(lines[3], '  Claude Code seen here: 2.1.200 (claude --version), 2.1.190 (VS Code extension), 2.1.195 (recent sessions: cli)');
+    assert.equal(lines[4], 'settings in memory.json "projects":');
+    assert.equal(lines[5], '  auto_add false (default): a repository gets a memory only when you add it');
+    assert.match(lines[6], /^ {2}store {4}local \(default\): dev notes stay on this computer, in .*vault-private \(made with the first project\)$/);
+    assert.equal(lines[7], '  autosync false (default): nothing is committed or pushed by itself');
+    assert.match(lines[8], /^privacy: the hooks run in every repository you open, so nothing is added/);
+    assert.match(lines[9], /^next: start a new Claude Code session/);
+    assert.match(lines[10], /^next: give a repository its memory: run node .* project add inside it/);
+    assert.equal(lines[11], 'next: node system/memory.mjs doctor checks the hooks (line projects.hooks)');
+    const on = formatInstall({ ...res, settings: { ...res.settings, auto_add: true, store: 'git' }, defaults: { auto_add: false, store: false, autosync: true } }, null).join('\n');
+    assert.match(on, /with --auto-add, --store git on, make sure/);
+    assert.doesNotMatch(on, /auto_add true \(default\)/);
+  });
+
+  test('in the vault\'s language', async () => {
+    const { loadConfig } = await import('../../lib/config.mjs');
+    const s = setup();
+    const cs = bareRoot('cs');
+    const res = await install(s, { t: loadConfig(cs).t });
+    const lines = formatInstall(res, loadConfig(cs).t);
+    assert.match(lines[0], /^Claude Code: hooky paměti nainstalované v /);
+    assert.match(lines.join('\n'), /false \(výchozí\)/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The CLI
+
+describe('connect --projects (CLI)', () => {
+  let vault;
+  before(() => {
+    vault = fixtureVault('en').root;
+  });
+  const env = (home) => ({ HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: '', CODEX_HOME: '' });
+
+  test('usage errors', () => {
+    const home = tmpDir('cli-home');
+    for (const args of [['--store', 'cloud'], ['--form', 'pipe'], ['--auto-add', '--no-auto-add'], ['--autosync', '--no-autosync'], ['--remove', '--auto-add'], ['--scope', 'user']]) {
+      const res = runCli(vault, ['connect', 'claude-code', '--projects', ...args], { env: env(home) });
+      assert.equal(res.code, 2, `${args.join(' ')}: ${res.stderr}`);
+      assert.match(res.stderr, /usage: node system\/memory\.mjs connect/);
+    }
+    assert.equal(runCli(vault, ['connect', 'cursor', '--projects'], { env: env(home) }).code, 2);
+    assert.equal(runCli(vault, ['connect', '--projects'], { env: env(home) }).code, 2);
+    assert.ok(!fs.existsSync(path.join(home, '.claude')));
+  });
+
+  test('--json, --autosync without a remote, --dry-run', () => {
+    const home = tmpDir('cli-home');
+    const dry = runCli(vault, ['connect', 'claude-code', '--projects', '--dry-run'], { env: env(home) });
+    assert.equal(dry.code, 0, dry.stderr);
+    assert.match(dry.stdout, /would install memory hooks/);
+    assert.ok(!fs.existsSync(path.join(home, '.claude', 'settings.json')));
+    const refused = runCli(vault, ['connect', 'claude-code', '--projects', '--autosync'], { env: env(home) });
+    assert.equal(refused.code, 1);
+    assert.match(refused.stderr, /^memory: --autosync needs a git remote/);
+    assert.match(refused.stderr, /fix: create a private repository/);
+    const res = runCli(vault, ['connect', 'claude-code', '--projects', '--json', '--no-auto-add', '--store', 'local'], { env: env(home) });
+    assert.equal(res.code, 0, res.stderr);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.file, path.join(home, '.claude', 'settings.json'));
+    assert.deepEqual(out.settings, { enabled: true, auto_add: false, store: 'local', autosync: false, checkpoint: true, error_lookup: true });
+    assert.ok(Array.isArray(out.text) && out.text[0].startsWith('Claude Code: memory hooks installed'));
+    assert.equal(json(path.join(vault, 'memory.json')).projects.enabled, true);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// End to end: the generated command reaches the hook unchanged
+
+// A memory.mjs that records what it gets: its arguments and its standard input.
+const STUB = `import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+const chunks = [];
+for await (const c of process.stdin) chunks.push(c);
+const out = fileURLToPath(new URL('../received.json', import.meta.url));
+fs.writeFileSync(out, JSON.stringify({ argv: process.argv.slice(2), input: Buffer.concat(chunks).toString('utf8') }));
+`;
+
+describe('the command runs through the shells that run hooks', () => {
+  const base = tmpDir('e2e');
+  const vault = path.join(base, "Jan Novák's paměť (2)");
+  put(path.join(vault, 'system', 'memory.mjs'), STUB);
+  put(path.join(vault, 'memory.json'), '{}\n');
+  const received = path.join(vault, 'received.json');
+  const cwd = tmpDir('e2e-cwd');
+  const payload = probePayload(cwd);
+  // The PATH an IDE gives its hooks has node on it; so does this one.
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) if (/^(path|claude_config_dir|codex_home)$/i.test(k)) delete env[k];
+  env.PATH = `${NODE_DIR}${path.delimiter}${process.env.PATH ?? process.env.Path ?? ''}`;
+
+  /** The SessionStart entry installProjects writes into a fresh home (never the real one). */
+  async function installed(agent, io = {}) {
+    const home = tmpDir('e2e-home');
+    const res = await installProjects(vault, {
+      agent, env: { PATH: env.PATH }, home, t: null,
+      io: { claudeVersions: () => ({ observed: [], min: null }), codexInfo: () => ({ observed: [], min: null, off: null }), hasRemote: () => false, ...io },
+    });
+    assert.equal(res.exit, 0, res.error);
+    return json(settingsPath(agent, { env: {}, home })).hooks.SessionStart[0].hooks[0];
+  }
+
+  /** Runs one way and checks that the stub got exactly [hook, agent, session-start] and the input. */
+  function check(label, agent, run) {
+    fs.rmSync(received, { force: true });
+    const res = run();
+    assert.equal(res.status, 0, `${label}: ${res.error ?? ''} ${res.stderr ?? ''}`);
+    const got = json(received);
+    assert.deepEqual(got.argv, ['hook', agent, 'session-start'], label);
+    assert.equal(got.input, payload, `${label}: the input arrives unchanged`);
+  }
+
+  test('POSIX: /bin/sh -c runs the bare-node command', { skip: IS_WIN && 'Windows runs hooks in Git Bash or PowerShell' }, async () => {
+    const hook = await installed('claude-code');
+    assert.match(hook.command, /^node "/);
+    check('sh, node', 'claude-code', () => spawnSync('/bin/sh', ['-c', hook.command], { input: payload, env, cwd, encoding: 'utf8' }));
+  });
+
+  test('POSIX: /bin/sh -c runs the absolute, quoted node path', { skip: IS_WIN && 'POSIX only' }, async () => {
+    const hook = await installed('claude-code', { nodeOnPath: () => null });
+    assert.ok(hook.command.startsWith(`"${process.execPath}" "`), hook.command);
+    check('sh, absolute node', 'claude-code', () => spawnSync('/bin/sh', ['-c', hook.command], { input: payload, env: { ...env, PATH: '/usr/bin:/bin' }, cwd, encoding: 'utf8' }));
+  });
+
+  test('the doctor probe runs it as the agent does (Claude Code and Codex)', async () => {
+    const claude = await installed('claude-code');
+    const spec = probeSpec('claude-code', claude, { env, bash: IS_WIN ? gitBashPath({ env }) : null });
+    check(`probe ${spec.shell}`, 'claude-code', () => {
+      const r = runProbe(spec, { input: payload, cwd, env });
+      return { status: r.code, error: r.error, stderr: r.stderr };
+    });
+    const codex = await installed('codex');
+    // Codex on POSIX: $SHELL -lc; /bin/sh keeps the profile of the machine out of the test.
+    const codexSpec = probeSpec('codex', codex, { env: { ...env, SHELL: '/bin/sh' } });
+    check(`codex ${codexSpec.shell}`, 'codex', () => {
+      const r = runProbe(codexSpec, { input: payload, cwd, env });
+      return { status: r.code, error: r.error, stderr: r.stderr };
+    });
+  });
+
+  test('the exec form (a path no shell passes on) runs without a shell', async () => {
+    const hook = hookHandler('claude-code', 'session-start', 20, { form: 'exec', exe: process.execPath }, { script: hookScript(vault) });
+    const spec = probeSpec('claude-code', hook, {});
+    assert.equal(spec.shell, 'exec');
+    check('exec', 'claude-code', () => spawnSync(spec.command, spec.args, { input: payload, env, cwd, encoding: 'utf8', windowsHide: true }));
+  });
+
+  test('Windows: PowerShell -Command, PowerShell encoded, Git Bash and cmd.exe', { skip: !IS_WIN && 'Windows only' }, async () => {
+    const hook = await installed('claude-code');
+    check('powershell -Command', 'claude-code', () => spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', hook.command], { input: payload, env, cwd, encoding: 'utf8', windowsHide: true }));
+    const ps = probeSpec('claude-code', hook, { platform: 'win32', env, bash: null });
+    check('powershell encoded', 'claude-code', () => spawnSync(ps.command, ps.args, { ...ps.options, input: payload, env, cwd, encoding: 'utf8', windowsHide: true }));
+    const bash = gitBashPath({ env });
+    if (bash) check('git bash', 'claude-code', () => spawnSync(bash, ['-c', hook.command], { input: payload, env, cwd, encoding: 'utf8', windowsHide: true }));
+    const codex = await installed('codex');
+    const cmd = probeSpec('codex', codex, { platform: 'win32', env });
+    check('cmd.exe /C', 'codex', () => spawnSync(cmd.command, cmd.args, { ...cmd.options, input: payload, env, cwd, encoding: 'utf8', windowsHide: true }));
+  });
+});
+
+describe('probe helpers', () => {
+  test('probeSpec per agent and platform', () => {
+    const h = { type: 'command', command: 'node "C:/m/system/memory.mjs" hook claude-code session-start' };
+    assert.deepEqual(probeSpec('claude-code', h, { platform: 'linux', env: {} }).args, ['-c', h.command]);
+    assert.equal(probeSpec('claude-code', h, { platform: 'win32', env: {}, bash: 'C:\\Git\\bin\\bash.exe' }).command, 'C:\\Git\\bin\\bash.exe');
+    const ps = probeSpec('claude-code', h, { platform: 'win32', env: {}, bash: null });
+    assert.equal(ps.command, 'powershell.exe');
+    assert.equal(Buffer.from(ps.args.at(-1), 'base64').toString('utf16le'), h.command);
+    const codex = { type: 'command', command: 'node "/m/system/memory.mjs" hook codex session-start' };
+    assert.deepEqual(probeSpec('codex', codex, { platform: 'darwin', env: { SHELL: '/bin/zsh' } }), { command: '/bin/zsh', args: ['-lc', codex.command], options: {}, shell: 'login' });
+    const win = probeSpec('codex', { ...codex, commandWindows: 'node "C:/m/system/memory.mjs" hook codex session-start' }, { platform: 'win32', env: { ComSpec: 'C:\\Windows\\cmd.exe' } });
+    assert.deepEqual([win.command, win.args, win.options.windowsVerbatimArguments], ['C:\\Windows\\cmd.exe', ['/C', '"node "C:/m/system/memory.mjs" hook codex session-start"'], true]);
+  });
+
+  test('gitBashPath finds Git for Windows as Claude Code does', () => {
+    const files = new Set(['C:\\Program Files\\Git\\cmd\\git.exe', 'C:\\Program Files\\Git\\bin\\bash.exe']);
+    const isFile = (p) => files.has(path.win32.normalize(p));
+    assert.equal(gitBashPath({ env: { PATH: 'C:\\Windows;C:\\Program Files\\Git\\cmd' }, isFile }), 'C:\\Program Files\\Git\\bin\\bash.exe');
+    assert.equal(gitBashPath({ env: { PATH: 'C:\\Windows' }, isFile }), null);
+    assert.equal(gitBashPath({ env: { PATH: '', ProgramFiles: 'C:\\Program Files' }, isFile }), 'C:\\Program Files\\Git\\bin\\bash.exe');
+    assert.equal(gitBashPath({ env: { CLAUDE_CODE_GIT_BASH_PATH: 'D:\\tools\\bash.exe' }, isFile: (p) => p === 'D:\\tools\\bash.exe' }), 'D:\\tools\\bash.exe');
+  });
+
+  test('the real probes answer on this machine', () => {
+    assert.equal(typeof IO.nodeOnPath({ env: { ...process.env, PATH: NODE_DIR } }), 'string');
+    assert.equal(IO.hasRemote(KIT_ROOT) === true || IO.hasRemote(KIT_ROOT) === false, true);
+    if (!IS_WIN) assert.equal(IO.shortPath('/x'), null);
+  });
+});

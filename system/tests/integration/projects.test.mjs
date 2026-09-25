@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { remoteKey } from '../../lib/projects.mjs';
-import { planHooks } from '../../lib/hooksetup.mjs';
+import { hookGroups, planHooks } from '../../lib/hooksetup.mjs';
 import { checkJson, describeFindings, fixtureVault, removeTmpDirs, tmpDir } from '../helpers.mjs';
 
 after(removeTmpDirs);
@@ -51,12 +51,14 @@ describe('remoteKey', () => {
 describe('planHooks', () => {
   test('keeps foreign hooks, adds ours once and removes them cleanly', () => {
     const foreign = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo hi' }] }] }, model: 'x' };
-    const once = planHooks(foreign, 'claude-code', { node: 'node', script: '/v/system/memory.mjs' });
-    const twice = planHooks(once, 'claude-code', { node: 'node', script: '/v/system/memory.mjs' });
+    const groups = hookGroups('claude-code', [['SessionStart', 'session-start', 'startup', 20], ['Stop', 'stop', null, 10]],
+      { form: 'shell', nodeWord: 'node' }, { script: '/v/system/memory.mjs', platform: 'linux' });
+    const once = planHooks(foreign, 'claude-code', { groups });
+    const twice = planHooks(once, 'claude-code', { groups });
     assert.deepEqual(twice, once);
     assert.equal(once.hooks.Stop.length, 2);
-    assert.deepEqual(once.hooks.SessionStart[0].hooks[0].args, ['/v/system/memory.mjs', 'hook', 'claude-code', 'session-start']);
-    assert.deepEqual(planHooks(once, 'claude-code', { node: 'node', script: '/v/system/memory.mjs', remove: true }), foreign);
+    assert.equal(once.hooks.SessionStart[0].hooks[0].command, 'node "/v/system/memory.mjs" hook claude-code session-start');
+    assert.deepEqual(planHooks(once, 'claude-code', { remove: true }), foreign);
   });
 });
 
@@ -67,7 +69,7 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
       const home = tmpDir('home');
       const repo = codeRepo();
 
-      const c1 = cli(root, ['connect', 'claude-code', '--projects'], { home });
+      const c1 = cli(root, ['connect', 'claude-code', '--projects', '--auto-add', '--store', 'git'], { home });
       assert.equal(c1.code, 0, c1.stderr);
       const settingsFile = path.join(home, '.claude', 'settings.json');
       const first = fs.readFileSync(settingsFile, 'utf8');

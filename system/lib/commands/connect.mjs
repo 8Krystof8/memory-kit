@@ -5,6 +5,8 @@
 // gets the entry through its own `claude mcp add` when that command can be run. Changed files
 // are copied to .memory-kit/backups/connect/ first. `connect --list` shows which apps serve
 // this vault. Where each app keeps its config and how it is edited: lib/clients.mjs.
+// `connect claude-code|codex --projects` installs the hooks for coding projects instead
+// (lib/hooksetup.mjs does the work; this file reads the flags and prints the result).
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,7 +20,7 @@ import {
 } from '../clients.mjs';
 import { git, parseCli, usageError } from '../util.mjs';
 
-export const usage = 'connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json] | connect claude-code|codex --projects [--remove] [--no-autosync] | connect --list [--json]';
+export const usage = 'connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json] | connect claude-code|codex --projects [--auto-add|--no-auto-add] [--store local|git] [--autosync|--no-autosync] [--form shell|exec] [--dry-run] [--remove] [--json] | connect --list [--json]';
 
 export const BACKUP_DIR = '.memory-kit/backups/connect';
 const CLI_TIMEOUT_MS = 120000;
@@ -691,8 +693,73 @@ export function renderResult(res, cfg) {
   });
 }
 
+/** A pair of --x / --no-x flags as true, false or undefined (neither); null when both are given. */
+function tri(values, name) {
+  if (values[name] && values[`no-${name}`]) return null;
+  if (values[name]) return true;
+  return values[`no-${name}`] ? false : undefined;
+}
+
+/**
+ * connect claude-code|codex --projects: the memory hooks for coding projects (lib/hooksetup.mjs
+ * does the work and words the result; this only reads the flags and prints).
+ */
+async function runProjects(argv, cfg, ctx) {
+  const parsed = parseCli(argv.filter((a) => a !== '--projects'), {
+    'auto-add': { type: 'boolean' },
+    'no-auto-add': { type: 'boolean' },
+    store: { type: 'string' },
+    autosync: { type: 'boolean' },
+    'no-autosync': { type: 'boolean' },
+    form: { type: 'string' },
+    'dry-run': { type: 'boolean' },
+    remove: { type: 'boolean' },
+    json: { type: 'boolean' },
+  }, usage);
+  if (!parsed) return 2;
+  const { values, positionals } = parsed;
+  const agent = positionals.length === 1 ? positionals[0] : null;
+  if (agent !== 'claude-code' && agent !== 'codex') {
+    usageError(`--projects works with claude-code or codex (got ${positionals.join(' ') || 'nothing'})`, usage);
+    return 2;
+  }
+  const autoAdd = tri(values, 'auto-add');
+  const autosync = tri(values, 'autosync');
+  if (autoAdd === null || autosync === null) {
+    usageError(`--${autoAdd === null ? 'auto-add' : 'autosync'} and --no-${autoAdd === null ? 'auto-add' : 'autosync'} contradict each other`, usage);
+    return 2;
+  }
+  if (values.store !== undefined && values.store !== 'local' && values.store !== 'git') {
+    usageError(`--store must be local or git, got "${values.store}"`, usage);
+    return 2;
+  }
+  if (values.form !== undefined && values.form !== 'shell' && values.form !== 'exec') {
+    usageError(`--form must be shell or exec, got "${values.form}"`, usage);
+    return 2;
+  }
+  const choice = ['auto-add', 'no-auto-add', 'store', 'autosync', 'no-autosync', 'form'].find((k) => values[k] !== undefined);
+  if (values.remove && choice) {
+    usageError(`--remove takes no --${choice}: it only takes the hooks out and keeps the settings`, usage);
+    return 2;
+  }
+  const root = ctx?.root ?? cfg?.root;
+  if (!root) {
+    usageError('no vault: pass --root <path>', usage);
+    return 2;
+  }
+  const { installProjects, formatInstall } = await import('../hooksetup.mjs');
+  const res = await installProjects(path.resolve(root), {
+    agent, autoAdd, store: values.store, autosync, form: values.form, dryRun: values['dry-run'] === true,
+    remove: values.remove === true, t: cfg?.t ?? null,
+  });
+  const lines = formatInstall(res, cfg?.t ?? null);
+  if (values.json) process.stdout.write(`${JSON.stringify({ ...res, text: lines }, null, 2)}\n`);
+  else (res.ok ? process.stdout : process.stderr).write(`${lines.join('\n')}\n`);
+  return res.exit;
+}
+
 export async function run(argv, cfg, ctx) {
-  if (argv.includes('--projects')) return (await import('../hooksetup.mjs')).runProjects(argv, cfg, ctx);
+  if (argv.includes('--projects')) return runProjects(argv, cfg, ctx);
   const parsed = parseCli(argv, {
     scope: { type: 'string' },
     name: { type: 'string' },

@@ -44,7 +44,7 @@
       "group": "docs"
     },
     "docs/architecture.md": {
-      "sha256": "a3e3b807101eeb0d1d94aef809c4f0ef01180d1ae0bd165f33a23f23e335154a",
+      "sha256": "79e58539f287801862991dc5c164ca183a33f53e0b6e8861bf4daa270fe0fd20",
       "group": "docs"
     },
     "docs/integrations/chatgpt.md": {
@@ -92,7 +92,7 @@
       "group": "docs"
     },
     "docs/projects.md": {
-      "sha256": "e599cf1f7a16651c7eb3a676b554fa731af335c013c9b09c30b9d8106009b3d1",
+      "sha256": "4c6e14469e751732d594853bd4c4715caaf24dabf995413e145ad6c31e9f9f09",
       "group": "docs"
     },
     "docs/search.md": {
@@ -120,7 +120,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "ce99ed48b1298122b29400ed1a3d41bd6ba0a389f32ba94dcaa31485806e06c5",
+      "sha256": "90dc0a615ae450e0ad9999ef71eeecbec4338181df572d3d20c91eaa62224442",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -152,11 +152,11 @@
       "group": "code"
     },
     "system/lib/commands/connect.mjs": {
-      "sha256": "b73e080660fdd5e61b5570c9c028e26a42789236e94c3bc1eee02909847598bc",
+      "sha256": "d0ca2a38608d78759d2cdcb08ebf1fce7f05215cd35a43b06b44510e17a07245",
       "group": "code"
     },
     "system/lib/commands/doctor.mjs": {
-      "sha256": "d78be20d4c1c7717b8282946b94488e4885d97ea779f474d0580d5e55d9a8625",
+      "sha256": "62952628a3627afffa86e28796f67c1a45b670ff38ef8dd659e18b5d0acece7b",
       "group": "code"
     },
     "system/lib/commands/eval.mjs": {
@@ -204,7 +204,7 @@
       "group": "code"
     },
     "system/lib/doctor.mjs": {
-      "sha256": "69f05ec7e25919465a266cad7dee54e5c7716fb574e8dbe40aa631e483c9bb7b",
+      "sha256": "a0cea8bda5cb11d4c5ff26db60ad8ab70a5292fcbdd8295c680255acb4cc774c",
       "group": "code"
     },
     "system/lib/eval.mjs": {
@@ -232,7 +232,7 @@
       "group": "code"
     },
     "system/lib/hooksetup.mjs": {
-      "sha256": "c41cc420e43e2ef64263b4e7496b7e9bda643fa0af8fec5c818fe7ee7001c8e9",
+      "sha256": "abc2dcfb8fdb4a1679e9307f12063a93224ab46fca05b6f9330dff42bc5d295f",
       "group": "code"
     },
     "system/lib/jsonc.mjs": {
@@ -880,7 +880,7 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "8eca55b3214e20da4b10c6ba6e1cfa5ea6bb651b428c0e54d64b99cd7ca36a5b",
+      "sha256": "3a2c4b0bdc8ab523fe19f882fb5e0b6caa571e5aef67c98ccbb04a63da4962f3",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {
@@ -920,7 +920,7 @@
       "group": "tests"
     },
     "system/tests/unit/doctor.test.mjs": {
-      "sha256": "f6771ee880eb3a28797843a2b10fd896077c1fca33d88f76a5f3105b4bc89a76",
+      "sha256": "eb2e39a178258c9335c5cdc08b2c88aff3e2d39a8805469e16def49a33e348de",
       "group": "tests"
     },
     "system/tests/unit/eval.test.mjs": {
@@ -937,6 +937,10 @@
     },
     "system/tests/unit/generate.test.mjs": {
       "sha256": "4416676faa79114d2a73f4d78ef68ef2de374f08b8d88d83611dbc76d5411829",
+      "group": "tests"
+    },
+    "system/tests/unit/hooksetup.test.mjs": {
+      "sha256": "248236a2be220394d99adb2089b3d53f125f0a08fad42a86802bdd629ba636ad",
       "group": "tests"
     },
     "system/tests/unit/kit-manifest.test.mjs": {
@@ -972,7 +976,7 @@
       "group": "tests"
     },
     "system/tests/unit/schema.test.mjs": {
-      "sha256": "a0ed2c80e4dcd2c85cfd51bfd0dbef9613efb83ec3ed8f259780f06e3481ccf8",
+      "sha256": "522d6b5c9da8615cda9961b9d4ef556866bbabe6dd5bb44fed888e57629ca543",
       "group": "tests"
     },
     "system/tests/unit/search.test.mjs": {
