@@ -147,6 +147,25 @@ this kit and run `node <kit>/system/memory.mjs upgrade --root <vault>` once; the
   fail a session); every other command still stops with exit 3.
 - `help` lists the Czech subcommand aliases of `sector` and `project` next to the command aliases.
 
+### Fixed
+
+- Hooks no longer use the exec form by default, which Claude Code before 2.1.139 ignored silently.
+- `PostToolUseFailure` is only installed for Claude Code 2.1.101 or newer; older versions ignored
+  the whole settings file because of an unknown event.
+- Two repositories with the same owner/name on different servers no longer share one project.
+- Autosync never commits an unfinished merge or rebase, runs the pre-commit check on the hook's
+  Node.js, and keeps `.memory-kit/` out of git even in clones of 0.1.0 vaults.
+- `remember` in a repository that is not a project writes to the local inbox, not the committed one.
+- The checkpoint never takes the code repository's git index lock, keeps its baseline across
+  compaction and resume, and never fires in headless runs (`claude -p`, Agent SDK).
+- A second project no longer breaks commits with duplicate note names.
+- `upgrade --rollback` removes the project hooks before going back to a kit without them.
+- A byte order mark in `memory.json` or `projects.json` is read correctly.
+- Commands handed to the agent start the Node.js that installed the hooks, so repositories that pin
+  an older Node.js still work.
+- The setup wizard shows "off" for a step you declined, and a cancelled question no longer shows
+  its preselected answer.
+
 ### Kit files
 
 New: `install.sh`, `install.ps1`, `docs/projects.md`,

@@ -303,7 +303,7 @@ describe('prompts', () => {
     term.keys(`${KEY.down}${KEY.ctrlC}`);
     await assert.rejects(ui.select({ message: 'Pick', options: ['a', 'b'], initialValue: 'a' }), Cancelled);
     assertRestored(term);
-    assert.ok(screen(term.output()).endsWith('■  Pick\n│  b\n'), screen(term.output()));
+    assert.ok(screen(term.output()).endsWith('■  Pick\n'), screen(term.output()));
     ui.cancelled();
     assert.ok(screen(term.output()).endsWith('│\n└  Cancelled.\n\n'));
   });

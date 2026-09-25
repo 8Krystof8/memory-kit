@@ -74,6 +74,7 @@ export const WIZARD_DEFAULTS = {
   'setup.menu.doctor': 'Health check',
   'setup.menu.doctor_hint': 'is everything installed right?',
   'setup.menu.done': 'done',
+  'setup.menu.skipped': 'off',
   'setup.menu.finish': 'Finish',
   'setup.outro': 'Done.',
   'setup.connect.none': 'No AI app with a settings file was found on this computer. All apps and their state: node system/memory.mjs connect --list',
@@ -539,7 +540,7 @@ async function codingProjects(ctx) {
   const choices = await projectChoices(ctx, currentProjects(root));
   if (!choices) {
     ui.info(t('setup.projects.skipped'));
-    return;
+    return false;
   }
   const removing = choices.remove === true;
   const spin = ui.spinner();
@@ -581,17 +582,17 @@ const ACTIONS = { connect: connectApps, projects: codingProjects, doctor: health
 /** The extras menu, until Finish. Without a terminal it finishes at once. */
 async function extrasMenu(ctx) {
   const { ui, t } = ctx;
-  const done = new Set();
+  const done = new Map(); // id → 'done' | 'skipped'
   for (;;) {
     const options = [
-      ...MENU.map((id) => ({ value: id, label: t(`setup.menu.${id}`), hint: done.has(id) ? `${ui.sym.success} ${t('setup.menu.done')}` : t(`setup.menu.${id}_hint`) })),
+      ...MENU.map((id) => ({ value: id, label: t(`setup.menu.${id}`), hint: done.get(id) === 'done' ? `${ui.sym.success} ${t('setup.menu.done')}` : done.get(id) === 'skipped' ? t('setup.menu.skipped') : t(`setup.menu.${id}_hint`) })),
       { value: 'finish', label: t('setup.menu.finish') },
     ];
     const next = ui.tty ? MENU.find((id) => !done.has(id)) ?? 'finish' : 'finish';
     const choice = await ui.select({ message: t('setup.menu.question'), options, initialValue: next });
     if (choice === 'finish') return;
-    await ACTIONS[choice](ctx);
-    done.add(choice);
+    const r = await ACTIONS[choice](ctx);
+    done.set(choice, r === false ? 'skipped' : 'done');
   }
 }
 

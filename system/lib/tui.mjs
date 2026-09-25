@@ -548,7 +548,8 @@ export function createUI(opts = {}) {
       };
       const finish = (status) => {
         close();
-        settle(render(status));
+        // A cancelled prompt keeps only its question: the preselected answer was never chosen.
+        settle(status === 'cancel' ? render(status).slice(0, 1) : render(status));
         if (status === 'cancel') reject(new Cancelled());
         else resolve(value());
       };

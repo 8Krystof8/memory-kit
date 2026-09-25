@@ -397,6 +397,7 @@ With `--lang cs`, `init` renames the folders and files to their Czech names: `se
 | how search works, Czech, golden questions | [docs/search.md](docs/search.md) |
 | routines, checks, budgets, troubleshooting, roadmap | [docs/maintenance.md](docs/maintenance.md) |
 | updating the kit, backups, rollback, releases | [docs/upgrading.md](docs/upgrading.md) |
+| installers, the setup wizard, uninstall | [docs/install.md](docs/install.md) |
 | memory for code projects: hooks, the dev sector, `remember` | [docs/projects.md](docs/projects.md) |
 | AI apps over MCP: every app, its settings file, troubleshooting | [docs/integrations/mcp.md](docs/integrations/mcp.md) |
 | Claude Code · Codex · Gemini CLI · Cursor · ChatGPT · Claude app | [docs/integrations/](docs/integrations/) |

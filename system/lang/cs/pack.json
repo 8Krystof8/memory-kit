@@ -566,6 +566,7 @@
     "setup.menu.doctor": "Kontrola instalace",
     "setup.menu.doctor_hint": "je všechno nainstalované správně?",
     "setup.menu.done": "hotovo",
+    "setup.menu.skipped": "vypnuto",
     "setup.menu.finish": "Dokončit",
     "setup.outro": "Hotovo.",
     "setup.connect.none": "V tomto počítači není žádná AI aplikace se souborem nastavení. Všechny aplikace a jejich stav: node system/memory.mjs connect --list",

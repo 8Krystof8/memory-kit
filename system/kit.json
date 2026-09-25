@@ -47,6 +47,10 @@
       "sha256": "0e5a8903b7897f39726f082a8e9af59a357edb726192a099a91f3bde6c50f54a",
       "group": "docs"
     },
+    "docs/install.md": {
+      "sha256": "118bea7dbff5fd093a8ba331527194c658274bfd23167c5f00aea1ef876e67fe",
+      "group": "docs"
+    },
     "docs/integrations/chatgpt.md": {
       "sha256": "629ce42c591d6f2ee4fdcd4914e2125391c7a88a6b740b1da54b06681dbdc589",
       "group": "docs"
@@ -128,7 +132,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "f4e86bc37f404a8fdde1ebe93d188fbf5b53688811a9eed5b85cc6af6f27fd97",
+      "sha256": "98fabb044354449bf525c5646176ed8a2d6bcc68a964a4aa607e209b033276f8",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -316,7 +320,7 @@
       "group": "code"
     },
     "system/lib/tui.mjs": {
-      "sha256": "8c89472e4ff15c645e94ec0b2dbbc70c2c41f02aafead7e0b9d404bd2b1b3192",
+      "sha256": "2c330192e45216c5278d12731043a9f5e0e8ba0bf80533503440be64d3bc971e",
       "group": "code"
     },
     "system/lib/upgrade.mjs": {
@@ -332,7 +336,7 @@
       "group": "code"
     },
     "system/lib/wizard.mjs": {
-      "sha256": "550623fc0c3382191076ab4e0a258d1291d018c225ebc319f09e7d17d0c999c6",
+      "sha256": "cb283fd45a9480044cc75ccb475dc2d64c58463607f9c8013e48e0e6f4eaca3b",
       "group": "code"
     },
     "system/memory.mjs": {
@@ -1060,7 +1064,7 @@
       "group": "tests"
     },
     "system/tests/unit/tui.test.mjs": {
-      "sha256": "336757b63567fec3f48cd4e8934cf768d093054ea23355ee52a775221d43fda7",
+      "sha256": "2ab67d32b9df63af3ef4080522f213de530d2efd3535457ed200f888d146e2d4",
       "group": "tests"
     },
     "system/tests/unit/util.test.mjs": {
