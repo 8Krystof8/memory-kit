@@ -405,7 +405,12 @@ async function connectApps(ctx) {
     }
     const lines = connect.renderResult(res, cfg);
     spin.stop(lines[0] ?? name, res.ok ? 'ok' : 'error');
-    for (const line of lines.slice(1)) ui.message(line, 'dim');
+    // A snippet to paste into a config (a file with comments is never rewritten) is printed whole,
+    // off the rail and unwrapped, so a copy of it is valid JSON; every other line is a message.
+    (res.messages ?? []).slice(1).forEach((m, i) => {
+      if (m?.raw !== undefined) ui.verbatim(String(lines[i + 1]));
+      else ui.message(lines[i + 1], 'dim');
+    });
   }
 }
 

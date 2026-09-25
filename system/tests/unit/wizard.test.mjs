@@ -576,6 +576,32 @@ describe('the extras menu (setup in a vault that is set up)', () => {
   });
 });
 
+describe('connect AI apps: a snippet to paste', () => {
+  test('is printed whole, off the rail and unwrapped, at 40 columns too', async () => {
+    const { root, cfg } = await initializedVault('setup-snippet');
+    const rows = [{ id: 'zed', name: 'Zed', appFound: true, state: 'not-connected', guide: null }];
+    const snippet = [
+      '"context_servers": {',
+      '  "memory-kit": {',
+      '    "command": "/opt/node22/bin/node",',
+      '    "args": ["/home/jan/a long folder name/my vault/system/memory.mjs", "mcp"]',
+      '  }',
+      '}',
+    ].join('\n');
+    const connectClient = () => ({
+      ok: false, snippet,
+      messages: [{ key: 'connect.comments.top', vars: { path: '/home/jan/.config/zed/settings.json', key: 'context_servers' } }, { raw: snippet }],
+    });
+    const { ui, term } = terminal({ columns: 40 });
+    term.keys(KEY.enter, KEY.enter, `${down(2)}${KEY.enter}`);
+    assert.equal(await runSetup({ root, cfg, ui, inspectClients: () => rows, connectClient }), 0);
+    const shown = screen(term.output());
+    assert.ok(shown.includes(`\n${snippet}\n`), shown);
+    const start = shown.indexOf('"context_servers"');
+    JSON.parse(`{${shown.slice(start, shown.indexOf('\n}', start) + 2)}}`);
+  });
+});
+
 describe('without a terminal', () => {
   test('setup explains itself and exits 2; the Czech alias nastaveni too', async () => {
     const { root } = await initializedVault('setup-pipe');

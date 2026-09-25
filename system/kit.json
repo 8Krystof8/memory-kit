@@ -332,7 +332,7 @@
       "group": "code"
     },
     "system/lib/wizard.mjs": {
-      "sha256": "8eef85317bfff9d0198180b377c5786747b9f8c5c674c27becbae04899ca88ac",
+      "sha256": "550623fc0c3382191076ab4e0a258d1291d018c225ebc319f09e7d17d0c999c6",
       "group": "code"
     },
     "system/memory.mjs": {
@@ -1068,7 +1068,7 @@
       "group": "tests"
     },
     "system/tests/unit/wizard.test.mjs": {
-      "sha256": "a552e8bacbb6f5130f3e158fd68586562a4cb4a6930989335929d22f7284950e",
+      "sha256": "cbb77439ddf0b7fd3e326363c70a6c0d5720c5e61541971f4389483352d81775",
       "group": "tests"
     },
     "system/tools/release-notes.mjs": {

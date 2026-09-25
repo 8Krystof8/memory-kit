@@ -525,7 +525,7 @@
     "system/lib/upgrade.mjs": "107fbed88112c618f3b9c50af1b1b76ea29a569bb83987233a2960fe16963fc7",
     "system/lib/util.mjs": "14d10a9540403ce54bc801308d7d8ccacb1fca427022d3d0bf21a042c118f8e9",
     "system/lib/vault.mjs": "3f3db7fa7abf4a9de5883ee97c2e4723f794da4ac33fad388f0f42fa6deae989",
-    "system/lib/wizard.mjs": "8eef85317bfff9d0198180b377c5786747b9f8c5c674c27becbae04899ca88ac",
+    "system/lib/wizard.mjs": "550623fc0c3382191076ab4e0a258d1291d018c225ebc319f09e7d17d0c999c6",
     "system/memory.mjs": "e5cacf7ca9438a1ad7172e0089abeb5eddcd184c40fca48f6a48fcaa4f671d06",
     "system/migrations/index.mjs": "2900de514b2348f08ae97edf99c9efab72071f2b19b0afaa11a48173817756fa",
     "system/schema/check-result.schema.json": "243bd9833bd115761cbdf23e0a747a4b49bfe436a4248290d6a5cdf3ce187b91",
@@ -709,7 +709,7 @@
     "system/tests/unit/text.test.mjs": "13166e9d37544914f80b1356f8d1596ba5802a4234b219f1cb5894b29339d664",
     "system/tests/unit/tui.test.mjs": "336757b63567fec3f48cd4e8934cf768d093054ea23355ee52a775221d43fda7",
     "system/tests/unit/util.test.mjs": "ab0a1e7f28a8d86c487653aed5ff3f1da80329d90a8305a788eeb683795aad34",
-    "system/tests/unit/wizard.test.mjs": "a552e8bacbb6f5130f3e158fd68586562a4cb4a6930989335929d22f7284950e",
+    "system/tests/unit/wizard.test.mjs": "cbb77439ddf0b7fd3e326363c70a6c0d5720c5e61541971f4389483352d81775",
     "system/tools/release-notes.mjs": "8afabad9c7fdc1278824b9c7ca2e6743e8473ae451833cc18f0354f6dbd94e4f",
     "system/tools/release.mjs": "d7ccdeb5195fa04e886905ea913771fb9b00c3569eb10370a45335ed8add91be"
   }
