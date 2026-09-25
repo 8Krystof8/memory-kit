@@ -9,6 +9,34 @@ which kit-owned files changed.
 
 Nothing yet.
 
+## 0.1.2 (2026-09-25, not released yet)
+
+Memory for code projects, kept outside the code repository. Nothing changes for vaults that do not
+switch it on; the data version stays 1.
+
+### Added
+
+- **`connect claude-code|codex --projects`** installs user-level hooks (`~/.claude/settings.json`,
+  `~/.codex/hooks.json`) that work in the terminal, VS Code and JetBrains. Claude Code hooks use
+  the exec form (Node with arguments, no shell), so Windows paths with spaces need no quoting.
+  Other hooks and settings are kept, a backup is written, files with comments are never rewritten,
+  `--remove` and `--dry-run` work ([docs/projects.md](docs/projects.md)).
+- **`hook <agent> <event>`**, what the hooks run: on session start a `dev` sector per repository
+  (found by its `origin` remote) with eight notes filled from `package.json` and the README, and a
+  project brief (git state, handoff, conventions, gotchas, dead ends); on stop one request per
+  session to write the handoff when the code changed; on a failed tool a lookup in gotchas and dead
+  ends; on session end a background commit and push of the vault. A hook never fails a session.
+- **`remember "text" [--type …]`** (`zapamatuj`): one dated line into the right note of the
+  project, or into `inbox/` outside a project. Secrets are refused.
+- `memory.json` key `projects` (`auto_add`, `checkpoint`, `error_lookup`, `autosync`, `repos`).
+
+### Kit-owned files
+
+New: `system/lib/projects.mjs`, `system/lib/hooksetup.mjs`, `system/lib/commands/hook.mjs`,
+`system/lib/commands/remember.mjs`, `docs/projects.md`. Changed: `system/memory.mjs`,
+`system/lib/commands/connect.mjs`, `system/lang/cs/pack.json`, `AGENTS.md` and the agents-system
+templates (version marker only).
+
 ## 0.1.1 (2026-09-24, not released yet)
 
 Foundations for the future: safe upgrades, a stable surface for other programs and apps, and

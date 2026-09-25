@@ -27,8 +27,8 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const COMMANDS = ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp'];
-const CONFIGLESS = new Set(['doctor', 'upgrade', 'mcp']);
+const COMMANDS = ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp', 'remember', 'hook'];
+const CONFIGLESS = new Set(['doctor', 'upgrade', 'mcp', 'hook']);
 const HELP = new Set(['help', '--help', '-h']);
 
 /** Drops only the ExperimentalWarning that node:sqlite prints on Node 22; every other warning passes. */

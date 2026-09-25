@@ -18,7 +18,7 @@ import {
 } from '../clients.mjs';
 import { git, parseCli, usageError } from '../util.mjs';
 
-export const usage = 'connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json] | connect --list [--json]';
+export const usage = 'connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json] | connect claude-code|codex --projects [--remove] [--no-autosync] | connect --list [--json]';
 
 export const BACKUP_DIR = '.memory-kit/backups/connect';
 const CLI_TIMEOUT_MS = 120000;
@@ -692,6 +692,7 @@ export function renderResult(res, cfg) {
 }
 
 export async function run(argv, cfg, ctx) {
+  if (argv.includes('--projects')) return (await import('../hooksetup.mjs')).runProjects(argv, cfg, ctx);
   const parsed = parseCli(argv, {
     scope: { type: 'string' },
     name: { type: 'string' },

@@ -1,4 +1,4 @@
-<!-- kit:start v0.1.1 · system section: maintained by memory-kit, replaced on upgrade -->
+<!-- kit:start v0.1.2 · system section: maintained by memory-kit, replaced on upgrade -->
 # Memory: rules for AI agents
 This repository is a long-term memory: markdown notes with YAML frontmatter are the only source of truth.
 People read it in any markdown editor or on GitHub, starting from the generated `home.md`; agents use
