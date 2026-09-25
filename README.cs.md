@@ -1,12 +1,26 @@
+<div align="center">
+
+<img src=".github/assets/logo.svg" width="96" height="96" alt="">
+
 # memory-kit
+
+**Dlouhodobá paměť pro tvoje AI agenty, v obyčejném markdownu, který patří tobě.**
+
+<a href="https://github.com/8Krystof8/memory-kit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/8Krystof8/memory-kit/actions/workflows/ci.yml/badge.svg"></a>
+<a href="LICENSE"><img alt="Licence MIT" src="https://img.shields.io/badge/license-MIT-5b5bd6"></a>
+<img alt="Node 22 nebo novější" src="https://img.shields.io/badge/node-%E2%89%A5%2022-12a594">
+<img alt="Bez závislostí" src="https://img.shields.io/badge/dependencies-0-12a594">
+<img alt="Windows, macOS, Linux" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-lightgrey">
+
+[**Vytvořit moji soukromou paměť**](https://github.com/new?template_owner=8Krystof8&template_name=memory-kit&owner=%40me&visibility=private&name=my-memory) · [Start za 5 minut](#start-za-5-minut) · [Zapni ji v AI nástrojích](#zapni-paměť-ve-svých-ai-nástrojích) · [English](README.md)
+
+</div>
 
 Dlouhodobá paměť pro AI agenty a pro tebe. Je to soukromý git repozitář s poznámkami v markdownu.
 Claude Code, Codex, Gemini CLI, Cursor i ChatGPT v něm levně hledají a ty ho čteš na GitHubu nebo
 v jakémkoli editoru markdownu, na počítači i v telefonu. Žádnou zvláštní aplikaci nepotřebuješ.
 Obyčejné poznámky s YAML hlavičkou a `[[odkazy]]` jsou nápady převzaté z osobních wiki, kit ale na
 žádném takovém nástroji nezávisí.
-
-[English](README.md)
 
 - **Jeden zdroj pravdy.** Poznámky jsou soubory markdownu s YAML hlavičkou. Deterministický skript
   z nich vyrábí dva pohledy: domovskou stránku pro tebe (`domu.md`, obyčejný markdown s běžnými
@@ -49,7 +63,8 @@ ji `init` odmítne. Lokální sektory přidej později na svém počítači.
 **Bez GitHubu:** na stránce kitu zvol Code → Download ZIP. Rozbal ho, otevři složku v lokálním
 agentovi, řekni „nastav paměť“ a zvol režim `local`. Podrobnosti jsou v [docs/modes.md](docs/modes.md).
 
-**S GitHub CLI:**
+<details>
+<summary>S GitHub CLI</summary>
 
 ```sh
 gh repo create my-memory --private --template 8Krystof8/memory-kit --clone
@@ -61,6 +76,7 @@ git commit -m "Nastavení paměti"
 git push
 ```
 
+</details>
 Bez `--yes` vypíše `init` jen plán a nic nezmění. Když je paměť už nastavená, odmítne běžet.
 Příkazy spouštěj jeden po druhém, fungují stejně v bashi, zsh i PowerShellu.
 Sektory se zadávají názvem předvolby (`core`, `work`, `school`, `personal`, `family`, `health`,
@@ -114,16 +130,21 @@ v [docs/integrations/mcp.md](docs/integrations/mcp.md) (anglicky).
 
 ## Jak to funguje
 
-```
- ty: jakýkoli editor, GitHub, telefon   agenti: Claude Code, Codex, Gemini CLI, Cursor
-        │ píšeš                                   │ node system/memory.mjs start | hledej | novy
-        ▼                                         ▼
- inbox/   sektory/<id>/**   denik/   stav.md   ceka.md                    ZDROJ (upravuješ)
-        │
-        │ node system/memory.mjs kontrola --generuj   (hook před commitem)
-        ▼
- domu.md (pro tebe)   _ai/start.md   _ai/index-<id>.md   _ai/catalog.tsv   _ai/profile.md   .ignore
-                                                                                GENEROVANÉ
+```mermaid
+flowchart LR
+  you["Ty<br/>editor · GitHub · telefon"] -->|píšeš| src
+  agents["Agenti<br/>Claude Code · Codex · Gemini CLI · Cursor"] -->|start · hledej · novy| src
+  apps["Aplikace přes MCP<br/>Claude Desktop · VS Code · Zed …"] -->|hledání · čtení · inbox| src
+  subgraph src["Zdroj: upravuješ ty"]
+    direction TB
+    s1["inbox/ · sektory/ · denik/<br/>stav.md · ceka.md"]
+  end
+  src -->|"kontrola --generuj<br/>(hook před commitem)"| gen
+  subgraph gen["Generované: nikdy ručně"]
+    direction TB
+    g1["domu.md (pro tebe)"]
+    g2["_ai/start.md · index · katalog · profil"]
+  end
 ```
 
 | vrstva | soubor | kdy se čte | rozpočet |
@@ -140,7 +161,8 @@ pravidla hledání převzatá z `AGENTS.md`, řádky o bezpečí, tabulku sektor
 nich jít), tvůj profil, „horké“ poznámky (připnuté nebo změněné za posledních 14 dní), sekci
 `## Teď` ze `stav.md` a počet otevřených otázek a položek v inboxu.
 
-Poznámka vypadá takhle:
+<details>
+<summary>Jak vypadá poznámka</summary>
 
 ```markdown
 ---
@@ -159,6 +181,7 @@ klicova: [ceník, ceníku, cenik, balíček, balíčky, balicky]
 - [fakt] 2026-06-02: Rozsah balíčků se přezkoumává každý leden.
 ```
 
+</details>
 Každá poznámka mimo inbox má čtyři povinné klíče: `typ`, `stav`, `popis` a `aktualizace`.
 Rozhodnutí a deník mají navíc `datum`. Typů je 15: rozhodnuti, pravidlo, postup, fakt, poznatek,
 projekt, navrh, rozbor, text, seznam, clovek, organizace, denik, sektor a rozcestnik. Všechny typy

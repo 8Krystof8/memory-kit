@@ -1,12 +1,26 @@
+<div align="center">
+
+<img src=".github/assets/logo.svg" width="96" height="96" alt="">
+
 # memory-kit
+
+**Long-term memory for your AI agents, kept in plain markdown that you own.**
+
+<a href="https://github.com/8Krystof8/memory-kit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/8Krystof8/memory-kit/actions/workflows/ci.yml/badge.svg"></a>
+<a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-5b5bd6"></a>
+<img alt="Node 22 or newer" src="https://img.shields.io/badge/node-%E2%89%A5%2022-12a594">
+<img alt="No dependencies" src="https://img.shields.io/badge/dependencies-0-12a594">
+<img alt="Windows, macOS, Linux" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-lightgrey">
+
+[**Create my private memory**](https://github.com/new?template_owner=8Krystof8&template_name=memory-kit&owner=%40me&visibility=private&name=my-memory) · [Start in 5 minutes](#start-in-5-minutes) · [Connect your AI tools](#switch-it-on-in-your-ai-tools) · [Česky](README.cs.md)
+
+</div>
 
 Long-term memory for AI coding agents and for you. It is a private git repository of markdown
 notes: Claude Code, Codex, Gemini CLI, Cursor and ChatGPT search it cheaply, and you read it on
 GitHub or in any markdown editor, on your computer or on your phone. No special app is needed.
 Plain notes with YAML frontmatter and `[[wikilinks]]`, ideas borrowed from personal-wiki tools, but
 the kit depends on none of them.
-
-[Česky](README.cs.md)
 
 - **One source of truth.** Notes are markdown files with YAML frontmatter. Two views are generated
   from them by a deterministic script: a home page for you (`home.md`, plain markdown with ordinary
@@ -49,7 +63,8 @@ there would be lost; `init` refuses it. Add local sectors later on your own comp
 **Without GitHub:** on the kit's page choose Code → Download ZIP. Unzip it, open the folder in a local
 agent, say "set up memory" and choose mode `local`. See [docs/modes.md](docs/modes.md).
 
-**With the GitHub CLI:**
+<details>
+<summary>With the GitHub CLI</summary>
 
 ```sh
 gh repo create my-memory --private --template 8Krystof8/memory-kit --clone
@@ -61,6 +76,7 @@ git commit -m "Set up memory"
 git push
 ```
 
+</details>
 Without `--yes`, `init` prints its plan and changes nothing. If memory is already set up, it refuses
 to run. Run the commands one at a time: they work the same in bash, zsh and PowerShell.
 
@@ -92,16 +108,21 @@ connected. Where each app keeps its settings, and what to do when it does not wo
 
 ## How it works
 
-```
- you: any editor, GitHub, phone        agents: Claude Code, Codex, Gemini CLI, Cursor
-        │ write                                  │ node system/memory.mjs start | search | new
-        ▼                                        ▼
- inbox/   sectors/<id>/**   journal/   state.md   waiting.md                  SOURCE (you edit)
-        │
-        │ node system/memory.mjs check --generate   (pre-commit hook)
-        ▼
- home.md (for you)   _ai/start.md   _ai/index-<id>.md   _ai/catalog.tsv   _ai/profile.md   .ignore
-                                                                              GENERATED
+```mermaid
+flowchart LR
+  you["You<br/>editor · GitHub · phone"] -->|write| src
+  agents["Agents<br/>Claude Code · Codex · Gemini CLI · Cursor"] -->|start · search · new| src
+  apps["Apps over MCP<br/>Claude Desktop · VS Code · Zed …"] -->|search · read · inbox| src
+  subgraph src["Source: you edit"]
+    direction TB
+    s1["inbox/ · sectors/ · journal/<br/>state.md · waiting.md"]
+  end
+  src -->|"check --generate<br/>(pre-commit hook)"| gen
+  subgraph gen["Generated: never by hand"]
+    direction TB
+    g1["home.md (for you)"]
+    g2["_ai/start.md · index · catalog · profile"]
+  end
 ```
 
 | layer | file | read when | budget |
@@ -118,7 +139,8 @@ search rules copied from `AGENTS.md`, the safety lines, a table of sectors with 
 and when to go there, your profile, the "hot" notes (pinned, or changed in the last 14 days), the
 `## Now` section of `state.md`, and a count of open questions and inbox items.
 
-A note looks like this:
+<details>
+<summary>What a note looks like</summary>
 
 ```markdown
 ---
@@ -137,6 +159,7 @@ keywords: [price list, packages, starter, standard, premium]
 - [fact] 2026-06-02: Package scope is reviewed every January.
 ```
 
+</details>
 Every note outside the inbox has four required keys: `type`, `status`, `description` and `updated`
 (decisions and journal entries also `created`). The 15 types are decision, rule, procedure, fact,
 insight, project, proposal, analysis, text, list, person, organization, journal, sector and hub.
