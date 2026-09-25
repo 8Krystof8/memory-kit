@@ -22,7 +22,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { writeAtomic } from './fsafe.mjs';
 import { detectStyle, formatJson } from './jsonc.mjs';
-import { envGet, nodeCommand, scanToml } from './clients.mjs';
+import { envGet, scanToml } from './clients.mjs';
+import { commandNode, stableNodePath } from './nodepath.mjs';
 import { ensureWorkDirIgnored, git, interpolate, isDir, resolvePath } from './util.mjs';
 import { PROBE_ENV } from './hookinput.mjs';
 
@@ -109,7 +110,7 @@ const HOOKSETUP_DEFAULTS = {
   'connect.projects.fix': 'fix: {text}',
   'connect.projects.next.claude-code': 'start a new Claude Code session in a code repository (running sessions keep their hooks; in VS Code reload the window) and accept the folder trust dialog when it asks',
   'connect.projects.next.codex': 'start Codex, open /hooks and trust the memory hooks (Codex runs a new or changed hook only after that)',
-  'connect.projects.next.add': 'give a repository its memory: run node {script} project add inside it, or connect again with --auto-add',
+  'connect.projects.next.add': 'give a repository its memory: run {command} project add inside it, or connect again with --auto-add',
   'connect.projects.next.check': 'node system/memory.mjs doctor checks the hooks (line projects.hooks)',
   'connect.projects.next.remove': 'new sessions start without the memory hooks; the notes stay in the memory',
   'connect.projects.enabled_anyway': 'memory.json "projects" is set, so the hooks work as soon as they are in the file',
@@ -750,13 +751,13 @@ function windowsShortPath(p, { env = process.env } = {}) {
 }
 
 /**
- * The path a hook should start Node.js by: nodeCommand (execPath; a Homebrew Cellar path becomes
- * its stable link), except inside an fnm multishell folder, a per-terminal link fnm may delete
- * later (on Windows execPath keeps it): then the real path behind it.
+ * The path a hook should start Node.js by (lib/nodepath.mjs): execPath, except a Homebrew Cellar
+ * path (macOS and Linuxbrew) and a snap revision become their stable link, and an fnm multishell
+ * folder, a per-terminal link fnm may delete later (on Windows execPath keeps it), the real path
+ * behind it.
  */
 export function hookNodePath(execPath, { platform = process.platform, realpath = realpathOrNull } = {}) {
-  const p = nodeCommand({ execPath, platform });
-  return /[\\/]fnm_multishells[\\/]/i.test(p) ? realpath(p) ?? p : p;
+  return stableNodePath(execPath, { platform, realpath });
 }
 
 function realpathOrNull(p) {
@@ -934,7 +935,8 @@ export function removedProjects(prev, { keepEnabled = false } = {}) {
  * execVersion and io (see IO). Returns {agent, file, script, changed, backup, settings: {enabled,
  * auto_add, store, autosync, checkpoint, error_lookup, ...} (null: memory.json has none),
  * defaults: {auto_add, store, autosync} (true: the safe default), form, command, node (the program
- * the hooks start), events, omitted, versions: {observed, min}, localRoot, memoryChanged, dryRun,
+ * the hooks start), addCommand (the vault's CLI as the user runs it inside a repository), events,
+ * omitted, versions: {observed, min}, localRoot, memoryChanged, dryRun,
  * remove, keptBy?, action: installed|updated|unchanged|removed|absent, ok: true, exit: 0,
  * warnings: [string]}. A refusal throws ProjectsRefused, whose result has action 'refused', ok
  * false, exit 1, error, fix?, snippet? and the settings memory.json holds afterwards: nothing was
@@ -1039,6 +1041,8 @@ export async function installProjects(root, opts = {}) {
     res.omitted = omitted;
     const start = groups.SessionStart.hooks[0];
     res.command = plan.form === 'exec' ? [start.command, ...start.args] : start.command;
+    // What the user runs inside a repository: the same Node.js, so a pinned older one cannot refuse it.
+    res.addCommand = `${commandNode({ platform, execPath: opts.execPath ?? process.execPath })} "${script}"`;
     if (agent === 'codex') {
       if (seen.min && !atLeast(seen.min, CODEX_HOOKS_MIN)) warn('connect.projects.warn.codex_old', { version: seen.min });
       if (seen.min && platform === 'win32' && !atLeast(seen.min, CODEX_WINDOWS_MIN)) warn('connect.projects.warn.codex_windows', { version: seen.min });
@@ -1206,7 +1210,7 @@ export function formatInstall(res, t) {
     return lines;
   }
   if (res.changed) next(`connect.projects.next.${res.agent}`);
-  if (!p.auto_add) next('connect.projects.next.add', { script: shown(res.script) });
+  if (!p.auto_add) next('connect.projects.next.add', { command: res.addCommand ?? `node "${res.script}"` });
   next('connect.projects.next.check');
   return lines;
 }

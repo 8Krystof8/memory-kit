@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { gitBashPath } from '../../lib/hooksetup.mjs';
+import { commandNode } from '../../lib/nodepath.mjs';
 import { KIT_ROOT, agentHome, checkJson, describeFindings, fixtureVault, removeTmpDirs, tmpDir } from '../helpers.mjs';
 
 after(removeTmpDirs);
@@ -60,6 +61,8 @@ function leaks(root, env) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// The vault command in a message: the Node.js by its path (quoted, or a bare word), then the script.
+const CMD = '(?:"[^"]*"|\\S+) ".*memory\\.mjs"';
 
 test('projects end to end: connect, then every hook as Claude Code runs it, up to a failed push in doctor', {
   skip: !HAS_GIT && 'git is missing', timeout: 600_000,
@@ -158,7 +161,8 @@ test('projects end to end: connect, then every hook as Claude Code runs it, up t
 
   // 2. A session in the unknown repository: one hint for the user, nothing added.
   const hinted = JSON.parse(start('e2e-1'));
-  assert.match(hinted.systemMessage, /^memory-kit: this repository has no project memory\. To keep notes for it, run: node ".*memory\.mjs" project add\nNot wanted here\? Run: node ".*memory\.mjs" project ignore/);
+  assert.match(hinted.systemMessage, new RegExp(`^memory-kit: this repository has no project memory\\. To keep notes for it, run: ${CMD} project add\\nNot wanted here\\? Run: ${CMD} project ignore`));
+  assert.ok(hinted.systemMessage.startsWith(`memory-kit: this repository has no project memory. To keep notes for it, run: ${commandNode()} "`), 'the Node.js of the hook, by its path');
   assert.match(hinted.hookSpecificOutput.additionalContext, /only when the user asks/);
   assert.equal(start('e2e-1b'), '', 'the hint is shown once per repository');
   assert.ok(!fs.existsSync(devManifest) && !fs.existsSync(path.join(fx.priv, 'projects.json')), 'nothing was added');
@@ -215,9 +219,9 @@ test('projects end to end: connect, then every hook as Claude Code runs it, up t
   const failed = await autosyncAfter(beforeFail);
   assert.deepEqual([failed.step, failed.ok], ['push', false], JSON.stringify(failed));
   assert.ok(failed.error, JSON.stringify(failed));
-  assert.match(failed.fix, /^open the vault and run: node ".*memory\.mjs" sync$/);
+  assert.match(failed.fix, new RegExp(`^open the vault and run: ${CMD} sync$`));
   const told = JSON.parse(start('e2e-3'));
-  assert.match(told.systemMessage, /^Warning: the last memory sync failed \(.* UTC, step push\): .+\. Fix: open the vault and run: node ".*memory\.mjs" sync$/);
+  assert.match(told.systemMessage, new RegExp(`^Warning: the last memory sync failed \\(.* UTC, step push\\): .+\\. Fix: open the vault and run: ${CMD} sync$`));
   assert.match(told.hookSpecificOutput.additionalContext, /^# Project shop/);
   assert.match(start('e2e-4'), /^# Project shop/, 'told once: the next start is the brief alone');
   const doctor = cli(['doctor', '--json']);

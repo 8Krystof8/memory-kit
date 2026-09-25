@@ -28,7 +28,8 @@ changes for vaults that do not switch the project memory on; the data version st
   is 2.1.101 or newer (older ones ignore the whole settings file for an unknown event), SessionEnd
   only with `--autosync`. Other hooks and settings are kept, a backup is written, a file with
   comments is never rewritten (the hooks to paste are printed instead), `--remove` and `--dry-run`
-  work ([docs/projects.md](docs/projects.md)).
+  work ([docs/projects.md](docs/projects.md)). A Homebrew Cellar path (macOS and Linuxbrew) and a
+  snap revision become their stable link, since `brew upgrade` and the snap refresh delete them.
 - **`hook <agent> <event>`**, what the hooks run. They do nothing until `projects.enabled` is on,
   never write into the code repository and never fail a session (exit 0, also on Node.js older
   than 22). Session start: in a project, a brief (git state, handoff, conventions, gotchas, dead
@@ -39,6 +40,8 @@ changes for vaults that do not switch the project memory on; the data version st
   interrupt: a lookup in gotchas and dead ends, once per error and at most five per session; every
   other failed tool call ends before the vault config is loaded. Session end: with `autosync` on, a
   background commit and push of the vault under a lock, never over an unfinished merge or rebase.
+  The commands the hooks hand on (`project add`, `remember`, `doctor`, `sync`) name the Node.js of
+  the hook by its full path, so they also work in a repository that pins an older Node.js.
 - **A failure is never silent**: every hook run and every autosync step (lock, check, commit,
   pull, push) is logged in `.memory-kit/logs/hooks.jsonl` with the error and the fix (a
   local-store repository only as a hash); the next session start tells the user once, and
@@ -111,7 +114,7 @@ changes for vaults that do not switch the project memory on; the data version st
 ### Kit files
 
 New: `install.sh`, `install.ps1`, `docs/projects.md`,
-`system/lib/{projects,repofacts,hookinput,hooklog,hooksetup,oldnode,tui,wizard,changelog}.mjs`,
+`system/lib/{projects,repofacts,hookinput,hooklog,hooksetup,nodepath,oldnode,tui,wizard,changelog}.mjs`,
 `system/lib/commands/{hook,project,remember,setup}.mjs`, `system/tools/release-notes.mjs`, and new
 tests. Changed: `system/memory.mjs`, `system/init.mjs`, `system/VERSION`, `system/lib/config.mjs`,
 `system/lib/doctor.mjs`, `system/lib/kit.mjs`, `system/lib/commands/{connect,doctor,upgrade}.mjs`,

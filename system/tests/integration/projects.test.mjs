@@ -15,6 +15,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { KIT_ROOT, checkJson, copyKit, describeFindings, fixtureVault, plantSecret, removeTmpDirs, tmpDir } from '../helpers.mjs';
 import { logHook } from '../../lib/hooklog.mjs';
+import { commandNode } from '../../lib/nodepath.mjs';
 
 after(removeTmpDirs);
 
@@ -62,7 +63,9 @@ function startOut(res) {
   const j = JSON.parse(out);
   return { user: j.systemMessage ?? '', context: j.hookSpecificOutput?.additionalContext ?? '' };
 }
-const vaultCmd = (v) => `node "${v.root.replace(/\\/g, '/')}/system/memory.mjs"`;
+const vaultCmd = (v) => `${commandNode()} "${v.root.replace(/\\/g, '/')}/system/memory.mjs"`;
+// The vault command in a message: the Node.js by its path (quoted, or a bare word), then the script.
+const CMD = '(?:"[^"]*"|\\S+) ".*memory\\.mjs"';
 const failure = (v, repo, sid, extra) => hook(v, 'tool-failure', { cwd: repo, session_id: sid, hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', is_interrupt: false, ...extra });
 const logOf = (v) => {
   try {
@@ -433,7 +436,7 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
       `${JSON.stringify({ t: new Date().toISOString(), agent: 'claude-code', event: 'stop', ok: false, error: 'EACCES' })}\n`);
     failedRun();
     const told = startOut(start(v, repo, 's5'));
-    assert.match(told.user, /^Warning: failed memory hook runs since the last warning: 1; see: node ".*memory\.mjs" doctor$/);
+    assert.match(told.user, new RegExp(`^Warning: failed memory hook runs since the last warning: 1; see: ${CMD} doctor$`));
     assert.match(told.context, /^# Project shop/, 'the brief still reaches the agent');
     assert.equal(startOut(start(v, repo, 's6')).user, '', 'once');
     failedRun();
@@ -500,7 +503,7 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.deepEqual([failed.event, failed.step, failed.ok], ['autosync', 'push', false], JSON.stringify(failed));
     assert.ok(failed.error && failed.fix.includes('memory.mjs') && failed.fix.includes('sync'), JSON.stringify(failed));
     const told = startOut(start(v, repo, 's1'));
-    assert.match(told.user, /^Warning: the last memory sync failed \(.* UTC, step push\): .+\. Fix: open the vault and run: node ".*memory\.mjs" sync$/);
+    assert.match(told.user, new RegExp(`^Warning: the last memory sync failed \\(.* UTC, step push\\): .+\\. Fix: open the vault and run: ${CMD} sync$`));
     assert.match(told.context, /^# Project shop/);
     const status = projectJson(v, 'status', repo);
     assert.deepEqual([status.hooks.last_sync.ok, status.hooks.last_sync.step], [false, 'push']);
@@ -777,6 +780,34 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     fs.appendFileSync(path.join(repo, 'index.js'), 'console.log(4);\n');
     assert.equal(hook(v, 'stop', { ...stopIn, session_id: 'old' }).stdout, '');
     assert.equal(hook(v, 'stop', { ...stopIn, session_id: 'old' }).stdout, '', 'no change since the baseline');
+    git(repo, ['checkout', '--', 'index.js']);
+  });
+
+  test('the commands the brief, the checkpoint and the hint hand on work in a repository that pins an old Node.js', { skip: process.platform === 'win32' && 'POSIX shell' }, () => {
+    const v = vault('en');
+    const repo = codeRepo();
+    // The repository's node (nvm use, volta, mise, asdf): the one memory.mjs refuses.
+    const pinned = tmpDir('pinned-node');
+    fs.writeFileSync(path.join(pinned, 'node'), '#!/bin/sh\necho "memory: Node.js 22 or newer is required (this is v20.20.2)" >&2\nexit 3\n', { mode: 0o755 });
+    const env = { ...process.env, HOME: v.home, PATH: `${pinned}${path.delimiter}${process.env.PATH}` };
+    delete env.NODE_TEST_CONTEXT;
+    const shell = (command) => spawnSync('/bin/sh', ['-c', command], { cwd: repo, env, encoding: 'utf8', windowsHide: true });
+    assert.equal(shell('node --version').status, 3, 'the pinned node comes first');
+    const hint = startOut(start(v, repo, 'p1')).user;
+    const add = /run: (.+ project add)$/m.exec(hint)[1];
+    const added = shell(add);
+    assert.equal(added.status, 0, `${add}: ${added.stderr}`);
+    const brief = startOut(start(v, repo, 'p2')).context;
+    const record = /Record: `(.+) remember --project dev --type /.exec(brief)[1];
+    const saved = shell(`${record} remember --project dev --type gotcha "vite needs a restart after .env changes"`);
+    assert.equal(saved.status, 0, `${record}: ${saved.stderr}`);
+    assert.match(saved.stdout, /gotchas\.md/);
+    fs.appendFileSync(path.join(repo, 'index.js'), 'console.log(2);\n');
+    const ask = JSON.parse(hook(v, 'stop', { cwd: repo, session_id: 'p2', stop_hook_active: false }).stdout);
+    const cmd = /gotchas: (.+) remember --project dev --type gotcha/.exec(ask.reason)[1];
+    assert.equal(cmd, record);
+    const decided = shell(`${cmd} remember --project dev --type decision "keep vite"`);
+    assert.equal(decided.status, 0, decided.stderr);
     git(repo, ['checkout', '--', 'index.js']);
   });
 

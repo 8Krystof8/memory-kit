@@ -13,6 +13,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { writeAtomic } from './fsafe.mjs';
+import { commandNode } from './nodepath.mjs';
 import { readSessionFile, safeId, sessionsDir as sessionsIn } from './hookinput.mjs';
 import { NAME_RE, SECTOR_ID_MAX, WORK_DIR, ensureWorkDirIgnored, insidePath, realpathLoose, todayLocal, toPosix } from './util.mjs';
 
@@ -77,16 +78,21 @@ export function repoHash(key) {
 }
 
 /**
- * The vault's CLI as a command to paste into any shell: node and the script path in double quotes
- * with forward slashes, which sh, bash (Git Bash too), zsh, PowerShell and cmd all read alike (Git
- * Bash would drop the backslashes of an unquoted Windows path). A path with ", $, `, % or ! (which
- * some of those shells expand inside double quotes) goes into single quotes instead.
+ * The vault's CLI as a command to paste into any shell: the Node.js running now (nodepath.mjs
+ * commandNode: its full path, so a repository that pins an older Node.js through nvm, fnm, volta,
+ * mise or asdf cannot refuse the command; `node` only when the path cannot go into a command) and
+ * the script path in double quotes with forward slashes, which sh, bash (Git Bash too), zsh,
+ * PowerShell and cmd all read alike (Git Bash would drop the backslashes of an unquoted Windows
+ * path). A script path with ", $, `, % or ! (which some of those shells expand inside double
+ * quotes) goes into single quotes instead. In a hook, the Node.js running now is the one the hook
+ * command names.
  */
-export function vaultCommand(cfg, { platform = process.platform } = {}) {
+export function vaultCommand(cfg, { platform = process.platform, execPath = process.execPath, realpath } = {}) {
   const root = platform === 'win32' ? String(cfg.root).replace(/\\/g, '/') : String(cfg.root);
   const script = `${root.replace(/\/+$/, '')}/system/memory.mjs`;
-  if (!/["$`%!\r\n]/.test(script)) return `node "${script}"`;
-  return `node '${script.replace(/'/g, "'\\''")}'`;
+  const node = commandNode({ platform, execPath, realpath });
+  if (!/["$`%!\r\n]/.test(script)) return `${node} "${script}"`;
+  return `${node} '${script.replace(/'/g, "'\\''")}'`;
 }
 
 // ---------------------------------------------------------------------------------------------

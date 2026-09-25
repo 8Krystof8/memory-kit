@@ -249,14 +249,19 @@ describe('settings and lookup', () => {
     assert.equal(setIgnored(bare, 'github.com/linden/tools', true), false);
   });
 
-  test('vaultCommand: node and the script in double quotes with forward slashes; single quotes when a shell would expand the path', () => {
-    assert.equal(vaultCommand({ root: 'C:\\Users\\jan\\vault' }, { platform: 'win32' }), 'node "C:/Users/jan/vault/system/memory.mjs"');
-    assert.equal(vaultCommand({ root: 'C:\\Users\\Jan Novák\\my vault\\' }, { platform: 'win32' }), 'node "C:/Users/Jan Novák/my vault/system/memory.mjs"');
-    assert.equal(vaultCommand({ root: '/home/jan/vault' }, { platform: 'linux' }), 'node "/home/jan/vault/system/memory.mjs"');
+  test('vaultCommand: the running Node.js by its full path and the script in double quotes with forward slashes; single quotes when a shell would expand the path', () => {
+    const nvm = 'C:\\nvm4w\\nodejs\\node.exe';
+    assert.equal(vaultCommand({ root: 'C:\\Users\\jan\\vault' }, { platform: 'win32', execPath: nvm }), 'C:/nvm4w/nodejs/node.exe "C:/Users/jan/vault/system/memory.mjs"');
+    assert.equal(vaultCommand({ root: 'C:\\Users\\Jan Novák\\my vault\\' }, { platform: 'win32', execPath: nvm }), 'C:/nvm4w/nodejs/node.exe "C:/Users/Jan Novák/my vault/system/memory.mjs"');
+    assert.equal(vaultCommand({ root: 'C:\\v' }, { platform: 'win32', execPath: 'C:\\Program Files\\nodejs\\node.exe' }), 'node "C:/v/system/memory.mjs"',
+      'a Windows path with spaces cannot be the first word of a PowerShell command: node');
+    const linux = { platform: 'linux', execPath: '/home/jan/.nvm/versions/node/v22.9.0/bin/node', realpath: () => null };
+    assert.equal(vaultCommand({ root: '/home/jan/vault' }, linux), '"/home/jan/.nvm/versions/node/v22.9.0/bin/node" "/home/jan/vault/system/memory.mjs"');
     for (const bad of ['$HOME', 'a`b`', '100%', 'hi!', 'say "x"']) {
-      assert.equal(vaultCommand({ root: `/home/${bad}` }, { platform: 'linux' }), `node '/home/${bad}/system/memory.mjs'`, bad);
+      assert.equal(vaultCommand({ root: `/home/${bad}` }, linux), `"/home/jan/.nvm/versions/node/v22.9.0/bin/node" '/home/${bad}/system/memory.mjs'`, bad);
     }
-    assert.equal(vaultCommand({ root: "/home/it's $x" }, { platform: 'linux' }), `node '/home/it'\\''s $x/system/memory.mjs'`);
+    assert.equal(vaultCommand({ root: "/home/it's $x" }, linux), `"/home/jan/.nvm/versions/node/v22.9.0/bin/node" '/home/it'\\''s $x/system/memory.mjs'`);
+    assert.equal(vaultCommand({ root: '/v' }, { ...linux, execPath: '/opt/$odd/bin/node' }), 'node "/v/system/memory.mjs"', 'a node path a shell would expand: node');
   });
 
   test('lookupError: at least 3 shared words and 40 % of the line', () => {

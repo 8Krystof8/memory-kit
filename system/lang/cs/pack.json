@@ -1176,7 +1176,7 @@
     "connect.projects.fix": "oprava: {text}",
     "connect.projects.next.claude-code": "spusť novou session Claude Code v repozitáři s kódem (běžící session si nechávají staré hooky; ve VS Code znovu načti okno) a potvrď dotaz na důvěryhodnost složky, až se zeptá",
     "connect.projects.next.codex": "spusť Codex, otevři /hooks a označ hooky paměti jako důvěryhodné (nový nebo změněný hook Codex spustí až potom)",
-    "connect.projects.next.add": "paměť pro repozitář: spusť v něm node {script} project add, nebo se připoj znovu s --auto-add",
+    "connect.projects.next.add": "paměť pro repozitář: spusť v něm {command} project add, nebo se připoj znovu s --auto-add",
     "connect.projects.next.check": "node system/memory.mjs doctor hooky zkontroluje (řádek projects.hooks)",
     "connect.projects.next.remove": "nové session začnou bez hooků paměti; poznámky v paměti zůstávají",
     "connect.projects.enabled_anyway": "memory.json \"projects\" je nastavené, takže hooky začnou fungovat, jakmile budou v souboru",

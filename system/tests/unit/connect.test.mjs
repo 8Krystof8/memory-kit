@@ -474,7 +474,20 @@ describe('entries', () => {
     assert.equal(nodeCommand({ execPath: cellar, platform: 'darwin', realpath: () => null }), cellar, 'no link: keep the real path');
     assert.equal(nodeCommand({ execPath: '/Users/me/.nvm/versions/node/v22.9.0/bin/node', platform: 'darwin' }), '/Users/me/.nvm/versions/node/v22.9.0/bin/node');
     assert.equal(nodeCommand({ execPath: 'C:\\Program Files\\nodejs\\node.exe', platform: 'win32' }), 'C:\\Program Files\\nodejs\\node.exe');
-    assert.equal(nodeCommand({ execPath: cellar, platform: 'linux', realpath: (p) => links[p] ?? null }), cellar);
+  });
+
+  test('Linuxbrew and snap: the stable link instead of a folder the package manager deletes by itself', () => {
+    const cellar = '/home/linuxbrew/.linuxbrew/Cellar/node/24.1.0/bin/node';
+    const links = { '/home/linuxbrew/.linuxbrew/bin/node': cellar };
+    for (const platform of ['linux', 'darwin']) {
+      assert.equal(nodeCommand({ execPath: cellar, platform, realpath: (p) => links[p] ?? null }), '/home/linuxbrew/.linuxbrew/bin/node', platform);
+    }
+    const snap = '/snap/node/10245/bin/node';
+    const current = { '/snap/node/current/bin/node': '/snap/node/10245/bin/node' };
+    assert.equal(nodeCommand({ execPath: snap, platform: 'linux', realpath: (p) => current[p] ?? null }), '/snap/node/current/bin/node');
+    assert.equal(nodeCommand({ execPath: snap, platform: 'linux', realpath: () => null }), snap, 'no current link: keep the real path');
+    assert.equal(nodeCommand({ execPath: '/snap/node/current/bin/node', platform: 'linux', realpath: () => '/snap/node/10245/bin/node' }), '/snap/node/current/bin/node');
+    assert.equal(nodeCommand({ execPath: 'C:\\snap\\node\\1\\node.exe', platform: 'win32', realpath: () => null }), 'C:\\snap\\node\\1\\node.exe');
   });
 
   test('recognizing entries that serve a vault', () => {

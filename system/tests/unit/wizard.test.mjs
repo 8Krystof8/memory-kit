@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { commandNode } from '../../lib/nodepath.mjs';
 import { createUI } from '../../lib/tui.mjs';
 import { guessLang, runSetup, runWizard } from '../../lib/wizard.mjs';
 import { KEY, escapes, fakeTerminal, screen } from '../fake-terminal.mjs';
@@ -442,9 +443,9 @@ describe('the extras menu (setup in a vault that is set up)', () => {
         'add repositories automatically: No · project notes: this computer only · push at session end: No',
         `Project notes will stay on this computer, in ${path.resolve(root, '..', 'vault-private')} (made with the first project)`,
         '• Start a new Claude Code session in a code repository (in VS Code reload the window) and accept the folder trust dialog when it asks.',
-        `• A repository gets its memory only when you add it. Run this inside it: node "${script}" project add`,
+        `• A repository gets its memory only when you add it. Run this inside it: ${commandNode()} "${script}" project add`,
       ].join(' ')), on.shown);
-      assert.ok(on.shown.includes(`\n│    node "${script}" project add\n`), 'the command on a line of its own');
+      assert.ok(on.shown.includes(`\n│    ${commandNode()} "${script}" project add\n`), 'the command on a line of its own');
       assert.ok(!/failed|could not|not installed/i.test(on.shown), on.shown);
 
       // Keep it: the hooks are current, nothing is written.

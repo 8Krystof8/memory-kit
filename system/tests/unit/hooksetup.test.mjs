@@ -20,6 +20,7 @@ import {
   probeEnv, probePayload, probeSpec, removedProjects, runProbe, say, settingsPath, shellCommand, transcriptVersions, unsafeChars,
 } from '../../lib/hooksetup.mjs';
 import { hookCall, quietHook } from '../../lib/oldnode.mjs';
+import { commandNode } from '../../lib/nodepath.mjs';
 import { readHookLog } from '../../lib/hooklog.mjs';
 import { KIT_ROOT, bareRoot, fixtureVault, removeTmpDirs, runCli, tmpDir } from '../helpers.mjs';
 
@@ -139,12 +140,20 @@ describe('which node a hook starts', () => {
     assert.deepEqual([chooseNode({ platform: 'linux', pathVersion: null, execPath: '/opt/$x/node' }).word, chooseNode({ platform: 'linux', execPath: '/opt/$x/node' }).bad], [null, ['$']]);
   });
 
-  test('the path hooks keep: a Homebrew link instead of the Cellar, the real folder behind an fnm multishell', () => {
+  test('the path hooks keep: a Homebrew link instead of the Cellar (Linuxbrew too), snap\'s current revision, the real folder behind an fnm multishell', () => {
     const real = { 'C:\\Users\\jan\\AppData\\Local\\fnm_multishells\\123_456\\node.exe': 'C:\\Users\\jan\\AppData\\Roaming\\fnm\\node-versions\\v22.9.0\\installation\\node.exe' };
     const realpath = (p) => real[p] ?? null;
     assert.equal(hookNodePath('C:\\Users\\jan\\AppData\\Local\\fnm_multishells\\123_456\\node.exe', { platform: 'win32', realpath }), 'C:\\Users\\jan\\AppData\\Roaming\\fnm\\node-versions\\v22.9.0\\installation\\node.exe');
     assert.equal(hookNodePath('C:\\Program Files\\nodejs\\node.exe', { platform: 'win32', realpath }), 'C:\\Program Files\\nodejs\\node.exe');
     assert.equal(hookNodePath('/home/jan/.nvm/versions/node/v22.9.0/bin/node', { platform: 'linux', realpath }), '/home/jan/.nvm/versions/node/v22.9.0/bin/node');
+    // Linuxbrew (brew upgrade) and snap (automatic refresh) delete the versioned folder by themselves.
+    const stable = { '/home/linuxbrew/.linuxbrew/bin/node': '/home/linuxbrew/.linuxbrew/Cellar/node/24.1.0/bin/node', '/snap/node/current/bin/node': '/snap/node/10245/bin/node' };
+    const linked = (p) => stable[p] ?? null;
+    assert.equal(hookNodePath('/home/linuxbrew/.linuxbrew/Cellar/node/24.1.0/bin/node', { platform: 'linux', realpath: linked }), '/home/linuxbrew/.linuxbrew/bin/node');
+    assert.equal(hookNodePath('/snap/node/10245/bin/node', { platform: 'linux', realpath: linked }), '/snap/node/current/bin/node');
+    const plan = planForm({ agent: 'claude-code', platform: 'linux', script: '/v/system/memory.mjs', min: '2.1.282',
+      node: chooseNode({ platform: 'linux', execPath: hookNodePath('/snap/node/10245/bin/node', { platform: 'linux', realpath: linked }), execVersion: '22.9.0' }) });
+    assert.equal(plan.nodeWord, '"/snap/node/current/bin/node"', 'the hook word names the stable link');
     assert.equal(typeof IO.nodePath(), 'string');
   });
 
@@ -783,7 +792,7 @@ describe('formatInstall', () => {
     assert.equal(lines[8], '  autosync false (default): nothing is committed or pushed by itself');
     assert.match(lines[9], /^privacy: the hooks run in every repository you open, so nothing is added/);
     assert.match(lines[10], /^next: start a new Claude Code session/);
-    assert.match(lines[11], /^next: give a repository its memory: run node .* project add inside it/);
+    assert.ok(lines[11].startsWith(`next: give a repository its memory: run ${commandNode()} "${res.script}" project add inside it`), lines[11]);
     assert.equal(lines[12], 'next: node system/memory.mjs doctor checks the hooks (line projects.hooks)');
     const on = formatInstall({ ...res, settings: { ...res.settings, auto_add: true, store: 'git' }, defaults: { auto_add: false, store: false, autosync: true } }, null).join('\n');
     assert.match(on, /with --auto-add, --store git on, make sure/);

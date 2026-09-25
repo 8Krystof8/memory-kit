@@ -1016,6 +1016,10 @@ export function formatStartView(view, format = 'text' | 'gemini-hook' | 'json'):
 //   readReleaseNotes(kitDir, version); imports only node built-ins
 // lib/wizard.mjs (core, 0.1.2): runWizard({root, opts}), runSetup({root, cfg}); imports tui,
 //   clients, init.mjs, and loads commands/connect.mjs, config and hooksetup with a dynamic import()
+// lib/nodepath.mjs (core, 0.1.2): stableNodePath(execPath, {platform, realpath, multishell}) (a
+//   Homebrew Cellar or snap revision → its stable link, an fnm multishell → its real path) and
+//   commandNode({execPath, platform}) (that path as the first word of a shell command, else `node`);
+//   used by MCP configs, the hooks and every vault command the kit hands on; imports only node:fs
 ```
 `system/kit.json` = `{name, version, data_version, api_version, node, upgrade_from, source,
 files: {rel: {sha256, group}}}`; `system/kit-history.json` = `{version: {rel: sha256}}` for every

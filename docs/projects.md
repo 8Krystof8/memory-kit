@@ -136,7 +136,12 @@ The hook is one shell command, `"<node>" "<vault>/system/memory.mjs" hook claude
 PowerShell, and Codex in your shell or in `cmd.exe`. `<node>` is the full path of the Node.js that
 ran `connect` (on Windows without spaces, or its short 8.3 name), so a repository that pins an
 older Node.js (nvm, fnm, volta, mise, asdf) does not break the hooks; connect again after
-removing that Node.js (`doctor` tells you). Should a hook still start a Node.js older than 22, it
+removing that Node.js (`doctor` tells you). A Homebrew Cellar folder (macOS and Linuxbrew) and a
+snap revision are named by their stable link (`<prefix>/bin/node`, `/snap/node/current/…`),
+because `brew upgrade` and the snap refresh delete them by themselves. The commands the hooks hand
+on (the hint, the brief, the end-of-session request) start the same Node.js by its full path, so
+`project add` and `remember` work in such a repository too (on Windows a path with spaces falls
+back to `node`). Should a hook still start a Node.js older than 22, it
 does nothing, exits cleanly and leaves the reason in the hook log, which `doctor` lists. A vault
 path that contains `"`, `$`, a backtick, `%` or `!` (on Windows also `„`, `“` or `”`, which
 PowerShell reads as quotes) is refused, unless every Claude Code found on the computer is 2.1.139

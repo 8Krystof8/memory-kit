@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { detectStyle, formatJson, parseJsonc } from './jsonc.mjs';
+import { stableNodePath } from './nodepath.mjs';
 
 export const DEFAULT_NAME = 'memory-kit';
 /** Server names: letters, digits and hyphens (Gemini splits tool names at '_', TOML keys need no quotes). */
@@ -372,20 +373,13 @@ function realpathOrNull(p) {
 }
 
 /**
- * The Node program a config should start. process.execPath, except on macOS inside a Homebrew
- * Cellar (whose versioned folder disappears on `brew upgrade`): then <prefix>/bin/node or
- * <prefix>/opt/<formula>/bin/node, when that link exists and leads to the same formula.
+ * The Node program a config should start. process.execPath, except inside a folder a package
+ * manager deletes by itself (lib/nodepath.mjs): a Homebrew Cellar (macOS and Linuxbrew; `brew
+ * upgrade`) gives <prefix>/bin/node or <prefix>/opt/<formula>/bin/node, when that link exists and
+ * leads to the same formula; a snap revision gives /snap/<name>/current/….
  */
 export function nodeCommand({ execPath = process.execPath, platform = process.platform, realpath = realpathOrNull } = {}) {
-  if (platform !== 'darwin') return execPath;
-  const m = /^(.+)\/Cellar\/([^/]+)\/[^/]+\/bin\/node$/.exec(execPath);
-  if (!m) return execPath;
-  const [, prefix, formula] = m;
-  for (const link of [`${prefix}/bin/node`, `${prefix}/opt/${formula}/bin/node`]) {
-    const real = realpath(link);
-    if (real && real.startsWith(`${prefix}/Cellar/${formula}/`)) return link;
-  }
-  return execPath;
+  return stableNodePath(execPath, { platform, realpath, multishell: false });
 }
 
 /** [<vault>/system/memory.mjs, 'mcp', '--root', <vault>] plus '--read-only'. */
