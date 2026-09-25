@@ -1,15 +1,18 @@
 // The upgrade screen: `upgrade` in a terminal (stdin and stdout TTYs) draws the plan as counts,
 // "What's new" from the target's CHANGELOG.md, asks before it applies (instead of "run again
 // with --yes"), and ends with a box holding the backup id and the undo command. Runs the
-// command in-process on a fake TTY against a vault of this kit and a synthetic next kit. The
-// plain output without a terminal is covered byte for byte by upgrade.test.mjs.
+// command in-process on a fake TTY against a vault of this kit and a synthetic next kit, and
+// (on Linux, with util-linux script) as a process in a real pseudo-terminal: the vault's own CLI
+// hands over to the newer upgrader on the same terminal, an Enter typed while it plans does not
+// answer its question, and the exit code passes through. The plain output without a terminal is
+// covered byte for byte by upgrade.test.mjs.
 
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { run } from '../../lib/commands/upgrade.mjs';
+import { spawn, spawnSync } from 'node:child_process';
+import { run, showResult } from '../../lib/commands/upgrade.mjs';
 import { loadConfig } from '../../lib/config.mjs';
 import { createUI } from '../../lib/tui.mjs';
 import { KEY, fakeTerminal, screen } from '../fake-terminal.mjs';
@@ -21,6 +24,9 @@ const CUR = fs.readFileSync(new URL('../../VERSION', import.meta.url), 'utf8').t
 const [MAJ, MIN, PAT] = CUR.split('.').map(Number);
 const NXT = `${MAJ}.${MIN}.${PAT + 1}`;
 const SCRUB = ['MEMORY_KIT_UPGRADE_PARENT', 'CLAUDE_CODE_REMOTE', 'NODE_OPTIONS', 'NODE_TEST_CONTEXT'];
+// A pseudo-terminal without dependencies: util-linux `script -qec <command> /dev/null` (its exit
+// code is the command's). BSD script on macOS takes other arguments; Windows has none.
+const PTY = process.platform === 'linux' && spawnSync('script', ['-qec', 'true', '/dev/null'], { stdio: 'ignore' }).status === 0;
 
 function node(script, args, cwd) {
   const env = { ...process.env };
@@ -145,6 +151,60 @@ describe('upgrade in a terminal', { concurrency: 1 }, () => {
     const { code, shown } = await upgrade('scr-current', ['--from', SRC], [], { root, kitRoot: root });
     assert.equal(code, 0, shown);
     assert.equal(shown, `┌  memory-kit ${CUR}\n│\n└  memory-kit ${CUR} is up to date (the source has ${CUR}).\n\n`);
+  });
+
+  test('a failed restore: the recovery command after the box, whole and unwrapped', () => {
+    const term = fakeTerminal({ columns: 80, rows: 40 });
+    const ui = createUI({ stdout: term.stdout, stdin: term.stdin, env: { TERM: 'xterm-256color' }, platform: 'linux', color: false });
+    const command = 'node "C:\\Users\\Jan Novák\\Downloads\\memory-kit-0.1.3\\system\\memory.mjs" upgrade --rollback 20260925-164749-0.1.2-to-0.1.3 --root "C:\\Users\\Jan Novák\\Documents\\Moje paměť"';
+    const result = { applied: false, rolledBack: false, backup: '20260925-164749-0.1.2-to-0.1.3', failure: { step: 'verify', detail: 'check exited 1', restore: 'EBUSY' } };
+    showResult(ui, null, { from: '0.1.2', to: '0.1.3' }, result, { recover: () => command });
+    const shown = screen(term.output());
+    assert.ok(shown.includes('restoring the backup failed as well (EBUSY); the command below this box'), shown);
+    assert.ok(shown.endsWith(`╯\n│    ${command}\n`), shown);
+    const box = shown.slice(0, shown.lastIndexOf('╯'));
+    assert.ok(!box.includes('--rollback'), 'the command is not inside the box');
+  });
+
+  test('in a real terminal: the hand-over draws the newer screen, a typed-ahead Enter does not answer', { skip: !PTY && 'needs util-linux script' }, async () => {
+    const root = vaultCopy('scr-pty');
+    const env = { ...process.env, TERM: 'xterm-256color', LANG: 'en_US.UTF-8' };
+    for (const key of [...SCRUB, 'CI', 'NO_COLOR', 'FORCE_COLOR']) delete env[key];
+    const quoted = (s) => `'${s.replace(/'/g, "'\\''")}'`;
+    const command = [process.execPath, path.join(root, 'system', 'memory.mjs'), 'upgrade', '--from', NEXT].map(quoted).join(' ');
+    const child = spawn('script', ['-qec', command, '/dev/null'], { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const kill = setTimeout(() => child.kill('SIGKILL'), 90000);
+    let out = '';
+    let answered = false;
+    child.stdin.write('\r'); // typed while the upgrade starts: before any question is on the screen
+    child.stdout.on('data', (d) => {
+      out += d;
+      if (!answered && out.includes('now?')) {
+        answered = true;
+        setTimeout(() => child.stdin.write('n'), 400);
+      }
+    });
+    const code = await new Promise((resolve) => child.on('close', resolve));
+    clearTimeout(kill);
+    child.stdin.destroy();
+    const shown = screen(out.replace(/\r\n/g, '\n'));
+    assert.equal(code, 0, shown);
+    assert.ok(shown.includes(`┌  memory-kit ${CUR} → ${NXT}`), shown);
+    assert.ok(shown.includes(`◇  Upgrade to ${NXT} now?\n│  No\n│\n└  Nothing changed.`), shown);
+    assert.equal(readFile(root, 'system/VERSION').trim(), CUR);
+    assert.ok(out.lastIndexOf('\x1b[?25h') > out.lastIndexOf('\x1b[?25l'), 'the cursor is shown at the end');
+  });
+
+  test('in a real terminal: the newer upgrader\'s exit code passes through the hand-over', { skip: !PTY && 'needs util-linux script' }, async () => {
+    const root = vaultCopy('scr-pty-blocked');
+    fs.appendFileSync(path.join(root, 'system', 'lib', 'fingerprint.mjs'), '// my change\n');
+    const env = { ...process.env, TERM: 'xterm-256color' };
+    for (const key of [...SCRUB, 'CI']) delete env[key];
+    const res = spawnSync('script', ['-qec', `'${process.execPath}' '${path.join(root, 'system', 'memory.mjs')}' upgrade --from '${NEXT}'`, '/dev/null'], {
+      cwd: root, env, encoding: 'utf8', input: '', timeout: 90000,
+    });
+    assert.equal(res.status, 1, res.stdout + res.stderr);
+    assert.ok(screen(res.stdout.replace(/\r\n/g, '\n')).includes('└  the upgrade cannot run yet'), res.stdout);
   });
 
   test('--json never draws the screen', async () => {

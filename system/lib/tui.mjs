@@ -13,7 +13,10 @@
 // prints only its final line. Every byte goes through the injected stdout, so tests capture it.
 // Raw mode is switched on per prompt and always switched off again (submit, cancel, Ctrl+C,
 // process exit); the cursor is always shown again. Ctrl+C or Esc in a prompt rejects with
-// Cancelled; the caller prints ui.cancelled() and exits with 130.
+// Cancelled; the caller prints ui.cancelled() and exits with 130. Keys typed before a prompt was
+// drawn (an Enter pressed while a spinner turned waits in the terminal's input queue) arrive in
+// its first moments and are dropped (keyGuard), so they never answer a question nobody saw.
+// Every line of the redrawn region fits the width, so a redraw never leaves stale rows behind.
 
 import readline from 'node:readline';
 import { stripVTControlCharacters } from 'node:util';
@@ -239,11 +242,17 @@ function interpolate(template, vars = {}) {
   return String(template).replace(/\{(\w+)\}/g, (all, name) => (vars[name] !== undefined && vars[name] !== null ? String(vars[name]) : all));
 }
 
+/** Milliseconds after a prompt is drawn in which keys count as typed ahead (see keyGuard). */
+export const KEY_GUARD_MS = 150;
+
 /**
  * The UI on the given streams. opts: { stdout, stdin, env, platform, columns, rows, t } plus
  * overrides of the detected capabilities { interactive, live, color, unicode }. t(key, vars)
  * translates the tui.* texts (setTranslator changes it later); a key it does not know falls back
- * to the English default.
+ * to the English default. keyGuard: milliseconds after a prompt is drawn in which keys other
+ * than Ctrl+C are dropped as typed ahead (default KEY_GUARD_MS on the process's own stdin, 0 on
+ * an injected one). signals and exit (tests): whether a spinner handles SIGINT (default: on the
+ * process's own live stdout) and the function it ends the process with (process.exit).
  */
 export function createUI(opts = {}) {
   const stdout = opts.stdout ?? process.stdout;
@@ -259,7 +268,9 @@ export function createUI(opts = {}) {
   };
   if (!caps.live) caps.interactive = false;
   const sym = caps.unicode ? GLYPHS.unicode : GLYPHS.ascii;
-  const signals = caps.live && stdout === process.stdout;
+  const signals = caps.live && (opts.signals ?? stdout === process.stdout);
+  const exit = typeof opts.exit === 'function' ? opts.exit : (code) => process.exit(code);
+  const keyGuard = Math.max(0, Number(opts.keyGuard ?? (stdin === process.stdin ? KEY_GUARD_MS : 0)) || 0);
   let translate = typeof opts.t === 'function' ? opts.t : null;
 
   const sgr = (on, off) => (s) => (caps.color ? `${CSI}${on}m${s}${CSI}${off}m` : String(s));
@@ -312,10 +323,13 @@ export function createUI(opts = {}) {
     hidden = false;
     process.removeListener('exit', onExit);
   };
+  // The redraw moves up one row per line, so no line may wrap: a line wider than the terminal
+  // (callers fit their text; this is the safety net) is cut, and loses its colours then.
+  const oneRow = (line) => (displayWidth(line) <= width() ? line : truncate(line, width(), sym.ellipsis));
   const draw = (lines) => {
     let s = '';
     if (height > 0) s += `\r${height > 1 ? `${CSI}${height - 1}A` : ''}${ERASE_DOWN}`;
-    write(s + lines.join('\n'));
+    write(s + lines.map(oneRow).join('\n'));
     height = lines.length;
   };
   const settle = (lines) => {
@@ -377,10 +391,24 @@ export function createUI(opts = {}) {
   const success = (message) => logLine(sym.success, style.ok)(message);
   const warn = (message) => logLine(sym.warn, style.warn)(message);
   const error = (message) => logLine(sym.fail, style.err)(message);
-  /** Plain text on the rail (paint: dim, bold, accent, ok, warn, err). */
-  const message = (text, paint) => print(railed(text, { paint: paint ? tone(paint) : undefined }));
+  /**
+   * Plain text on the rail (paint: dim, bold, accent, ok, warn, err); { bullet: true } puts the
+   * bullet glyph in front and hangs the wrapped lines under the text.
+   */
+  const message = (text, paint, { bullet = false } = {}) => {
+    const paintText = paint ? tone(paint) : (s) => s;
+    if (!bullet) return print(railed(text, { paint: paintText }));
+    const lead = `${sym.bullet} `;
+    const hang = ' '.repeat(displayWidth(lead));
+    return print(fit(text, inner() - hang.length).map((l, i) => `${bar(false)}  ${i === 0 ? lead : hang}${paintText(l)}`));
+  };
   /** A command to copy, indented on the rail and never wrapped (a long one wraps in the terminal). */
   const command = (text) => print([`${bar(false)}    ${style.accent(String(text).normalize('NFC'))}`]);
+  /**
+   * Text to copy as a whole (a JSON snippet): its lines exactly as given, without the rail, a
+   * border or wrapping, framed by rail spacers.
+   */
+  const verbatim = (text) => print([spacer(), ...String(text).normalize('NFC').split(/\r?\n/), spacer()]);
 
   /**
    * A box: body is a string or a list of strings / { text, tone, bullet, indent } items, each
@@ -428,10 +456,13 @@ export function createUI(opts = {}) {
     const line = () => `${style.accent(sym.frames[frame % sym.frames.length])}  ${truncate(text, inner(), sym.ellipsis)}`;
     const onSigint = () => {
       clearInterval(timer);
+      running = false;
+      if (turning === api) turning = null;
       settle([`${mark('cancel')}  ${truncate(text, inner(), sym.ellipsis)}`]);
       cancelled();
       process.exitCode = 130;
-      stdout.write('', () => process.exit(130));
+      // The exit waits for the stream: a Windows console writes asynchronously.
+      stdout.write('', () => exit(130));
     };
     const api = {
       start(msg = '') {
@@ -521,8 +552,11 @@ export function createUI(opts = {}) {
         if (status === 'cancel') reject(new Cancelled());
         else resolve(value());
       };
+      let shownAt = Infinity;
+      const typedAhead = (str, key) => keyGuard > 0 && performance.now() - shownAt < keyGuard
+        && str !== '\x03' && !(key?.ctrl && key.name === 'c');
       function onKeypress(str, key = {}) {
-        if (!open) return;
+        if (!open || typedAhead(str, key)) return;
         try {
           if (isCancelKey(str, key)) return finish('cancel');
           if (onKey(str, key ?? {}) === 'submit') return finish('submit');
@@ -540,6 +574,8 @@ export function createUI(opts = {}) {
       stdout.on?.('resize', redraw);
       stdin.resume();
       redraw();
+      // What the terminal queued before this moment is delivered right after resume().
+      shownAt = performance.now();
     });
   }
 
@@ -551,8 +587,19 @@ export function createUI(opts = {}) {
   }
 
   const optionList = (options) => options.map((o) => (typeof o === 'object' && o !== null ? { ...o, label: String(o.label ?? o.value) } : { value: o, label: String(o) }));
-  const footer = (text, active = true) => `${active ? style.accent(sym.end) : style.dim(sym.end)}  ${text}`;
-  const hintLine = (key) => style.dim(tt(key, { arrows: key === 'tui.hint.confirm' ? sym.leftRight : sym.upDown }));
+  /** The last line of an active prompt: the key help, cut to the width. */
+  const footer = (key) => {
+    const hint = tt(key, { arrows: key === 'tui.hint.confirm' ? sym.leftRight : sym.upDown });
+    return [`${style.accent(sym.end)}  ${style.dim(truncate(hint, width() - 3, sym.ellipsis))}`];
+  };
+  /** A validation problem in place of the key help, wrapped: "└  ▲ text", then indented lines. */
+  const problemFooter = (problem) => {
+    const lead = `${sym.warn} `;
+    const hang = ' '.repeat(3 + displayWidth(lead));
+    return wrap(String(problem), width() - hang.length).map((l, i) => (i === 0
+      ? `${style.accent(sym.end)}  ${style.warn(lead + l)}`
+      : `${hang}${style.warn(l)}`));
+  };
 
   /** The rows of a list of options around the cursor, at most rows() - 7 of them. */
   function windowed(count, cursor) {
@@ -606,7 +653,7 @@ export function createUI(opts = {}) {
             leadWidth: radioWidth,
             current: i === cursor,
           })),
-          footer(hintLine('tui.hint.select')),
+          ...footer('tui.hint.select'),
         ];
       },
       onKey: (str, key) => {
@@ -647,7 +694,7 @@ export function createUI(opts = {}) {
             const pointer = i === cursor ? style.accent(sym.pointer) : ' '.repeat(displayWidth(sym.pointer));
             return { lead: `${pointer} ${box} `, leadWidth: pointerWidth + boxWidth, current: i === cursor || on };
           }),
-          footer(problem ? style.warn(`${sym.warn} ${problem}`) : hintLine('tui.hint.multiselect')),
+          ...(problem ? problemFooter(problem) : footer('tui.hint.multiselect')),
         ];
       },
       onKey: (str, key) => {
@@ -690,7 +737,7 @@ export function createUI(opts = {}) {
         return [
           ...header(msg, 'active', true),
           `${bar(true)}  ${opt(value, yes)} ${style.dim('/')} ${opt(!value, no)}`,
-          footer(hintLine('tui.hint.confirm')),
+          ...footer('tui.hint.confirm'),
         ];
       },
       onKey: (str, key) => {
@@ -747,7 +794,7 @@ export function createUI(opts = {}) {
         return [
           ...header(msg, 'active', true),
           `${bar(true)}  ${body}`,
-          footer(problem ? style.warn(`${sym.warn} ${problem}`) : hintLine('tui.hint.text')),
+          ...(problem ? problemFooter(problem) : footer('tui.hint.text')),
         ];
       },
       onKey: (str, key) => {
@@ -808,7 +855,8 @@ export function createUI(opts = {}) {
     setTranslator(fn) {
       translate = typeof fn === 'function' ? fn : null;
     },
-    intro, outro, step, note, info, warn, error, success, message, command, spinner, select, confirm, text, multiselect, cancelled,
+    intro, outro, step, note, info, warn, error, success, message, command, verbatim, spinner, select, confirm, text, multiselect,
+    cancelled,
     close,
   };
 }

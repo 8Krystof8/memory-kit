@@ -338,6 +338,92 @@ describe('prompts', () => {
   });
 });
 
+describe('redraws never wrap', () => {
+  /** Every line written (settled or redrawn) fits into the width of the terminal. */
+  function assertFits(out, width) {
+    for (const line of stripAnsi(out).split(/[\r\n]/)) assert.ok(displayWidth(line) <= width, `${displayWidth(line)} > ${width}: ${line}`);
+  }
+
+  test('a multiselect at 44 columns: the key help is cut, no stale question lines', async () => {
+    const { ui, term } = setup({ columns: 44, color: true });
+    term.keys(`${KEY.down.repeat(3)}${KEY.space}${KEY.enter}`);
+    const options = ['Core', 'Work', 'School', 'Family', 'Health', 'Finances'].map((label) => ({ value: label.toLowerCase(), label, hint: label.toLowerCase() }));
+    assert.deepEqual(await ui.multiselect({ message: 'Which sectors (areas of life)?', options, initialValues: ['core'] }), ['core', 'family']);
+    assertFits(term.output(), 43);
+    const shown = screen(term.output(), { columns: 44 });
+    assert.equal(shown.split('Which sectors').length - 1, 1, shown);
+    assert.ok(shown.endsWith('◇  Which sectors (areas of life)?\n│  Core, Family\n'), shown);
+    assert.match(term.output(), /└\x1b\[39m {2}\x1b\[90m↑\/↓ move · Space choose · a all · Enter…\x1b\[39m/, 'cut with an ellipsis, still dim');
+  });
+
+  test('a long validation message wraps below the prompt and is cleared by the next frame', async () => {
+    const { ui, term } = setup({ columns: 100, color: false });
+    const problem = 'init.private_root_drive: --private-root D:\\Paměť is on another drive than this repository. memory.json is shared by all your computers, so it can only hold a path relative to the repository or one inside your home folder (~/…). Choose a folder on the same drive as the repository or inside your home folder.';
+    term.keys(`D:\\Paměť${KEY.enter}${KEY.backspace.repeat(8)}../ok${KEY.enter}`);
+    const value = await ui.text({ message: 'Private folder for local sectors', validate: (v) => (v.startsWith('D:') ? problem : undefined) });
+    assert.equal(value, '../ok');
+    assertFits(term.output(), 99);
+    const withProblem = term.output().split('\x1b[J').find((frame) => frame.includes('another drive'));
+    assert.ok(withProblem.split('\n').length >= 5, 'the message takes several rows of its own');
+    const shown = screen(term.output(), { columns: 100 });
+    assert.equal(shown, '│\n◇  Private folder for local sectors\n│  ../ok\n');
+  });
+
+  test('at 20 columns every frame still fits', async () => {
+    const { ui, term } = setup({ columns: 20, color: false });
+    term.keys(`${KEY.down}${KEY.enter}`, `${KEY.right}${KEY.enter}`);
+    await ui.select({ message: 'Where should the memory live?', options: [{ value: 'github', label: 'github', hint: 'a private GitHub repository' }, 'local'], initialValue: 'github' });
+    await ui.confirm({ message: 'Set up the memory now?' });
+    assertFits(term.output(), 19);
+    assert.ok(screen(term.output(), { columns: 20 }).endsWith('◇  Set up the\n│  memory now?\n│  No\n'), screen(term.output(), { columns: 20 }));
+  });
+});
+
+describe('keys typed before a prompt was drawn', () => {
+  test('are dropped: an Enter pressed during a spinner does not answer the question', async () => {
+    const { ui, term } = setup({ keyGuard: 100 });
+    term.keys(KEY.enter); // arrives right after the prompt starts listening: typed ahead
+    const answer = ui.confirm({ message: 'Upgrade now?', initialValue: true });
+    setTimeout(() => term.stdin.write('n'), 250);
+    assert.equal(await answer, false);
+    assert.ok(screen(term.output()).endsWith('◇  Upgrade now?\n│  No\n'), screen(term.output()));
+    assertRestored(term);
+  });
+
+  test('Ctrl+C still cancels at once', async () => {
+    const { ui, term } = setup({ keyGuard: 10000 });
+    term.keys(KEY.ctrlC);
+    await assert.rejects(ui.select({ message: 'Pick', options: ['a', 'b'], initialValue: 'a' }), Cancelled);
+    assertRestored(term);
+  });
+
+  test('without a guard (an injected stdin) keys count at once', async () => {
+    const { ui, term } = setup();
+    term.keys(KEY.enter);
+    assert.equal(await ui.confirm({ message: 'Now?', initialValue: false }), false);
+  });
+});
+
+describe('text to copy', () => {
+  test('bulleted rail text hangs; commands and snippets are never boxed or wrapped', () => {
+    const { ui, term } = setup({ columns: 30, color: false });
+    ui.message('Commit now, one command at a time:', undefined, { bullet: true });
+    ui.command('git commit -m "Set up memory with a long message"');
+    ui.verbatim('{\n  "hooks": { "SessionStart": [] }\n}');
+    assert.equal(term.output(), [
+      '│  • Commit now, one command',
+      '│    at a time:',
+      '│    git commit -m "Set up memory with a long message"',
+      '│',
+      '{',
+      '  "hooks": { "SessionStart": [] }',
+      '}',
+      '│',
+      '',
+    ].join('\n'));
+  });
+});
+
 describe('without a terminal', () => {
   test('prompts take their default and print the settled form only', async () => {
     const { ui, term } = setup({ isTTY: false, env: {} });
@@ -388,6 +474,27 @@ describe('spinner in a terminal', () => {
     failed.start('Upgrading');
     failed.stop('Upgrading', 'error');
     assert.ok(screen(term.output()).endsWith('│\n■  Upgrading\n'));
+  });
+
+  test('Ctrl+C while it turns: a cancel line, the cursor back, exit 130', async () => {
+    const codes = [];
+    const { ui, term } = setup({ color: false, signals: true, exit: (code) => codes.push(code) });
+    const listeners = process.listenerCount('SIGINT');
+    const spin = ui.spinner();
+    spin.start('Backing up, upgrading and verifying');
+    assert.equal(process.listenerCount('SIGINT'), listeners + 1, 'the spinner listens for SIGINT');
+    try {
+      process.emit('SIGINT', 'SIGINT');
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(codes, [130]);
+      assert.equal(process.exitCode, 130);
+    } finally {
+      process.exitCode = undefined;
+    }
+    assert.equal(process.listenerCount('SIGINT'), listeners, 'the listener is gone');
+    assert.equal(spin.running, false);
+    assert.equal(screen(term.output()), '│\n■  Backing up, upgrading and verifying\n│\n└  Cancelled.\n\n');
+    assertCursorShown(term.output());
   });
 
   test('ASCII frames on a legacy Windows console', () => {

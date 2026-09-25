@@ -44,7 +44,7 @@
       "group": "docs"
     },
     "docs/architecture.md": {
-      "sha256": "f53fc6d9e379b1cbb119734b2e02ccc229fa7c6ac842bdd45fda0f238e8a63c4",
+      "sha256": "6b47784e410f5dae0e0c489410dad50807a68f6d0131a6944bdb90e4d3d4b19f",
       "group": "docs"
     },
     "docs/integrations/chatgpt.md": {
@@ -100,7 +100,7 @@
       "group": "docs"
     },
     "docs/upgrading.md": {
-      "sha256": "3f85e04c5db937c7389b2a09e6ea7b67a20937e6e240024ee886c84685079b54",
+      "sha256": "e3c17b60e1ff638bae4b90959e18aa237d30f4a19a11d0f63c9f830e8245f281",
       "group": "docs"
     },
     "system/VERSION": {
@@ -112,7 +112,7 @@
       "group": "code"
     },
     "system/init.mjs": {
-      "sha256": "05dc8fa949ec50ed55257e61c2ed5854964814c2b2427b705913504a5fc7d202",
+      "sha256": "8d6368e9e6156331146bc20ac19a5211067faabf4221619d4b7342cec6c723c8",
       "group": "code"
     },
     "system/lang/LICENSE-snowball.txt": {
@@ -120,7 +120,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "53820e0d8dcc1f1307b7f0964fcb4fe0f77495af884025b43a7d756c945c5bed",
+      "sha256": "9e0f3b09f1db5a564e0c45c4dfbc52c5c56904681554abe625e9d8c8f9752eef",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -192,7 +192,7 @@
       "group": "code"
     },
     "system/lib/commands/setup.mjs": {
-      "sha256": "62cf91eda9ca78eedda7c1e01d02ec43625397c382a176ab29050e2b6a77a684",
+      "sha256": "8deb6db71af36c1486b26916aa53089e0781b523304d8ab822f81fbae391b484",
       "group": "code"
     },
     "system/lib/commands/start.mjs": {
@@ -204,7 +204,7 @@
       "group": "code"
     },
     "system/lib/commands/upgrade.mjs": {
-      "sha256": "f8f44e4e97de201c31b8294ddf1aebf201447b8535bd771d4ce0ae4d90312b74",
+      "sha256": "38ead3fd7307c851d1d9c32410f21770616cd1d8356dc8fb87d92efcfa3364e4",
       "group": "code"
     },
     "system/lib/config.mjs": {
@@ -288,7 +288,7 @@
       "group": "code"
     },
     "system/lib/tui.mjs": {
-      "sha256": "98fa16fee45367bdd1ffa90385d40e9f0f895d0dff1043ec501331a3957ecb92",
+      "sha256": "8c89472e4ff15c645e94ec0b2dbbc70c2c41f02aafead7e0b9d404bd2b1b3192",
       "group": "code"
     },
     "system/lib/upgrade.mjs": {
@@ -304,7 +304,7 @@
       "group": "code"
     },
     "system/lib/wizard.mjs": {
-      "sha256": "c0494d463c1963472076d1c19648e2b901c09af901476069da209e5728612d65",
+      "sha256": "0f8a0104a100625fd943e4bd6e4174106925fa8df77ab7b8284e2679f3c0965d",
       "group": "code"
     },
     "system/memory.mjs": {
@@ -500,7 +500,7 @@
       "group": "code"
     },
     "system/tests/fake-terminal.mjs": {
-      "sha256": "283a353a5563edea12fde0bfe9bd419ed5c22f06bfd8d5d667d579495302cf18",
+      "sha256": "7c688ef5e6ffe1b66b5d7f46e7896eb4af8ab12e7f18e95592dc63819fd190a4",
       "group": "tests"
     },
     "system/tests/fixtures/cs/golden.json": {
@@ -912,7 +912,7 @@
       "group": "tests"
     },
     "system/tests/integration/upgrade-screen.test.mjs": {
-      "sha256": "636dcc8c773ffaa3e369ffafe0cab6413ea5fab473f8169b07eee7333e4e80bc",
+      "sha256": "849d9dcad51869b7ce18eef2a4081109df8200cab710bf8c3af3a2f9ab4939dc",
       "group": "tests"
     },
     "system/tests/integration/upgrade.test.mjs": {
@@ -1016,7 +1016,7 @@
       "group": "tests"
     },
     "system/tests/unit/tui.test.mjs": {
-      "sha256": "dbbf90d5a3c60100550593a684d1f12eb1421c0d57a8a1bb6f353fddb82e6398",
+      "sha256": "336757b63567fec3f48cd4e8934cf768d093054ea23355ee52a775221d43fda7",
       "group": "tests"
     },
     "system/tests/unit/util.test.mjs": {
@@ -1024,7 +1024,7 @@
       "group": "tests"
     },
     "system/tests/unit/wizard.test.mjs": {
-      "sha256": "01d334766787ee5fd1591e9d3dfa0c9561a3bd14ee8d831892b387a33725b377",
+      "sha256": "929d8c3d7f7690d2fb63771fc85940a96c11b2cc93180a350dc6f53bc772f74a",
       "group": "tests"
     },
     "system/tools/release.mjs": {

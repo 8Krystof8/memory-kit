@@ -13,9 +13,11 @@
 // which asks the same questions one screen at a time and applies them with the functions
 // exported here; --interactive forces it, --no-interactive keeps the plain behaviour. Without a
 // terminal nothing changes: the output below stays byte for byte.
-// Without --yes init only prints its plan. Every step is idempotent, so a run that stopped half
-// way can simply be repeated with the same answers. Exit codes: 0 ok, 1 refused or check errors,
-// 2 usage (missing or invalid answers), 3 internal error.
+// Without --yes init only prints its plan. The wizard asks instead; without a terminal to ask in
+// (--interactive in a pipe) it applies only with --yes, --dry-run ends it after the summary, and
+// --interactive with --json is a usage error. Every step is idempotent, so a run that stopped
+// half way can simply be repeated with the same answers. Exit codes: 0 ok, 1 refused or check
+// errors, 2 usage (missing or invalid answers), 3 internal error.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -890,9 +892,12 @@ export async function main(argv) {
  * Whether main hands over to the setup wizard: --interactive, or (unless --no-interactive, --yes,
  * --json or --dry-run) a terminal where stdin and stdout are TTYs, not CI and not TERM=dumb, and
  * answers are missing (a set-up vault: no answers at all, which opens the extras menu).
+ * --interactive with --json is a usage error (the JSON would be mixed with the questions); with
+ * --dry-run the wizard ends after its summary, and without a terminal it applies only with --yes.
  */
 async function wantsWizard(opts, raw) {
   if (opts.interactive && opts['no-interactive']) throw usageError('--interactive and --no-interactive exclude each other');
+  if (opts.interactive && opts.json) throw usageError('--interactive asks its questions on the screen and prints no JSON: leave out one of --interactive and --json');
   if (opts.interactive) return true;
   if (opts['no-interactive'] || opts.yes || opts.json || opts['dry-run']) return false;
   const given = ['mode', 'lang', 'sectors'].filter((k) => opts[k] !== undefined && opts[k].trim() !== '');
@@ -919,8 +924,8 @@ function planJson(plan, applied) {
 
 // For the setup wizard (lib/wizard.mjs): the same questions, plan and steps as the CLI.
 export {
-  AGENTS, InitError, MODES, apply, buildPlan, defaultPrivateRoot, formatPlan, kitUtil, loadPacks, nextStepItems,
-  planJson, presetEntries, readMemoryJson, translator,
+  AGENTS, InitError, MODES, apply, buildPlan, canonPrivacy, defaultPrivateRoot, findPreset, formatPlan, kitUtil, loadPacks,
+  nextStepItems, parseAgents, parseSectors, planJson, presetEntries, readMemoryJson, translator,
 };
 
 /**

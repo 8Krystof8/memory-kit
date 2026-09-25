@@ -1,8 +1,8 @@
 // A fake terminal for tests of lib/tui.mjs and the screens built on it: a TTY stdout that records
 // every byte, a TTY stdin with a setRawMode stub that records its calls, and a key script that
 // feeds one chunk of keys to each prompt as soon as it listens. screen() replays the recorded
-// bytes (CR, LF, cursor up, erase down, erase line; colours and cursor visibility ignored) into
-// the text a real terminal would show at the end.
+// bytes (CR, LF, cursor up, erase down, erase line, optionally wrapping at a width; colours and
+// cursor visibility ignored) into the text a real terminal would show at the end.
 
 import { PassThrough, Writable } from 'node:stream';
 
@@ -53,12 +53,21 @@ export function fakeTerminal({ columns = 72, rows = 30, isTTY = true } = {}) {
   };
 }
 
-/** The final screen of recorded terminal output. */
-export function screen(out) {
+/**
+ * The final screen of recorded terminal output. columns: wrap like a real terminal (a character
+ * written past the last column starts the next row, one column per code point), so a redraw that
+ * miscounts its rows leaves the stale lines a real terminal would show.
+ */
+export function screen(out, { columns = Infinity } = {}) {
   const lines = [''];
   let row = 0;
   let col = 0;
   const put = (ch) => {
+    if (col >= columns) {
+      row += 1;
+      col = 0;
+      if (lines.length <= row) lines.push('');
+    }
     const l = [...lines[row]];
     while (l.length < col) l.push(' ');
     l[col] = ch;

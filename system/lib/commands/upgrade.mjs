@@ -125,6 +125,7 @@ const DEFAULTS = {
   'upgrade.ui.applying': 'Backing up, upgrading and verifying',
   'upgrade.ui.applied': 'Upgraded {from} → {to}',
   'upgrade.ui.failed': 'The upgrade did not go through',
+  'upgrade.ui.restore_failed': 'restoring the backup failed as well ({detail}); the command below this box undoes the upgrade',
   'upgrade.ui.what_happened': 'What happened',
   'upgrade.ui.done_title': 'memory-kit {to} is installed',
   'upgrade.ui.backup': 'backup: {backup}',
@@ -676,22 +677,26 @@ async function showNotes(ui, cfg, dir, plan) {
   ui.note(body, say(cfg, 'upgrade.ui.whats_new', { version: plan.to }), { state: 'info' });
 }
 
-function showResult(ui, cfg, plan, result, hints) {
+/** The result of applyUpgrade on the screen (exported for tests). */
+export function showResult(ui, cfg, plan, result, hints) {
   const t = (key, vars) => say(cfg, key, vars);
   if (!result.applied) {
     const failure = result.failure ?? {};
     const body = [];
+    const restoreFailed = !failure.undone && !result.rolledBack;
     if (failure.undone) {
       body.push(t('upgrade.undone_meanwhile'));
     } else {
       body.push(t('upgrade.failed', { step: failure.step ?? '?', detail: failure.detail ?? '' }));
       if (result.rolledBack) body.push({ text: t('upgrade.rolled_back'), tone: 'ok' });
-      else body.push({ text: t('upgrade.restore_failed', { detail: failure.restore ?? '', command: hints.recover(result.backup) }), tone: 'err' });
+      else body.push({ text: t('upgrade.ui.restore_failed', { detail: failure.restore ?? '' }), tone: 'err' });
       if (failure.saved?.length) body.push(t('upgrade.saved', { dir: failure.savedIn, files: failure.saved.join(', ') }));
       if (failure.unrecorded?.length) body.push(t('upgrade.unrecorded', { files: failure.unrecorded.join(', ') }));
       if (failure.foreign?.length) body.push(t('upgrade.foreign', { files: failure.foreign.join(', ') }));
     }
     ui.note(body, t('upgrade.ui.what_happened'), { state: 'error' });
+    // The one command that must be run exactly: outside the box, never wrapped.
+    if (restoreFailed) ui.command(hints.recover(result.backup));
     return;
   }
   const body = [{ text: t('upgrade.ui.backup', { backup: result.backup }) }];

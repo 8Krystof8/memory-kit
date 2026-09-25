@@ -7,6 +7,11 @@
 // The extras menu is also what `setup` opens in a vault that is set up already: connect AI apps
 // (commands/connect.mjs), memory for coding projects (installProjects of lib/hooksetup.mjs, used
 // only when that version of the kit exports it) and a compact health check (doctor --json).
+// Flags given to init become the preselected answers: presets and custom sectors of --sectors
+// (a :github or :local suffix settles that sector's privacy, so it is not asked again), --agents
+// (all: every tool), --private-root. Invalid flags stop the wizard before its first question
+// (exit 2). --dry-run ends it after the summary; without a terminal to ask in, the confirmation
+// is No unless --yes was given. Commands to copy are printed outside boxes and never wrapped.
 // Everything is printed through lib/tui.mjs; tests inject the UI, the client detection, the hook
 // installer and the doctor runner. Ctrl+C or Esc ends the wizard with exit code 130.
 
@@ -32,6 +37,7 @@ export const WIZARD_DEFAULTS = {
   'wizard.mode.combined': 'a private GitHub repository plus a private folder here',
   'wizard.sectors.question': 'Which sectors (areas of life)?',
   'wizard.sectors.local': 'only on this computer',
+  'wizard.sectors.custom': 'your own sector',
   'wizard.local.question': '{sectors}: sectors usually kept off GitHub, but mode github has no private folder',
   'wizard.local.combined': 'switch to combined: keep them on this computer',
   'wizard.local.github': 'keep them in the private GitHub repository',
@@ -43,6 +49,8 @@ export const WIZARD_DEFAULTS = {
   'wizard.summary.agents': 'AI tools: {agents}',
   'wizard.confirm': 'Set up the memory now?',
   'wizard.not_now': 'Nothing changed. Run node system/init.mjs again when you are ready.',
+  'wizard.no_terminal': 'Nothing changed: no terminal to confirm in (add --yes to apply).',
+  'wizard.dry_run': 'Plan only (--dry-run), nothing changed.',
   'wizard.cancelled': 'Cancelled, nothing changed.',
   'wizard.nothing_changed': 'Nothing changed.',
   'wizard.applying': 'Setting up the memory',
@@ -72,20 +80,34 @@ export const WIZARD_DEFAULTS = {
   'setup.projects.explain_1': 'Every coding project gets its own notes in this memory (brief, handoff, gotchas); nothing is written into the code repository.',
   'setup.projects.explain_2': 'Claude Code reads them when a session starts and asks for a handoff when it ends.',
   'setup.projects.question': 'Switch on memory for coding projects?',
+  'setup.projects.on_question': 'Memory for coding projects is on. What now?',
+  'setup.projects.keep': 'Keep it',
+  'setup.projects.keep_hint': 'check that the hooks are current',
+  'setup.projects.change': 'Change the settings',
+  'setup.projects.off': 'Switch it off',
+  'setup.projects.off_hint': 'takes the hooks out; the notes stay',
   'setup.projects.unavailable': 'Memory for coding projects is not available in this version of memory-kit.',
   'setup.projects.skipped': 'Memory for coding projects stays off.',
   'setup.projects.auto_add': 'Add every repository automatically? (No: only projects you add)',
   'setup.projects.store_local': 'Keep project notes only on this computer? (Yes: notes of client and work repositories never reach git)',
   'setup.projects.autosync': 'Commit and push the memory at the end of each session?',
   'setup.projects.installing': 'Installing the hooks for Claude Code',
+  'setup.projects.removing': 'Taking the hooks for Claude Code out',
   'setup.projects.installed': 'Hooks are in {file}',
   'setup.projects.unchanged': 'The hooks in {file} are current',
+  'setup.projects.removed': 'Memory for coding projects is off; the hooks are out of {file}',
+  'setup.projects.absent': 'Memory for coding projects is off; {file} had no hooks of it',
   'setup.projects.backup': 'backup of the old file: {path}',
   'setup.projects.settings': 'add repositories automatically: {auto_add} · project notes: {store} · push at session end: {autosync}',
   'setup.projects.store.local': 'this computer only',
   'setup.projects.store.git': 'in the memory repository',
-  'setup.projects.snippet': 'Add these hooks to {file} yourself',
+  'setup.projects.not_installed': 'The hooks are not installed: {file} cannot be edited automatically',
+  'setup.projects.snippet': 'Add these hooks to {file} yourself:',
   'setup.projects.failed': 'The hooks could not be installed: {detail}',
+  'setup.projects.remove_failed': 'The hooks could not be taken out: {detail}',
+  'setup.projects.fix': 'fix: {text}',
+  'setup.projects.enabled_anyway': 'memory.json has it switched on: it works once the hooks are in place.',
+  'setup.projects.disabled_anyway': 'memory.json has it switched off, so the hooks do nothing now.',
   'setup.doctor.running': 'Checking the installation',
   'setup.doctor.summary': 'Health check: {counts}',
   'setup.doctor.more': '{n} more: node system/memory.mjs doctor',
@@ -199,52 +221,71 @@ async function askMode(ui, t, initial) {
   return ui.select({ message: t('wizard.mode.question'), options, initialValue: init.MODES.includes(initial) ? initial : 'github' });
 }
 
-/** Preset keys from --sectors (preset names or ids of any pack); null when none matches. */
-function presetsFrom(value, packs) {
-  if (!value) return null;
-  const keys = new Set();
-  for (const item of String(value).split(',').map((s) => s.split(':')[0].trim()).filter(Boolean)) {
-    for (const pack of packs.values()) {
-      for (const [key, p] of init.presetEntries(pack)) if (key === item || p.id === item) keys.add(key);
-    }
+/**
+ * The items of --sectors as { key, id, privacy }: key is the preset (a preset name or an id of any
+ * pack), id a custom sector id (key null), privacy 'github' or 'local' when a suffix gave it,
+ * else null. init.parseSectors has checked the flag before.
+ */
+function flagSectors(value, packs) {
+  const items = [];
+  for (const item of String(value ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
+    const [name, priv] = item.split(':').map((x) => x.trim());
+    const key = init.findPreset(name, packs, 'en');
+    const privacy = priv === undefined ? null : [...packs.keys()].map((l) => init.canonPrivacy(priv, packs, l)).find(Boolean) ?? null;
+    if (!items.some((x) => (key ? x.key === key : x.id === name))) items.push({ key, id: key ? null : name, privacy });
   }
-  return keys.size ? [...keys] : null;
+  return items;
 }
 
-async function askSectors(ui, t, packs, lang, opts) {
+const customValue = (id) => `custom:${id}`;
+
+/** The chosen sectors as [{ key, id, privacy }]: the presets, plus the custom ones of the flag. */
+async function askSectors(ui, t, packs, lang, flag) {
   const dot = ` ${ui.sym.dot} `;
   const en = packs.get('en');
   const pack = packs.get(lang);
   const options = init.presetEntries(en).map(([key]) => {
     const p = pack.sector_presets?.[key] ?? en.sector_presets[key];
+    const privacy = flag.find((x) => x.key === key)?.privacy ?? p.privacy;
     const tags = [p.id];
     if (key === 'core') tags.push(t('tui.locked'));
-    else if (p.privacy === 'local') tags.push(t('wizard.sectors.local'));
+    else if (privacy === 'local') tags.push(t('wizard.sectors.local'));
     return { value: key, label: p.title ?? key, hint: tags.join(dot), locked: key === 'core' };
   });
-  const initial = presetsFrom(opts.sectors, packs) ?? ['core', 'work'];
-  return ui.multiselect({ message: t('wizard.sectors.question'), options, initialValues: initial, required: true });
+  for (const c of flag.filter((x) => !x.key)) {
+    const tags = [t('wizard.sectors.custom'), ...(c.privacy === 'local' ? [t('wizard.sectors.local')] : [])];
+    options.push({ value: customValue(c.id), label: c.id, hint: tags.join(dot) });
+  }
+  const initial = flag.length ? flag.map((x) => x.key ?? customValue(x.id)) : ['core', 'work'];
+  const picked = await ui.multiselect({ message: t('wizard.sectors.question'), options, initialValues: initial, required: true });
+  return picked.map((v) => flag.find((x) => (x.key ?? customValue(x.id)) === v) ?? { key: v, id: null, privacy: null });
 }
 
+/** Does the sector keep its notes outside git (its suffix, else its preset's default)? */
+const isLocal = (s, en) => (s.privacy ?? (s.key && en.sector_presets[s.key]?.privacy === 'local' ? 'local' : 'github')) === 'local';
+
+/** A sector as init's --sectors item. */
+const sectorItem = (s) => `${s.key ?? s.id}${s.privacy ? `:${s.privacy}` : ''}`;
+
 /**
- * Mode github has no private folder, so presets that are local by default need a decision:
- * switch to combined (the default), keep them in the repository, or leave them out.
- * → { mode, sectors: [preset or preset:github] }
+ * Mode github has no private folder, so sectors kept outside git (a preset that is local by
+ * default and got no :github, or an explicit :local) need a decision: switch to combined (the
+ * default), keep them in the repository, or leave them out. → { mode, sectors }
  */
-async function settleLocalPresets(ui, t, packs, lang, mode, keys) {
+async function settleLocalSectors(ui, t, packs, lang, mode, sectors) {
   const en = packs.get('en');
-  const local = keys.filter((k) => en.sector_presets[k]?.privacy === 'local');
-  if (mode !== 'github' || !local.length) return { mode, sectors: keys };
+  const local = sectors.filter((s) => isLocal(s, en));
+  if (mode !== 'github' || !local.length) return { mode, sectors };
   const pack = packs.get(lang);
-  const titles = local.map((k) => pack.sector_presets?.[k]?.title ?? k).join(', ');
+  const titles = local.map((s) => (s.key ? pack.sector_presets?.[s.key]?.title ?? s.key : s.id)).join(', ');
   const choice = await ui.select({
     message: t('wizard.local.question', { sectors: titles }),
     options: ['combined', 'github', 'drop'].map((v) => ({ value: v, label: t(`wizard.local.${v}`) })),
     initialValue: 'combined',
   });
-  if (choice === 'combined') return { mode: 'combined', sectors: keys };
-  if (choice === 'github') return { mode, sectors: keys.map((k) => (local.includes(k) ? `${k}:github` : k)) };
-  return { mode, sectors: keys.filter((k) => !local.includes(k)) };
+  if (choice === 'combined') return { mode: 'combined', sectors };
+  if (choice === 'github') return { mode, sectors: sectors.map((s) => (local.includes(s) ? { ...s, privacy: 'github' } : s)) };
+  return { mode, sectors: sectors.filter((s) => !local.includes(s)) };
 }
 
 async function askPrivateRoot(ui, t, root, util, initial) {
@@ -262,13 +303,30 @@ async function askPrivateRoot(ui, t, root, util, initial) {
   });
 }
 
+/** The AI tools: --agents preselects (all: every one), else the ones detected here, else all. */
 async function askAgents(ui, t, detected, given) {
-  const fromFlag = given && given.trim() !== 'all'
-    ? given.split(',').map((s) => s.trim()).filter((a) => init.AGENTS.includes(a))
-    : null;
+  const fromFlag = given !== undefined ? init.parseAgents(given) : null;
   const options = init.AGENTS.map((a) => ({ value: a, label: agentName(a), hint: detected.includes(a) ? t('wizard.agents.detected') : undefined }));
-  const initial = fromFlag?.length ? fromFlag : detected.length ? detected : [...init.AGENTS];
+  const initial = fromFlag ?? (detected.length ? detected : [...init.AGENTS]);
   return ui.multiselect({ message: t('wizard.agents.question'), options, initialValues: initial, required: true });
+}
+
+/**
+ * The flags the wizard takes as preselected answers, checked before the first question so a
+ * wrong one is not found only after all of them: an InitError (usage) or null.
+ */
+function flagProblem(opts, packs, lang, util) {
+  try {
+    if (opts.mode !== undefined && !init.MODES.includes(opts.mode)) throw new init.InitError(2, `--mode must be one of ${init.MODES.join(', ')}`);
+    if (opts.lang !== undefined && !packs.has(opts.lang)) throw new init.InitError(2, `--lang must be one of ${[...packs.keys()].join(', ')}`);
+    // Mode combined takes every privacy; github with a local sector is asked about instead.
+    if (opts.sectors !== undefined) init.parseSectors(opts.sectors, packs, lang, 'combined', util);
+    if (opts.agents !== undefined) init.parseAgents(opts.agents);
+    return null;
+  } catch (err) {
+    if (err instanceof init.InitError) return err;
+    throw err;
+  }
 }
 
 function summaryLines(plan, t, bullet) {
@@ -304,13 +362,13 @@ async function applyPlan(plan, packs) {
   return { result, lines, blocks, warnings };
 }
 
-function nextStepsNote(ui, plan, t) {
-  const body = [];
+/** init's next steps on the rail; their commands unwrapped and outside any box, to copy whole. */
+function nextSteps(ui, plan, t) {
+  ui.step(t('wizard.next.title'));
   for (const item of init.nextStepItems(plan, t)) {
-    body.push({ text: item.text, bullet: ui.sym.bullet });
-    for (const command of item.commands ?? []) body.push({ text: command, indent: 4, tone: 'accent' });
+    ui.message(item.text, undefined, { bullet: true });
+    for (const command of item.commands ?? []) ui.command(command);
   }
-  ui.note(body, t('wizard.next.title'));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -351,6 +409,91 @@ async function connectApps(ctx) {
   }
 }
 
+/** memory.json "projects" as the wizard offers it, with the safe defaults of the settings contract. */
+function currentProjects(root) {
+  let p = null;
+  try {
+    p = init.readMemoryJson(root).projects;
+  } catch {
+    /* no settings: everything off */
+  }
+  const o = p && typeof p === 'object' && !Array.isArray(p) ? p : {};
+  return { enabled: o.enabled === true, auto_add: o.auto_add === true, store: o.store === 'git' ? 'git' : 'local', autosync: o.autosync === true };
+}
+
+function settingsLine(t, s) {
+  const yesNo = (v) => t(v ? 'tui.yes' : 'tui.no');
+  return t('setup.projects.settings', {
+    auto_add: yesNo(s.auto_add), store: t(`setup.projects.store.${s.store === 'git' ? 'git' : 'local'}`), autosync: yesNo(s.autosync),
+  });
+}
+
+/**
+ * The questions: off → switch on? (default No); on → keep (checks the hooks), change (the current
+ * answers preselected) or switch off. → null (nothing to do) or installProjects' choices: an
+ * answer not asked stays undefined, so installProjects keeps the earlier one.
+ */
+async function projectChoices(ctx, now) {
+  const { ui, t, root } = ctx;
+  let choice;
+  if (now.enabled) {
+    ui.message(settingsLine(t, now), 'dim');
+    choice = await ui.select({
+      message: t('setup.projects.on_question'),
+      options: [
+        { value: 'keep', label: t('setup.projects.keep'), hint: t('setup.projects.keep_hint') },
+        { value: 'change', label: t('setup.projects.change') },
+        { value: 'off', label: t('setup.projects.off'), hint: t('setup.projects.off_hint') },
+      ],
+      initialValue: 'keep',
+    });
+  } else {
+    choice = await ui.confirm({ message: t('setup.projects.question'), initialValue: false }) ? 'change' : null;
+  }
+  if (!choice) return null;
+  if (choice === 'keep') return {};
+  if (choice === 'off') return { remove: true };
+  const was = now.enabled ? now : { auto_add: false, store: 'local', autosync: false };
+  const choices = {
+    autoAdd: await ui.confirm({ message: t('setup.projects.auto_add'), initialValue: was.auto_add }),
+    store: await ui.confirm({ message: t('setup.projects.store_local'), initialValue: was.store !== 'git' }) ? 'local' : 'git',
+  };
+  if ((ctx.hasRemote ?? hasRemote)(root)) choices.autosync = await ui.confirm({ message: t('setup.projects.autosync'), initialValue: was.autosync });
+  return choices;
+}
+
+/**
+ * installProjects' outcome: a refusal (thrown ProjectsRefused, or a result with ok false or action
+ * refused) or a snippet (the settings file cannot be edited) is never shown as installed; the
+ * snippet is printed whole, outside any box, to be copied.
+ */
+function showProjects(ctx, spin, res, removing) {
+  const { ui, t } = ctx;
+  const file = res.file ?? '';
+  const snippet = () => {
+    if (!res.snippet) return;
+    ui.message(t('setup.projects.snippet', { file }));
+    ui.verbatim(String(res.snippet));
+  };
+  if (res.ok === false || res.action === 'refused') {
+    spin.stop(t(removing ? 'setup.projects.remove_failed' : 'setup.projects.failed', { detail: res.error ?? '?' }), 'error');
+    if (res.fix) ui.message(t('setup.projects.fix', { text: res.fix }), 'dim');
+    snippet();
+    if (res.memoryChanged && !res.dryRun) ui.info(t(removing ? 'setup.projects.disabled_anyway' : 'setup.projects.enabled_anyway'));
+  } else if (res.snippet) {
+    spin.stop(t('setup.projects.not_installed', { file }), 'warn');
+    snippet();
+  } else if (removing) {
+    spin.stop(t(res.action === 'absent' || res.changed === false ? 'setup.projects.absent' : 'setup.projects.removed', { file }));
+    if (res.backup) ui.message(t('setup.projects.backup', { path: res.backup }), 'dim');
+  } else {
+    spin.stop(t(res.changed === false ? 'setup.projects.unchanged' : 'setup.projects.installed', { file }));
+    if (res.backup) ui.message(t('setup.projects.backup', { path: res.backup }), 'dim');
+    if (res.settings) ui.message(settingsLine(t, res.settings), 'dim');
+  }
+  for (const w of res.warnings ?? []) ui.warn(w);
+}
+
 async function codingProjects(ctx) {
   const { ui, t, root } = ctx;
   ui.message(t('setup.projects.explain_1'), 'dim');
@@ -365,34 +508,24 @@ async function codingProjects(ctx) {
     ui.warn(t('setup.projects.unavailable'));
     return;
   }
-  if (!await ui.confirm({ message: t('setup.projects.question'), initialValue: false })) {
+  const choices = await projectChoices(ctx, currentProjects(root));
+  if (!choices) {
     ui.info(t('setup.projects.skipped'));
     return;
   }
-  const autoAdd = await ui.confirm({ message: t('setup.projects.auto_add'), initialValue: false });
-  const store = await ui.confirm({ message: t('setup.projects.store_local'), initialValue: true }) ? 'local' : 'git';
-  const autosync = (ctx.hasRemote ?? hasRemote)(root)
-    ? await ui.confirm({ message: t('setup.projects.autosync'), initialValue: false })
-    : false;
+  const removing = choices.remove === true;
   const spin = ui.spinner();
-  spin.start(t('setup.projects.installing'));
+  spin.start(t(removing ? 'setup.projects.removing' : 'setup.projects.installing'));
   let res;
   try {
-    res = await mod.installProjects(root, { agent: 'claude-code', autoAdd, store, autosync, ...ctx.hookOptions });
+    res = await mod.installProjects(root, { agent: 'claude-code', ...choices, ...ctx.hookOptions });
   } catch (err) {
-    spin.stop(t('setup.projects.failed', { detail: err?.message ?? String(err) }), 'error');
-    return;
+    // A refusal carries its result (ProjectsRefused); anything else is a failure of its own.
+    res = err?.result && typeof err.result === 'object'
+      ? { ...err.result, ok: false, action: 'refused', error: err.result.error ?? err.error ?? err.message }
+      : { ok: false, action: 'refused', error: err?.message ?? String(err) };
   }
-  const file = res?.file ?? '';
-  spin.stop(t(res?.changed === false ? 'setup.projects.unchanged' : 'setup.projects.installed', { file }));
-  if (res?.backup) ui.message(t('setup.projects.backup', { path: res.backup }), 'dim');
-  const s = res?.settings ?? { auto_add: autoAdd, store, autosync };
-  const yesNo = (v) => t(v ? 'tui.yes' : 'tui.no');
-  ui.message(t('setup.projects.settings', {
-    auto_add: yesNo(s.auto_add), store: t(`setup.projects.store.${s.store === 'git' ? 'git' : 'local'}`), autosync: yesNo(s.autosync),
-  }), 'dim');
-  for (const w of res?.warnings ?? []) ui.warn(w);
-  if (res?.snippet) ui.note(String(res.snippet).split('\n'), t('setup.projects.snippet', { file }), { state: 'warn' });
+  showProjects(ctx, spin, res ?? { ok: false, error: '?' }, removing);
 }
 
 async function healthCheck(ctx) {
@@ -453,7 +586,8 @@ function extrasContext(root, ui, t, inject) {
 
 /**
  * The wizard for the vault at root. opts are init's options (answers given as flags become the
- * preselected choices; today, allow-ephemeral pass through). inject (tests): ui, env, detect
+ * preselected choices; today, cleanup, allow-ephemeral pass through; dry-run ends after the
+ * summary; yes confirms when there is no terminal to ask in). inject (tests): ui, env, detect
  * (() => agent ids), loadHooks, hookOptions ({ env, home } for installProjects), runDoctor,
  * inspectClients, connectClient, hasRemote.
  * → exit code (0 ok, 1 refused or check errors, 2 usage, 130 cancelled).
@@ -466,25 +600,37 @@ export async function runWizard({ root, opts = {}, ui: givenUi, env = process.en
   let t = wizardTranslator(packs, lang);
   ui.setTranslator(t);
   let applied = false;
+  const dryRun = Boolean(opts['dry-run']);
   try {
     ui.intro('memory-kit', [readVersion(root), t('wizard.tagline')].filter(Boolean).join(` ${ui.sym.dot} `));
     if (raw.initialized === true) {
       ui.step(t('setup.already', { lang: raw.lang ?? 'en', mode: raw.mode ?? '?' }), 'info');
       applied = true;
+      if (dryRun) {
+        ui.outro(t('wizard.dry_run'));
+        return 0;
+      }
       await extrasMenu(extrasContext(root, ui, t, inject));
       ui.outro(t('setup.outro'));
       return 0;
+    }
+    const util = await init.kitUtil();
+    const problem = flagProblem(opts, packs, lang, util);
+    if (problem) {
+      ui.error(problem.message);
+      ui.outro(t('wizard.nothing_changed'), { state: 'error' });
+      return problem.exitCode;
     }
 
     lang = await askLanguage(ui, t, packs, lang);
     t = wizardTranslator(packs, lang);
     ui.setTranslator(t);
     const firstMode = await askMode(ui, t, opts.mode);
-    const keys = await askSectors(ui, t, packs, lang, opts);
-    const { mode, sectors } = await settleLocalPresets(ui, t, packs, lang, firstMode, keys);
-    const util = await init.kitUtil();
+    const chosen = await askSectors(ui, t, packs, lang, flagSectors(opts.sectors, packs));
+    const { mode, sectors } = await settleLocalSectors(ui, t, packs, lang, firstMode, chosen);
     const en = packs.get('en');
-    const needsPrivate = mode !== 'github' || sectors.some((s) => !s.endsWith(':github') && en.sector_presets[s]?.privacy === 'local');
+    // As init: a private folder for mode local or combined, a local sector, or one given.
+    const needsPrivate = mode !== 'github' || sectors.some((s) => isLocal(s, en)) || opts['private-root'] !== undefined;
     const privateRoot = needsPrivate ? await askPrivateRoot(ui, t, root, util, opts['private-root']) : undefined;
     const detected = (() => {
       try {
@@ -496,7 +642,7 @@ export async function runWizard({ root, opts = {}, ui: givenUi, env = process.en
     const agents = await askAgents(ui, t, detected, opts.agents);
 
     const answers = {
-      mode, lang, sectors: sectors.join(','), agents: agents.join(','), cleanup: 'none',
+      mode, lang, sectors: sectors.map(sectorItem).join(','), agents: agents.join(','), cleanup: opts.cleanup ?? 'none',
       ...(privateRoot !== undefined ? { 'private-root': privateRoot } : {}),
       ...(opts.today !== undefined ? { today: opts.today } : {}),
       ...(opts['allow-ephemeral'] ? { 'allow-ephemeral': true } : {}),
@@ -511,8 +657,13 @@ export async function runWizard({ root, opts = {}, ui: givenUi, env = process.en
       return err.exitCode;
     }
     ui.note(summaryLines(plan, t, ui.sym.bullet), t('wizard.summary.title'));
-    if (!await ui.confirm({ message: t('wizard.confirm'), initialValue: true })) {
-      ui.outro(t('wizard.not_now'));
+    if (dryRun) {
+      ui.outro(t('wizard.dry_run'));
+      return 0;
+    }
+    // Without a terminal nobody saw the answers: like init, apply them only with --yes.
+    if (!await ui.confirm({ message: t('wizard.confirm'), initialValue: ui.tty ? true : Boolean(opts.yes) })) {
+      ui.outro(t(ui.tty ? 'wizard.not_now' : 'wizard.no_terminal'));
       return 0;
     }
 
@@ -541,7 +692,7 @@ export async function runWizard({ root, opts = {}, ui: givenUi, env = process.en
     }
 
     await extrasMenu(extrasContext(root, ui, t, inject));
-    nextStepsNote(ui, plan, t);
+    nextSteps(ui, plan, t);
     ui.outro(ok ? t('wizard.outro') : t('wizard.outro_errors'), { state: ok ? 'ok' : 'warn' });
     return ok ? 0 : 1;
   } catch (err) {
@@ -559,11 +710,11 @@ export async function runWizard({ root, opts = {}, ui: givenUi, env = process.en
 }
 
 /**
- * `setup`: the extras menu in a vault that is set up (cfg.initialized), else the whole wizard.
- * inject as for runWizard.
+ * `setup`: the extras menu in a vault that is set up (cfg.initialized), else the whole wizard
+ * (opts: { yes } confirms it without a terminal). inject as for runWizard.
  */
-export async function runSetup({ root, cfg, ui: givenUi, env = process.env, ...inject } = {}) {
-  if (!cfg?.initialized) return runWizard({ root, ui: givenUi, env, ...inject });
+export async function runSetup({ root, cfg, ui: givenUi, env = process.env, opts = {}, ...inject } = {}) {
+  if (!cfg?.initialized) return runWizard({ root, ui: givenUi, env, opts, ...inject });
   const ui = givenUi ?? createUI({ env });
   const packs = init.loadPacks(root);
   const t = wizardTranslator(packs, packs.has(cfg.lang) ? cfg.lang : 'en');

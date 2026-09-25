@@ -24,7 +24,9 @@ and how to undo it. The last part is for maintainers who publish a new version.
 - **Your data stays as it is.** Notes, hubs, the inbox, the journal, the archive, `memory.json`,
   your golden questions and your local sectors are never overwritten. The only exception is a data
   migration (see [Data migrations](#data-migrations)), and 0.1.1 has none.
-- **Nothing happens without `--yes`.** Without it, `upgrade` only prints the plan.
+- **Nothing happens until you agree.** In a terminal, `upgrade` shows the plan and asks before it
+  changes anything; an Enter pressed before the question is on the screen is not an answer.
+  Everywhere else (an AI agent, a script, CI) it only prints the plan unless you pass `--yes`.
 - **Your own changes are never lost silently.** A kit code file you changed stops the upgrade. A
   config or docs file you changed stays as it is, and the new version is saved next to it for you
   to compare. A file that you or another program change while the upgrade runs, or after it, is
@@ -50,6 +52,13 @@ git commit -m "memory-kit 0.1.1 → 0.1.2"
 1. The first command downloads the newest kit and prints the plan. It changes nothing.
 2. The second command applies the plan.
 3. The last two commit the result. `upgrade` prints the exact commit command for your versions.
+
+In a terminal, a vault on 0.1.2 or newer does the first two steps in one: `upgrade` shows the plan
+and what is new, then asks `Upgrade to 0.1.3 now?`. Answer `y` to apply it or `n` to leave
+everything as it is; the second command is then not needed. An Enter you press while the kit
+downloads or the plan is computed does not count as an answer. Without a terminal `upgrade` never
+asks: it prints the plan and changes nothing, and only `--yes` applies it. A vault on 0.1.1 hands
+over to the new upgrader without a terminal, so there the two commands above are the way.
 
 In the Czech pack the command is `aktualizuj`, and `--ano` means `--yes`.
 
@@ -373,7 +382,9 @@ node memory-kit-new/system/memory.mjs upgrade --root my-memory
 node memory-kit-new/system/memory.mjs upgrade --root my-memory --yes
 ```
 
-The second command shows the plan. The third applies it. Use the English name `upgrade` here, even
+The second command shows the plan and changes nothing. In a terminal it then asks whether to apply
+it; answer `y` and skip the third command. Without a terminal the third command applies it. Use the
+English name `upgrade` here, even
 in a Czech vault: the 0.1.0 language pack does not know `aktualizuj` yet, and for the same reason
 this one run prints its messages in English.
 
@@ -441,7 +452,7 @@ node system/memory.mjs upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--ye
 
 | option | Czech alias | what it does |
 |---|---|---|
-| `--yes` | `--ano` | apply the plan (without it, `upgrade` only prints the plan) |
+| `--yes` | `--ano` | apply the plan without asking (without it, `upgrade` asks in a terminal and only prints the plan elsewhere) |
 | `--dry-run` | `--nanecisto` | print the plan and change nothing, even with `--yes` |
 | `--from <dir\|git-url>` | `--odkud` | take the new kit from this folder or git URL |
 | `--ref <branch\|tag>` | | with a git URL, or a kit folder that is a git repository: clone this branch or tag |
