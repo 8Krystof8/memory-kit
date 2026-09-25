@@ -2,16 +2,19 @@
 // project its memory (commands/hook.mjs) and writes the "projects" settings of memory.json.
 // Claude Code reads $CLAUDE_CONFIG_DIR/settings.json (~/.claude) in the terminal, in VS Code and in
 // JetBrains alike; Codex reads $CODEX_HOME/hooks.json (~/.codex). The hooks use the shell form, one
-// command string that every Claude Code version runs: the executable a bare word, each path in
-// double quotes, forward slashes on Windows, so /bin/sh, Git Bash, PowerShell and cmd.exe read it
-// the same. A vault path no shell passes on safely (" $ ` % ! or a line break) gets the exec form
-// (command + args, no shell) when every Claude Code seen here is 2.1.139 or newer; otherwise
-// nothing is written. PostToolUseFailure is written only when every Claude Code seen here is
-// 2.1.101 or newer (older ones ignore the whole settings file for one event they do not know).
-// Other hooks and keys are kept, the file is read again right before it is replaced atomically,
-// a copy goes to .memory-kit/backups/connect/, and a file that is not plain JSON is never
-// rewritten: the hooks to paste come back instead. installProjects() prints nothing;
-// commands/connect.mjs prints formatInstall() of its result, the setup wizard renders it its way.
+// command string that every Claude Code version runs: the Node.js running connect by its full path
+// (a repository that pins an older Node.js through nvm, fnm, volta, mise or asdf cannot break the
+// hooks), each path in double quotes, forward slashes on Windows, so /bin/sh, Git Bash, PowerShell
+// and cmd.exe read it the same. A vault path no shell passes on safely (" $ ` % ! or a line break;
+// on Windows also „ “ ”, which PowerShell reads as quotes) gets the exec form (command + args, no
+// shell) when every Claude Code seen here is 2.1.139 or newer; otherwise nothing is written.
+// PostToolUseFailure is written only when every Claude Code seen here is 2.1.101 or newer (older
+// ones ignore the whole settings file for one event they do not know), SessionEnd only with
+// autosync (the only work it has). Other hooks and keys are kept, the file is read again right
+// before it is replaced atomically, a copy goes to .memory-kit/backups/connect/, and a file that is
+// not plain JSON is never rewritten: the hooks to paste come back instead. installProjects() prints
+// nothing and throws ProjectsRefused when it refuses; commands/connect.mjs prints formatInstall()
+// of its result, the setup wizard renders it its way.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -45,10 +48,14 @@ const TAIL_BYTES = 256 * 1024;
 const HEAD_BYTES = 16 * 1024;
 const WRITE_TRIES = 3;
 
-/** The hooks per agent: [settings event, hook event, matcher, timeout in seconds]. */
+/**
+ * The hooks per agent: [settings event, hook event, matcher, timeout in seconds]. SessionStart
+ * also on fork (Claude Code 2.1.214+ names a forked session so; older versions never send it).
+ * SessionEnd only starts the autosync, so it is written only while autosync is on (eventsFor).
+ */
 export const EVENTS = Object.freeze({
   'claude-code': Object.freeze([
-    ['SessionStart', 'session-start', 'startup|resume|clear|compact', 20],
+    ['SessionStart', 'session-start', 'startup|resume|clear|compact|fork', 20],
     ['Stop', 'stop', null, 10],
     ['PostToolUseFailure', 'tool-failure', 'Bash|PowerShell', 5],
     ['SessionEnd', 'session-end', null, 5], // the detached child does the slow work
@@ -59,6 +66,9 @@ export const EVENTS = Object.freeze({
     ['SessionEnd', 'session-end', null, 3], // Codex allows at most 3 seconds
   ]),
 });
+
+/** The environment variable doctor --probe sets for the hook it runs (probePayload marks the input too). */
+export const PROBE_ENV = 'MEMORY_KIT_PROBE';
 
 // English defaults; packs may translate the same keys (section 4.10).
 const HOOKSETUP_DEFAULTS = {
@@ -75,6 +85,7 @@ const HOOKSETUP_DEFAULTS = {
   'connect.projects.events': 'events: {list}',
   'connect.projects.form_shell': 'form: shell command, {command}',
   'connect.projects.form_exec': 'form: exec (no shell, needs Claude Code 2.1.139 or newer), {command}',
+  'connect.projects.node': 'Node.js: {node}, the one running this command; a repository that pins another version does not change it; after removing it, connect again',
   'connect.projects.seen': '{agent} seen here: {list}',
   'connect.projects.seen_none': '{agent} seen here: no version found',
   'connect.projects.source.extension': '{editor} extension',
@@ -108,7 +119,8 @@ const HOOKSETUP_DEFAULTS = {
   'connect.projects.warn.exec_path': 'the memory path contains {chars}, which no shell passes on safely, so the exec form is used (every Claude Code seen here is 2.1.139 or newer)',
   'connect.projects.warn.exec_node': 'the path of Node.js ({node}) has spaces and no short 8.3 name, so the exec form is used (every Claude Code seen here is 2.1.139 or newer)',
   'connect.projects.warn.node_quoted': 'node is not on the PATH and the path of Node.js ({node}) has spaces: the hook works where Claude Code runs hooks in Git Bash, not in PowerShell; put node on the PATH, or update Claude Code to 2.1.139 or newer, then connect again',
-  'connect.projects.warn.node_absolute': 'node on the PATH is missing or older than {need}, so the hooks start {node}; after moving or updating Node.js, connect again',
+  'connect.projects.warn.node_bare': 'the path of Node.js ({node}) cannot go into a hook command safely, so the hooks start the node on the PATH; in a repository that pins Node.js older than 22 (nvm, fnm, volta, mise, asdf) they then do nothing, and doctor lists it',
+  'connect.projects.warn.node_old': 'the hooks start {node}, which is Node.js {version} (the kit needs {need}); install a newer Node.js, then connect again',
   'connect.projects.warn.codex_exec': 'Codex has no exec form, so the shell form is used',
   'connect.projects.warn.codex_old': 'Codex {version} runs hooks only with [features] hooks = true in config.toml (on by default from 0.124); update Codex',
   'connect.projects.warn.codex_windows': 'Codex {version} on Windows reads commandWindows only from 0.131 on and runs no hooks before 0.120; update Codex',
@@ -125,13 +137,14 @@ const HOOKSETUP_DEFAULTS = {
   'connect.projects.refused.autosync_local': '--autosync needs a memory that syncs through git, but memory.json "mode" is local, so nothing was changed',
   'connect.projects.refused.autosync_local_fix': 'connect without --autosync; the memory stays on this computer',
   'connect.projects.refused.unsafe_path': 'the memory path {path} contains {chars}, which a hook command cannot pass safely through every shell, so nothing was changed',
-  'connect.projects.refused.unsafe_path_fix': 'move the memory to a folder whose path has none of " $ ` % ! (for example in your home folder), then connect again',
-  'connect.projects.refused.unsafe_path_claude_fix': 'move the memory to a folder whose path has none of " $ ` % ! (for example in your home folder), or update Claude Code to 2.1.139 or newer and use it once (the exec form needs no shell); then connect again',
+  'connect.projects.refused.unsafe_path_fix': 'move the memory to a folder whose path has none of these characters (for example in your home folder), then connect again',
+  'connect.projects.refused.unsafe_path_claude_fix': 'move the memory to a folder whose path has none of these characters (for example in your home folder), or update Claude Code to 2.1.139 or newer and use it once (the exec form needs no shell); then connect again',
   'connect.projects.refused.unsafe_node': 'node is not on the PATH, and the path of Node.js ({node}) contains {chars}, which a hook command cannot pass safely, so nothing was changed',
   'connect.projects.refused.unsafe_node_fix': 'install Node.js {need} or newer so that node is on the PATH, then connect again',
-  'connect.projects.refused.not_json': '{path} is not plain JSON (comments or a syntax error), so it is left alone. Add these hooks yourself:',
+  'connect.projects.refused.not_json': '{path} is not plain JSON (comments or a syntax error), so the hooks were not written into it',
+  'connect.projects.refused.not_json_fix': 'make it plain JSON and connect again, or add the hooks that node system/memory.mjs connect {id} --projects --dry-run prints to it yourself',
   'connect.projects.refused.not_json_remove': '{path} is not plain JSON (comments or a syntax error), so it is left alone; delete the hooks that run system/memory.mjs hook {id} yourself',
-  'connect.projects.refused.layout': '{path} does not have the expected layout ("hooks" must be an object of lists). Add these hooks yourself:',
+  'connect.projects.refused.layout': '{path} does not have the expected layout ("hooks" must be an object of lists), so the hooks were not written into it',
   'connect.projects.refused.unreadable': '{path} cannot be read ({error}), so nothing was changed',
   'connect.projects.refused.unreadable_fix': 'fix the file or its permissions, then connect again',
   'connect.projects.refused.link': '{path} is a link to {target}, whose folder does not exist, so nothing was changed',
@@ -149,6 +162,24 @@ export function say(t, key, vars = {}) {
   const text = typeof t === 'function' ? t(key, vars) : key;
   if (typeof text === 'string' && text !== '' && text !== key) return text;
   return interpolate(HOOKSETUP_DEFAULTS[key] ?? key, vars);
+}
+
+/**
+ * What installProjects throws when it refuses. message: the reason and its fix in one line;
+ * error, fix, snippet (the hooks to add by hand, when the settings file cannot be rewritten) and
+ * result (the result shape with action 'refused', ok false, exit 1 and the settings memory.json
+ * holds now) for callers that word it themselves. exit is 1.
+ */
+export class ProjectsRefused extends Error {
+  constructor(result, t = null) {
+    super(result.fix ? `${result.error}; ${say(t, 'connect.projects.fix', { text: result.fix })}` : result.error);
+    this.name = 'ProjectsRefused';
+    this.error = result.error;
+    this.fix = result.fix ?? null;
+    this.snippet = result.snippet ?? null;
+    this.result = result;
+    this.exit = 1;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -383,10 +414,11 @@ const toSlashes = (p) => String(p).replace(/\\/g, '/');
 /**
  * The characters of a path that no hook shell passes on safely inside double quotes: " $ `
  * (sh, bash and PowerShell expand them), % (cmd.exe, which Codex uses on Windows), ! and line
- * breaks; on macOS and Linux also \ (Windows paths get forward slashes instead).
+ * breaks; on Windows also „ “ ” (PowerShell ends a double-quoted string at them), on macOS and
+ * Linux \ (Windows paths get forward slashes instead).
  */
 export function unsafeChars(p, platform = process.platform) {
-  const set = ['"', '$', '`', '%', '!', '\n', '\r', ...(platform === 'win32' ? [] : ['\\'])];
+  const set = ['"', '$', '`', '%', '!', '\n', '\r', ...(platform === 'win32' ? ['\u201e', '\u201c', '\u201d'] : ['\\'])];
   return set.filter((ch) => String(p).includes(ch)).map((ch) => (ch === '\n' ? '\\n' : ch === '\r' ? '\\r' : ch));
 }
 
@@ -404,24 +436,31 @@ export function shellCommand(nodeWord, script, agent, event) {
 }
 
 /**
- * How a hook starts Node.js: {word, exe, via, quoted?, bad?}. word goes into a shell command
- * (null when no bare or quoted form is safe), exe into the exec form. 'node' when the node on the
- * PATH is new enough (pathVersion); else the absolute path (execPath): double-quoted on macOS and
- * Linux; on Windows a bare word when it has no spaces, else its 8.3 short name (shortPath), else
- * none (quoted then holds the quoted form, which Git Bash and cmd.exe read but PowerShell does not).
+ * How a hook starts Node.js: {word, exe, via, quoted, bad, pathOk, old, version}. The Node.js that
+ * runs connect (execPath, its version execVersion) by its full path, never the node a repository
+ * resolves (nvm use, fnm, or the per-folder shims of volta, mise and asdf may pin one older than
+ * the kit needs there): word goes into a shell command, exe into the exec form. word is the path
+ * double-quoted on macOS and Linux; on Windows a bare word when it has no spaces, else its 8.3
+ * short name (shortPath), else null (quoted then holds the double-quoted path, which Git Bash and
+ * cmd.exe read but PowerShell does not). word is also null when the path has characters no shell
+ * passes on (bad). pathOk: the node on the PATH (pathVersion) is new enough to stand in then.
+ * old: execPath is older than NODE_MIN.
  */
-export function chooseNode({ platform = process.platform, pathVersion = null, execPath, shortPath = () => null }) {
-  if (atLeast(pathVersion, NODE_MIN)) return { word: 'node', exe: 'node', via: 'path' };
+export function chooseNode({ platform = process.platform, execPath, execVersion = null, pathVersion = null, shortPath = () => null }) {
+  const base = {
+    exe: execPath, via: 'absolute', quoted: null, bad: [], pathOk: atLeast(pathVersion, NODE_MIN),
+    old: execVersion !== null && !atLeast(execVersion, NODE_MIN), version: execVersion,
+  };
   if (platform !== 'win32') {
     const bad = unsafeChars(execPath, platform);
-    return { word: bad.length ? null : `"${execPath}"`, exe: execPath, via: 'absolute', bad };
+    return { ...base, word: bad.length ? null : `"${execPath}"`, bad };
   }
   const exe = toSlashes(execPath);
-  if (BARE_WORD.test(exe)) return { word: exe, exe: execPath, via: 'absolute' };
+  if (BARE_WORD.test(exe)) return { ...base, word: exe };
   const short = shortPath(execPath);
-  if (short && BARE_WORD.test(toSlashes(short))) return { word: toSlashes(short), exe: execPath, via: 'short' };
+  if (short && BARE_WORD.test(toSlashes(short))) return { ...base, word: toSlashes(short), via: 'short' };
   const bad = unsafeChars(exe, platform);
-  return { word: null, exe: execPath, via: 'absolute', quoted: bad.length ? null : `"${exe}"`, bad };
+  return { ...base, word: null, quoted: bad.length ? null : `"${exe}"`, bad };
 }
 
 /**
@@ -429,19 +468,27 @@ export function chooseNode({ platform = process.platform, pathVersion = null, ex
  * {refused: {key, fixKey, vars}}. min is the oldest Claude Code seen here (null: none seen),
  * requested is --form. The shell form, unless exec is asked for, or is needed and safe (every
  * Claude Code seen is 2.1.139 or newer) for a vault path no shell passes on or a Windows node
- * path with spaces and no short name. Codex has only the shell form.
+ * path with spaces and no short name. When the full path of Node.js cannot go into a command, the
+ * node on the PATH stands in (with a warning), then on Windows the quoted path (Git Bash, cmd.exe).
+ * Codex has only the shell form.
  */
 export function planForm({ agent, platform = process.platform, script, requested = 'shell', min = null, node }) {
   const warnings = [];
+  const warn = (key, vars = {}) => warnings.push({ key, vars });
   const execOk = agent === 'claude-code' && atLeast(min, CLAUDE_EXEC_MIN);
   const bad = unsafeChars(script, platform);
-  const exec = (key, vars = {}) => {
-    if (key) warnings.push({ key, vars });
-    return { form: 'exec', exe: node.exe, warnings };
+  const plan = (p) => {
+    if (node.old && !(p.form === 'shell' && p.nodeWord === 'node')) warnings.unshift({ key: 'connect.projects.warn.node_old', vars: { node: node.exe, version: node.version, need: NODE_MIN } });
+    return { ...p, warnings };
   };
-  const shell = (nodeWord) => {
-    if (node.via !== 'path') warnings.push({ key: 'connect.projects.warn.node_absolute', vars: { node: node.exe, need: NODE_MIN } });
-    return { form: 'shell', nodeWord, warnings };
+  const exec = (key, vars = {}) => {
+    if (key) warn(key, vars);
+    return plan({ form: 'exec', exe: node.exe });
+  };
+  const shell = (nodeWord) => plan({ form: 'shell', nodeWord });
+  const fromPath = () => {
+    warn('connect.projects.warn.node_bare', { node: node.exe });
+    return shell('node');
   };
   const unsafeNode = () => ({
     refused: {
@@ -451,11 +498,12 @@ export function planForm({ agent, platform = process.platform, script, requested
   });
   const unsafePath = (fixKey) => ({ refused: { key: 'connect.projects.refused.unsafe_path', fixKey, vars: { path: script, chars: bad.join(' ') } } });
   if (agent === 'codex') {
-    if (requested === 'exec') warnings.push({ key: 'connect.projects.warn.codex_exec', vars: {} });
+    if (requested === 'exec') warn('connect.projects.warn.codex_exec');
     if (bad.length) return unsafePath('connect.projects.refused.unsafe_path_fix');
+    if (node.word) return shell(node.word);
     // cmd.exe (Codex on Windows) reads a quoted program path, so spaces there are fine.
-    const word = node.word ?? node.quoted;
-    return word ? shell(word) : unsafeNode();
+    if (platform === 'win32' && node.quoted) return shell(node.quoted);
+    return node.pathOk ? fromPath() : unsafeNode();
   }
   if (requested === 'exec') {
     if (execOk) return exec(null);
@@ -464,18 +512,31 @@ export function planForm({ agent, platform = process.platform, script, requested
   if (bad.length) return execOk ? exec('connect.projects.warn.exec_path', { chars: bad.join(' ') }) : unsafePath('connect.projects.refused.unsafe_path_claude_fix');
   if (node.word) return shell(node.word);
   if (execOk) return exec('connect.projects.warn.exec_node', { node: node.exe });
+  if (node.pathOk) return fromPath();
   if (platform === 'win32' && node.quoted) {
-    warnings.push({ key: 'connect.projects.warn.node_quoted', vars: { node: node.exe } });
-    return { form: 'shell', nodeWord: node.quoted, warnings };
+    warn('connect.projects.warn.node_quoted', { node: node.exe });
+    return shell(node.quoted);
   }
   return unsafeNode();
 }
 
-/** The events to install: {events: [[name, event, matcher, timeout]], omitted: [name]}. */
-export function eventsFor(agent, min) {
-  const all = EVENTS[agent];
-  if (agent !== 'claude-code' || atLeast(min, CLAUDE_FAILURE_MIN)) return { events: [...all], omitted: [] };
-  return { events: all.filter(([name]) => name !== 'PostToolUseFailure'), omitted: ['PostToolUseFailure'] };
+/**
+ * The events to install: {events: [[name, event, matcher, timeout]], omitted: [name]}. omitted
+ * names PostToolUseFailure when a Claude Code seen here may be older than 2.1.101 (min); SessionEnd
+ * is left out without autosync, since it has nothing else to do (and the agent waits for it on
+ * every exit, /clear and /resume).
+ */
+export function eventsFor(agent, min, { autosync = false } = {}) {
+  const omitted = [];
+  const events = EVENTS[agent].filter(([name]) => {
+    if (name === 'SessionEnd') return autosync;
+    if (name === 'PostToolUseFailure' && !atLeast(min, CLAUDE_FAILURE_MIN)) {
+      omitted.push(name);
+      return false;
+    }
+    return true;
+  });
+  return { events, omitted };
 }
 
 /** One hook entry. Codex on Windows gets commandWindows too (the same cmd.exe-safe string). */
@@ -687,6 +748,24 @@ function windowsShortPath(p, { env = process.env } = {}) {
   }
 }
 
+/**
+ * The path a hook should start Node.js by: nodeCommand (execPath; a Homebrew Cellar path becomes
+ * its stable link), except inside an fnm multishell folder, a per-terminal link fnm may delete
+ * later (on Windows execPath keeps it): then the real path behind it.
+ */
+export function hookNodePath(execPath, { platform = process.platform, realpath = realpathOrNull } = {}) {
+  const p = nodeCommand({ execPath, platform });
+  return /[\\/]fnm_multishells[\\/]/i.test(p) ? realpath(p) ?? p : p;
+}
+
+function realpathOrNull(p) {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return null;
+  }
+}
+
 /** The probes installProjects uses (tests replace them). */
 export const IO = Object.freeze({
   /** 'x.y.z' of the node on the PATH, or null. */
@@ -699,6 +778,8 @@ export const IO = Object.freeze({
     }
   },
   shortPath: (p, opts) => (process.platform === 'win32' ? windowsShortPath(p, opts) : null),
+  /** The full path of the Node.js running this, as hooks should keep naming it (hookNodePath). */
+  nodePath: ({ platform = process.platform } = {}) => hookNodePath(process.execPath, { platform }),
   claudeVersions: (opts) => claudeVersions(opts),
   codexInfo: (opts) => codexInfo(opts),
   /** True when the vault is the top of its own git repository and that has a remote. */
@@ -762,9 +843,24 @@ export function probeSpec(agent, handler, { platform = process.platform, env = p
   return { command: 'powershell.exe', args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], options: {}, shell: 'powershell' };
 }
 
-/** The input of a session start outside any project (doctor --probe). */
+/** The input of a session start outside any project (doctor --probe), marked as a probe. */
 export function probePayload(cwd) {
-  return JSON.stringify({ session_id: 'doctor-probe', transcript_path: '', cwd, hook_event_name: 'SessionStart', source: 'startup' });
+  return JSON.stringify({ session_id: 'doctor-probe', transcript_path: '', cwd, hook_event_name: 'SessionStart', source: 'startup', probe: true });
+}
+
+/**
+ * The environment of a probe run: env plus PROBE_ENV=1 (so the hook can tell a probe from a
+ * session), CLAUDE_PROJECT_DIR and GIT_CEILING_DIRECTORIES at the folder above cwd, so git finds
+ * no repository even when the temporary folder lies inside one (a home folder that is a repository).
+ */
+export function probeEnv(env, cwd) {
+  let above = path.dirname(cwd);
+  try {
+    above = fs.realpathSync.native(above);
+  } catch {
+    /* as it is */
+  }
+  return { ...env, [PROBE_ENV]: '1', CLAUDE_PROJECT_DIR: cwd, GIT_CEILING_DIRECTORIES: above };
 }
 
 /** Runs a probeSpec with input on stdin: {code, stdout, stderr, ms, error}. */
@@ -798,16 +894,16 @@ export function localRootOf(root, raw, { home = os.homedir() } = {}) {
 }
 
 /**
- * memory.json "projects" after a run: {enabled, auto_add, store, autosync, checkpoint,
+ * memory.json "projects" after an install: {enabled: true, auto_add, store, autosync, checkpoint,
  * error_lookup, and every other key as it was}. A choice not given (undefined) keeps the earlier
- * one, else the safe default. With remove only enabled changes (false, unless keepEnabled).
+ * one, else the safe default.
  */
-export function nextProjects(prev, { autoAdd, store, autosync, remove = false, keepEnabled = false } = {}) {
+export function nextProjects(prev, { autoAdd, store, autosync } = {}) {
   const p = isObj(prev) ? prev : {};
   const bool = (v) => typeof v === 'boolean';
-  const pick = (value, old, fallback, valid) => (value !== undefined && !remove ? value : valid(old) ? old : fallback);
+  const pick = (value, old, fallback, valid) => (value !== undefined ? value : valid(old) ? old : fallback);
   const out = {
-    enabled: remove ? keepEnabled : true,
+    enabled: true,
     auto_add: pick(autoAdd, p.auto_add, SAFE_DEFAULTS.auto_add, bool),
     store: pick(store, p.store, SAFE_DEFAULTS.store, (v) => v === 'local' || v === 'git'),
     autosync: pick(autosync, p.autosync, SAFE_DEFAULTS.autosync, bool),
@@ -819,17 +915,30 @@ export function nextProjects(prev, { autoAdd, store, autosync, remove = false, k
 }
 
 /**
+ * memory.json "projects" after a removal: enabled turned false and everything else as it was;
+ * unchanged (null when absent) when it was not enabled, or when keepEnabled (the other agent's
+ * hooks still serve this vault).
+ */
+export function removedProjects(prev, { keepEnabled = false } = {}) {
+  if (!isObj(prev)) return null;
+  return prev.enabled === true && !keepEnabled ? { ...prev, enabled: false } : prev;
+}
+
+/**
  * Installs (or with remove takes out) the memory hooks of one agent and writes memory.json
  * "projects". Prints nothing. opts: {agent: 'claude-code'|'codex', autoAdd, store: 'local'|'git',
  * autosync, form: 'shell'|'exec', dryRun, remove, env, home}: autoAdd, store and autosync left
  * undefined keep the earlier choice, else the safe default (false, local, false). For tests and
- * the wizard also t (a translator; default: the vault's language), platform, now, execPath and io
- * (see IO). Returns {agent, file, script, changed, backup, settings: {enabled, auto_add, store,
- * autosync, checkpoint, error_lookup, ...}, defaults: {auto_add, store, autosync} (true: the safe
- * default), form, command, events, omitted, versions: {observed, min}, localRoot, memoryChanged,
- * dryRun, remove, keptBy?, action: installed|updated|unchanged|removed|absent|refused, ok, exit,
- * warnings: [string], error?, fix?, snippet?}. exit 1 when refused: nothing was written then,
- * except memory.json when only the settings file cannot be rewritten (the snippet is pasted).
+ * the wizard also t (a translator; default: the vault's language), platform, now, execPath,
+ * execVersion and io (see IO). Returns {agent, file, script, changed, backup, settings: {enabled,
+ * auto_add, store, autosync, checkpoint, error_lookup, ...} (null: memory.json has none),
+ * defaults: {auto_add, store, autosync} (true: the safe default), form, command, node (the program
+ * the hooks start), events, omitted, versions: {observed, min}, localRoot, memoryChanged, dryRun,
+ * remove, keptBy?, action: installed|updated|unchanged|removed|absent, ok: true, exit: 0,
+ * warnings: [string]}. A refusal throws ProjectsRefused, whose result has action 'refused', ok
+ * false, exit 1, error, fix?, snippet? and the settings memory.json holds afterwards: nothing was
+ * written, except memory.json when only the settings file cannot be rewritten (the snippet is
+ * added by hand then).
  */
 export async function installProjects(root, opts = {}) {
   const agent = opts.agent;
@@ -848,33 +957,36 @@ export async function installProjects(root, opts = {}) {
   const file = settingsPath(agent, { env, home, platform });
   const script = hookScript(vault, platform);
   const res = {
-    agent, file, script, changed: false, backup: null, settings: null, defaults: null, form: null, command: null,
+    agent, file, script, changed: false, backup: null, settings: null, defaults: null, form: null, command: null, node: null,
     events: [], omitted: [], versions: { observed: [], min: null }, localRoot: null, memoryChanged: false, dryRun,
     remove, action: null, ok: true, exit: 0, warnings: [],
   };
   const warn = (key, vars = {}) => res.warnings.push(say(t, key, vars));
-  const refuse = (key, vars = {}, fixKey = null) => {
-    res.action = 'refused';
-    res.ok = false;
-    res.exit = 1;
-    res.error = say(t, key, vars);
+  let raw = null;
+  // Throws: nothing was written, so the settings are the ones memory.json holds (unless written).
+  const refuse = (key, vars = {}, fixKey = null, { memoryWritten = false } = {}) => {
+    Object.assign(res, { action: 'refused', ok: false, exit: 1, error: say(t, key, vars) });
     if (fixKey) res.fix = say(t, fixKey, vars);
-    return res;
+    if (!memoryWritten) {
+      res.memoryChanged = false;
+      res.settings = isObj(raw?.projects) ? raw.projects : null;
+    }
+    throw new ProjectsRefused(res, t);
   };
 
   // The vault and its settings.
   if (!fs.existsSync(path.join(vault, 'system', 'memory.mjs'))) {
-    return refuse('connect.projects.refused.not_vault', { path: path.join(vault, 'system', 'memory.mjs') });
+    refuse('connect.projects.refused.not_vault', { path: path.join(vault, 'system', 'memory.mjs') });
   }
   const memoryFile = path.join(vault, 'memory.json');
   let memoryText;
-  let raw;
   try {
     memoryText = fs.readFileSync(memoryFile, 'utf8');
-    raw = JSON.parse(memoryText.replace(/^\uFEFF/, ''));
-    if (!isObj(raw)) throw new Error('not a JSON object');
+    const parsed = JSON.parse(memoryText.replace(/^\uFEFF/, ''));
+    if (!isObj(parsed)) throw new Error('not a JSON object');
+    raw = parsed;
   } catch (err) {
-    return refuse('connect.projects.refused.config', { error: String(err?.code ?? err?.message ?? err) }, 'connect.projects.refused.config_fix');
+    refuse('connect.projects.refused.config', { error: String(err?.code ?? err?.message ?? err) }, 'connect.projects.refused.config_fix');
   }
 
   // The versions of the agent seen here (not needed to take hooks out).
@@ -882,39 +994,46 @@ export async function installProjects(root, opts = {}) {
   const seen = remove ? none : agent === 'claude-code' ? io.claudeVersions({ env, home, platform }) : io.codexInfo({ env, home, platform });
   res.versions = { observed: seen.observed, min: seen.min };
 
-  // The settings. The other agent's hooks keep the projects on when this one's are removed.
-  const otherAgent = agent === 'claude-code' ? 'codex' : 'claude-code';
-  let keepEnabled = false;
-  if (remove && raw.projects?.enabled === true) {
-    const other = readSettings(settingsPath(otherAgent, { env, home, platform }));
-    const parsed = other.text ? parseSettings(other.text) : { value: {} };
-    keepEnabled = ourHooks(parsed.value, otherAgent).length > 0;
+  // The settings. Hooks of the other agent that serve this vault keep it on when these go.
+  let projects;
+  if (remove) {
+    let keepEnabled = false;
+    if (raw.projects?.enabled === true) {
+      const otherAgent = agent === 'claude-code' ? 'codex' : 'claude-code';
+      const other = readSettings(settingsPath(otherAgent, { env, home, platform }));
+      const parsed = other.text ? parseSettings(other.text) : { value: {} };
+      keepEnabled = !parsed.error && ourHooks(parsed.value, otherAgent).some((h) => h.parsed && sameScript(h.parsed.script, script, platform));
+      if (keepEnabled) res.keptBy = otherAgent;
+    }
+    projects = removedProjects(raw.projects, { keepEnabled });
+  } else {
+    projects = nextProjects(raw.projects, { autoAdd: opts.autoAdd, store: opts.store, autosync: opts.autosync });
   }
-  const projects = nextProjects(raw.projects, { autoAdd: opts.autoAdd, store: opts.store, autosync: opts.autosync, remove, keepEnabled });
   res.settings = projects;
-  res.defaults = Object.fromEntries(Object.entries(SAFE_DEFAULTS).map(([k, v]) => [k, projects[k] === v]));
+  res.defaults = projects && Object.fromEntries(Object.entries(SAFE_DEFAULTS).map(([k, v]) => [k, projects[k] === v]));
   res.localRoot = localRootOf(vault, raw, { home });
-  if (keepEnabled) res.keptBy = otherAgent;
 
   // Autosync needs a remote to push to: refused when asked for now, a warning when kept.
   if (!remove && projects.autosync) {
     const why = raw.mode === 'local' ? 'local' : io.hasRemote(vault) ? null : 'remote';
-    if (why && opts.autosync === true) return refuse(`connect.projects.refused.autosync_${why}`, {}, `connect.projects.refused.autosync_${why}_fix`);
+    if (why && opts.autosync === true) refuse(`connect.projects.refused.autosync_${why}`, {}, `connect.projects.refused.autosync_${why}_fix`);
     if (why) warn(`connect.projects.warn.autosync_${why}`);
   }
 
   // The form, the events and the entries.
   let groups = {};
   if (!remove) {
-    const execPath = opts.execPath ?? nodeCommand({ platform });
-    const node = chooseNode({ platform, pathVersion: io.nodeOnPath({ env }), execPath, shortPath: (p) => io.shortPath(p, { env }) });
+    const execPath = opts.execPath ?? io.nodePath({ platform });
+    const execVersion = opts.execVersion !== undefined ? opts.execVersion : opts.execPath ? null : process.versions.node;
+    const node = chooseNode({ platform, execPath, execVersion, pathVersion: io.nodeOnPath({ env }), shortPath: (p) => io.shortPath(p, { env }) });
     const plan = planForm({ agent, platform, script, requested: opts.form ?? 'shell', min: seen.min, node });
-    if (plan.refused) return refuse(plan.refused.key, plan.refused.vars, plan.refused.fixKey);
+    if (plan.refused) refuse(plan.refused.key, plan.refused.vars, plan.refused.fixKey);
     for (const w of plan.warnings) warn(w.key, w.vars);
-    const { events, omitted } = eventsFor(agent, seen.min);
+    const { events, omitted } = eventsFor(agent, seen.min, { autosync: projects.autosync });
     if (omitted.length) warn(seen.min === null ? 'connect.projects.warn.failure_unknown' : 'connect.projects.warn.failure_old', { version: seen.min });
     groups = hookGroups(agent, events, plan, { script, platform });
     res.form = plan.form;
+    res.node = plan.form === 'exec' ? plan.exe : plan.nodeWord === 'node' ? 'node' : node.exe;
     res.events = events.map(([name]) => name);
     res.omitted = omitted;
     const start = groups.SessionStart.hooks[0];
@@ -926,8 +1045,8 @@ export async function installProjects(root, opts = {}) {
     }
   }
 
-  // memory.json is written after the settings file, or alone when the hooks are pasted by hand.
-  const nextRaw = { ...raw, projects };
+  // memory.json is written after the settings file, or alone when the hooks are added by hand.
+  const nextRaw = !projects || projects === raw.projects ? raw : { ...raw, projects };
   res.memoryChanged = !sameJson(raw, nextRaw);
   const writeMemory = () => {
     if (res.memoryChanged && !dryRun) writeAtomic(memoryFile, formatJson(nextRaw, detectStyle(memoryText)));
@@ -938,27 +1057,28 @@ export async function installProjects(root, opts = {}) {
   try {
     dest = writeTarget(file);
   } catch (err) {
-    return refuse('connect.projects.refused.link', { path: file, target: err.target ?? '?' }, 'connect.projects.refused.link_fix');
+    refuse('connect.projects.refused.link', { path: file, target: err.target ?? '?' }, 'connect.projects.refused.link_fix');
   }
   for (let attempt = 1; ; attempt++) {
     const read = readSettings(file);
-    if (read.error !== undefined) return refuse('connect.projects.refused.unreadable', { path: file, error: read.error }, 'connect.projects.refused.unreadable_fix');
+    if (read.error !== undefined) refuse('connect.projects.refused.unreadable', { path: file, error: read.error }, 'connect.projects.refused.unreadable_fix');
     const parsed = parseSettings(read.text);
     if (remove && !parsed.error && !layoutFits(parsed.value, [])) {
       res.action = 'absent'; // "hooks" of another shape holds none of ours
       break;
     }
     if (parsed.error || !layoutFits(parsed.value, Object.keys(groups))) {
-      // Never rewritten. memory.json is still set, so hooks pasted by hand work (or on remove stop).
-      const key = remove ? 'connect.projects.refused.not_json_remove' : parsed.error ? 'connect.projects.refused.not_json' : 'connect.projects.refused.layout';
-      refuse(key, { path: file, id: agent });
+      // Never rewritten. memory.json is still set, so hooks added by hand work (or on remove stop).
       if (!remove) res.snippet = JSON.stringify({ hooks: groups }, null, 2);
+      let memoryWritten = false;
       try {
         writeMemory();
+        memoryWritten = res.memoryChanged && !dryRun;
       } catch {
-        res.memoryChanged = false;
+        /* reported as not written */
       }
-      return res;
+      const key = remove ? 'connect.projects.refused.not_json_remove' : parsed.error ? 'connect.projects.refused.not_json' : 'connect.projects.refused.layout';
+      refuse(key, { path: file, id: agent }, remove ? null : 'connect.projects.refused.not_json_fix', { memoryWritten });
     }
     const settings = parsed.value;
     const before = ourHooks(settings, agent);
@@ -978,21 +1098,22 @@ export async function installProjects(root, opts = {}) {
     const again = readSettings(file);
     if (again.error !== undefined || again.text !== read.text) {
       if (attempt < WRITE_TRIES) continue;
-      return refuse('connect.projects.refused.changed', { path: file, agent: AGENTS[agent] }, 'connect.projects.refused.write_fix');
+      refuse('connect.projects.refused.changed', { path: file, agent: AGENTS[agent] }, 'connect.projects.refused.write_fix');
     }
     try {
       if (read.exists) res.backup = backupFile(vault, `${agent}-hooks`, file, now);
       const mode = modeOf(dest);
       writeAtomic(dest, text, mode === undefined ? {} : { mode });
     } catch (err) {
-      return refuse('connect.projects.refused.write', { path: file, error: err?.code ?? err?.message, agent: AGENTS[agent] }, 'connect.projects.refused.write_fix');
+      res.changed = false;
+      refuse('connect.projects.refused.write', { path: file, error: err?.code ?? err?.message, agent: AGENTS[agent] }, 'connect.projects.refused.write_fix');
     }
     break;
   }
   try {
     writeMemory();
   } catch (err) {
-    return refuse('connect.projects.refused.write', { path: memoryFile, error: err?.code ?? err?.message, agent: AGENTS[agent] }, 'connect.projects.refused.write_fix');
+    refuse('connect.projects.refused.write', { path: memoryFile, error: err?.code ?? err?.message, agent: AGENTS[agent] }, 'connect.projects.refused.write_fix');
   }
   return res;
 }
@@ -1049,6 +1170,7 @@ export function formatInstall(res, t) {
     const command = Array.isArray(res.command) ? res.command.map(shown).join(' ') : res.command;
     lines.push(`  ${s('connect.projects.events', { list: res.events.join(', ') })}`);
     lines.push(`  ${s(res.form === 'exec' ? 'connect.projects.form_exec' : 'connect.projects.form_shell', { command })}`);
+    if (res.node && res.node !== 'node') lines.push(`  ${s('connect.projects.node', { node: res.node })}`);
     lines.push(`  ${seen.length ? s('connect.projects.seen', { agent: name, list: seen.join(', ') }) : s('connect.projects.seen_none', { agent: name })}`);
     const mark = (k) => (res.defaults[k] ? ` (${s('connect.projects.default')})` : '');
     const store = p.store === 'git'

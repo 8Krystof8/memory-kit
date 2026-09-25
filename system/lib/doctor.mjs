@@ -3,9 +3,12 @@
 // views, the platform, the MCP clients and the memory hooks for code projects. Every check returns
 // { id, status: 'ok'|'warn'|'fail', message, fix }; diagnose() puts them into the shape of
 // system/schema/doctor-result.schema.json. Read-only: nothing here writes a file, changes git
-// config or prints (commands/doctor.mjs applies the --fix repairs); only --probe runs the session
-// start hook once, in an empty temporary folder outside the vault. The other kit modules are loaded per check, so a damaged module
-// fails only its own check and doctor still reports everything else.
+// config or prints (commands/doctor.mjs applies the --fix repairs). Only --probe does more: it runs
+// the session start hook of the project hooks once, in an empty temporary folder that git sees as
+// no repository, marked as a probe (MEMORY_KIT_PROBE=1 and "probe": true in its input), and notes
+// that run in the hook log, so it never counts as a session there. The other kit modules are
+// loaded per check, so a damaged module fails only its own check and doctor still reports
+// everything else.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1222,7 +1225,21 @@ async function checkClients(c) {
 // Memory hooks for code projects (connect claude-code|codex --projects, lib/hooksetup.mjs).
 const PROBE_MAX_MS = 1500; // Claude Code gives all SessionEnd hooks together 1.5 s
 const FAILURE_DAYS = 7;
-const NEEDED_EVENTS = ['SessionStart', 'Stop', 'SessionEnd'];
+const PROBE_EVENT = 'doctor-probe'; // the hook log entry of a probe run: {agent, event, ok, from, t}
+
+/** The events the hooks need: SessionEnd only starts the autosync, so only with autosync on. */
+const neededEvents = (autosync) => ['SessionStart', 'Stop', ...(autosync ? ['SessionEnd'] : [])];
+
+/** A test of hook log entries: true for the runs of doctor --probe (inside a probe entry's from…t). */
+function probeRuns(entries) {
+  const spans = entries.filter((e) => e.event === PROBE_EVENT && typeof e.from === 'string')
+    .map((e) => ({ agent: e.agent, from: Date.parse(e.from), to: Date.parse(e.t) }));
+  return (e) => {
+    if (e.event === PROBE_EVENT) return true;
+    const at = Date.parse(e.t);
+    return spans.some((s) => s.agent === e.agent && at >= s.from && at <= s.to);
+  };
+}
 
 /** An agent's hook file: null when there is none (or it is empty), else { file, settings } or { file, error }. */
 async function agentSettings(c, hs, agent) {
@@ -1259,14 +1276,18 @@ function hookNodeProblems(c, agent, name, words) {
 
 /**
  * doctor --probe: runs the SessionStart hook as the agent does (hooksetup.probeSpec) in an empty
- * temporary folder, with the input of a session start there. { problem } or { note }.
+ * temporary folder, with the input of a session start there marked as a probe (hooksetup.probeEnv
+ * keeps git from finding a repository above it), and logs the run's span (PROBE_EVENT), so its
+ * own log entries never pass for a session. { problem } or { note }.
  */
-function probeHook(c, hs, agent, name, handler) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-kit-probe-'));
+function probeHook(c, hs, log, agent, name, handler) {
+  const tmp = fs.mkdtempSync(path.join(c.io.tmpDir?.() ?? os.tmpdir(), 'memory-kit-probe-'));
+  const from = new Date();
   try {
     const bash = c.platform === 'win32' && agent === 'claude-code' ? (c.io.gitBashPath ?? hs.gitBashPath)({ env: c.env }) : null;
     const spec = hs.probeSpec(agent, handler, { platform: c.platform, env: c.env, bash });
-    const r = (c.io.probeHook ?? hs.runProbe)(spec, { input: hs.probePayload(tmp), cwd: tmp, env: { ...c.env, CLAUDE_PROJECT_DIR: tmp } });
+    const r = (c.io.probeHook ?? hs.runProbe)(spec, { input: hs.probePayload(tmp), cwd: tmp, env: hs.probeEnv(c.env, tmp) });
+    log.logHook(c.root, { agent, event: PROBE_EVENT, ok: true, from: from.toISOString(), ms: r.ms });
     const command = Array.isArray(handler.args) ? [handler.command, ...handler.args].map(shellArg).join(' ') : handler.command;
     if (r.error || r.code !== 0) {
       const why = oneLine(String(r.stderr ?? '').split(/\r?\n/).find((l) => l.trim()) ?? '').slice(0, 160);
@@ -1287,12 +1308,12 @@ function probeHook(c, hs, agent, name, handler) {
 }
 
 /** The problems of one agent's memory hooks (ours: hooksetup.ourHooks of its settings). */
-function agentHookProblems(c, hs, { agent, name, file, settings, ours, entries }) {
+function agentHookProblems(c, hs, { agent, name, file, settings, ours, entries, autosync }) {
   const opts = { env: c.env, home: c.home, platform: c.platform };
   const problems = [];
   const reconnect = say(c.t, 'doctor.projects.reconnect_fix', { id: agent });
   const names = new Set(ours.map((o) => o.name));
-  const missing = NEEDED_EVENTS.filter((e) => !names.has(e));
+  const missing = neededEvents(autosync).filter((e) => !names.has(e));
   if (missing.length) problems.push(problem('warn', say(c.t, 'doctor.projects.incomplete', { agent: name, events: missing.join(', ') }), reconnect));
   const parsed = ours.map((o) => o.parsed).filter(Boolean);
   const script = path.join(c.root, 'system', 'memory.mjs');
@@ -1320,7 +1341,8 @@ function agentHookProblems(c, hs, { agent, name, file, settings, ours, entries }
       problems.push(problem('warn', say(c.t, 'doctor.projects.codex_old', { version: info.min }), say(c.t, 'doctor.projects.codex_old_fix')));
     }
   }
-  // Installed, sessions started since, and not one hook run in the log: the agent does not run them.
+  // Installed, sessions started since, and not one hook run in the log (doctor --probe runs do not
+  // count): the agent does not run them.
   let since = 0;
   try {
     since = fs.statSync(file).mtimeMs;
@@ -1328,7 +1350,8 @@ function agentHookProblems(c, hs, { agent, name, file, settings, ours, entries }
     /* gone meanwhile */
   }
   const started = (c.io.newestSessionStart ?? hs.newestSessionStart)(agent, opts);
-  const ran = entries.some((e) => e.agent === agent && Date.parse(e.t) >= since - 1000);
+  const probed = probeRuns(entries);
+  const ran = entries.some((e) => e.agent === agent && Date.parse(e.t) >= since - 1000 && !probed(e));
   if (since && started > since + 60000 && !ran) {
     problems.push(problem('warn', say(c.t, 'doctor.projects.not_running', { agent: name, since: new Date(since).toISOString().slice(0, 16).replace('T', ' ') }),
       say(c.t, agent === 'codex' ? 'doctor.projects.not_running_codex_fix' : 'doctor.projects.not_running_claude_fix')));
@@ -1362,10 +1385,10 @@ async function checkProjectHooks(c) {
     const ours = hs.ourHooks(got.settings, agent);
     if (!ours.length) continue;
     agents.push(name);
-    problems.push(...agentHookProblems(c, hs, { agent, name, file: got.file, settings: got.settings, ours, entries }));
+    problems.push(...agentHookProblems(c, hs, { agent, name, file: got.file, settings: got.settings, ours, entries, autosync: p.autosync === true }));
     const start = ours.find((o) => o.name === 'SessionStart')?.handler;
     if (c.probe && start) {
-      const r = probeHook(c, hs, agent, name, start);
+      const r = probeHook(c, hs, log, agent, name, start);
       if (r.problem) problems.push(r.problem);
       else notes.push(r.note);
     }
@@ -1376,7 +1399,8 @@ async function checkProjectHooks(c) {
   const summary = log.hookSummary(c.root, { now: c.now, days: FAILURE_DAYS });
   const cutoff = c.now.getTime() - FAILURE_DAYS * 86400000;
   const sync = summary.lastSync?.ok === false && Date.parse(summary.lastSync.t) >= cutoff ? summary.lastSync : null;
-  const failures = summary.failures.filter((e) => e !== sync).reverse();
+  const probed = probeRuns(log.readHookLog(c.root));
+  const failures = summary.failures.filter((e) => e !== sync && !probed(e)).reverse();
   if (failures.length) {
     const items = failures.map((e) => `${e.event}${e.step ? `/${e.step}` : ''} ${String(e.t).slice(0, 10)}: ${oneLine(e.error ?? '?').slice(0, 120)}`);
     const fixes = uniq(failures.slice(0, MAX_LISTED).map((e) => e.fix).filter((f) => typeof f === 'string' && f));
@@ -1422,8 +1446,9 @@ const CHECKS = {
  * cannot be loaded), configError, t, probe (run the session start hook of the project hooks), and
  * for tests: platform, env, home, execPath, nodeVersion, osRelease, arch, now, fts5 (async () =>
  * boolean), io (see IO; for projects.hooks also claudeVersions, codexInfo, newestSessionStart,
- * gitBashPath and probeHook, which default to lib/hooksetup.mjs), clients (options for
- * inspectClients: platform, pathMod, io, findCli) }.
+ * gitBashPath and probeHook, which default to lib/hooksetup.mjs, and tmpDir, the folder the probe
+ * makes its temporary folder in), clients (options for inspectClients: platform, pathMod, io,
+ * findCli) }.
  * Returns { report, skipped: [id], repairs: [name] }: report has the doctor-result shape
  * { kit, root, checks: [{ id, status, message, fix }], summary: { ok, warn, fail } }; skipped
  * names the checks that could not run (their status is ok); repairs lists what --fix can do.

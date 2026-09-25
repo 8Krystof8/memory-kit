@@ -15,7 +15,7 @@ import {
 } from '../../lib/doctor.mjs';
 import { applyRepairs, hookBytes } from '../../lib/commands/doctor.mjs';
 import { EVENTS, hookGroups, installProjects, planHooks } from '../../lib/hooksetup.mjs';
-import { LOG_REL, logHook } from '../../lib/hooklog.mjs';
+import { LOG_REL, logHook, readHookLog } from '../../lib/hooklog.mjs';
 import { buildManifest, hashText } from '../../lib/kit.mjs';
 import { loadSchema, validate } from '../../lib/schema.mjs';
 import {
@@ -1432,6 +1432,12 @@ describe('project hooks (projects.hooks)', () => {
     const missing = await hooksOf(v);
     assert.equal(missing.status, 'warn');
     assert.match(missing.message, /Claude Code: the memory hooks for Stop are missing/);
+    // SessionEnd only starts the autosync: needed only with autosync on.
+    writeHooks(v, script, { events: EVENTS['claude-code'].filter(([n]) => n !== 'SessionEnd') });
+    assert.equal((await hooksOf(v)).status, 'ok');
+    const synced = vaultWith({ ...ENABLED, autosync: true });
+    writeHooks(synced, path.join(synced.root, 'system', 'memory.mjs'), { events: EVENTS['claude-code'].filter(([n]) => n !== 'SessionEnd') });
+    assert.match((await hooksOf(synced)).message, /Claude Code: the memory hooks for SessionEnd are missing/);
     writeHooks(v, script, { form: 'exec' });
     const old = await hooksOf(v, { io: { claudeVersions: () => ({ observed: [], min: '2.1.100' }) } });
     assert.equal(old.status, 'fail');
@@ -1525,8 +1531,10 @@ describe('project hooks (projects.hooks)', () => {
     const { spec, opts } = seen[0];
     if (POSIX) assert.deepEqual([spec.command, spec.args], ['/bin/sh', ['-c', res.command]]);
     const input = JSON.parse(opts.input);
-    assert.deepEqual([input.session_id, input.hook_event_name, input.source, input.cwd], ['doctor-probe', 'SessionStart', 'startup', opts.cwd]);
+    assert.deepEqual([input.session_id, input.hook_event_name, input.source, input.cwd, input.probe], ['doctor-probe', 'SessionStart', 'startup', opts.cwd, true]);
     assert.ok(seen[0].cwdExists && !fs.existsSync(opts.cwd), 'an empty temporary folder, removed afterwards');
+    assert.deepEqual([opts.env.MEMORY_KIT_PROBE, opts.env.CLAUDE_PROJECT_DIR], ['1', opts.cwd], 'marked as a probe');
+    assert.equal(opts.env.GIT_CEILING_DIRECTORIES, fs.realpathSync.native(path.dirname(opts.cwd)));
 
     const noise = await hooksOf(v, { probe: true, io: { probeHook: probe({ stdout: 'Welcome to zsh!\n' }) } });
     assert.equal(noise.status, 'fail');
@@ -1540,6 +1548,49 @@ describe('project hooks (projects.hooks)', () => {
     assert.equal(slow.status, 'warn');
     assert.match(slow.message, /took 2400 ms outside a project \(more than 1500 ms\)/);
     assert.equal((await hooksOf(v, { io: { probeHook: () => assert.fail('no probe without --probe') } })).status, 'ok');
+  });
+
+  test('a probe run never passes for a session: the not-running warning stays, its failures are not listed', async () => {
+    const v = vaultWith();
+    await connect(v);
+    const later = () => fs.statSync(v.settings).mtimeMs + 3600000;
+    // The hook logs its run, as commands/hook.mjs does, also when doctor --probe starts it.
+    const hookThatLogs = (entry) => (spec, opts) => {
+      logHook(v.root, { agent: 'claude-code', event: 'session-start', ...entry });
+      return { code: 0, stdout: '', stderr: '', ms: 80, error: null };
+    };
+    const first = await hooksOf(v, { io: { newestSessionStart: later } });
+    assert.match(first.message, /the hooks are in place, but none has run since/);
+    const probed = await hooksOf(v, { probe: true, io: { newestSessionStart: later, probeHook: hookThatLogs({ ok: true, ms: 8 }) } });
+    assert.match(probed.message, /the session start hook ran in 80 ms with clean output/);
+    const after = await hooksOf(v, { io: { newestSessionStart: later } });
+    assert.equal(after.status, 'warn');
+    assert.match(after.message, /the hooks are in place, but none has run since/, 'still: no real session ran a hook');
+    await hooksOf(v, { probe: true, io: { newestSessionStart: later, probeHook: hookThatLogs({ ok: false, error: 'EACCES in the probe' }) } });
+    assert.doesNotMatch((await hooksOf(v, { io: { newestSessionStart: later } })).message, /EACCES in the probe/);
+    const marks = readHookLog(v.root).filter((e) => e.event === 'doctor-probe');
+    assert.equal(marks.length, 2);
+    assert.ok(marks.every((e) => e.agent === 'claude-code' && e.ok === true && e.from <= e.t));
+    // A real run afterwards counts.
+    logHook(v.root, { agent: 'claude-code', event: 'stop', ok: true, ms: 30 });
+    assert.equal((await hooksOf(v, { io: { newestSessionStart: later } })).status, 'ok');
+  });
+
+  test('the probe folder is no repository, even inside one', { skip: NO_GIT }, async () => {
+    const v = vaultWith();
+    await connect(v);
+    const home = tmpDir('home-repo');
+    assert.equal(spawnSync('git', ['init', '-q', home], { windowsHide: true }).status, 0);
+    const temp = path.join(home, 'AppData', 'Local', 'Temp');
+    fs.mkdirSync(temp, { recursive: true });
+    let top = null;
+    const probeHook = (spec, opts) => {
+      top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: opts.cwd, env: opts.env, encoding: 'utf8', windowsHide: true });
+      return { code: 0, stdout: '', stderr: '', ms: 50, error: null };
+    };
+    const ch = await hooksOf(v, { probe: true, env: { ...process.env }, io: { tmpDir: () => temp, probeHook } });
+    assert.equal(ch.status, 'ok', ch.message);
+    assert.notEqual(top.status, 0, `git found ${top.stdout.trim()}`);
   });
 
   test('doctor --probe is a flag of the command', () => {

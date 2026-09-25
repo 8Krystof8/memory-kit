@@ -747,11 +747,17 @@ async function runProjects(argv, cfg, ctx) {
     usageError('no vault: pass --root <path>', usage);
     return 2;
   }
-  const { installProjects, formatInstall } = await import('../hooksetup.mjs');
-  const res = await installProjects(path.resolve(root), {
-    agent, autoAdd, store: values.store, autosync, form: values.form, dryRun: values['dry-run'] === true,
-    remove: values.remove === true, t: cfg?.t ?? null,
-  });
+  const { installProjects, formatInstall, ProjectsRefused } = await import('../hooksetup.mjs');
+  let res;
+  try {
+    res = await installProjects(path.resolve(root), {
+      agent, autoAdd, store: values.store, autosync, form: values.form, dryRun: values['dry-run'] === true,
+      remove: values.remove === true, t: cfg?.t ?? null,
+    });
+  } catch (err) {
+    if (!(err instanceof ProjectsRefused)) throw err;
+    res = err.result; // worded like any other result, exit 1
+  }
   const lines = formatInstall(res, cfg?.t ?? null);
   if (values.json) process.stdout.write(`${JSON.stringify({ ...res, text: lines }, null, 2)}\n`);
   else (res.ok ? process.stdout : process.stderr).write(`${lines.join('\n')}\n`);
