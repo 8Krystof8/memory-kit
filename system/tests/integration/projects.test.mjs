@@ -532,6 +532,30 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.equal(startOut(start(v, repo, 's2')).user, '', 'a successful sync: nothing to tell');
   });
 
+  test('autosync commits through the vault\'s pre-commit hook even when the session\'s PATH starts with an old node', { skip: process.platform === 'win32' && 'POSIX shell' }, () => {
+    const v = vault('en', { withGit: true, projects: { enabled: true, autosync: true } });
+    fs.cpSync(path.join(KIT_ROOT, '.githooks'), path.join(v.root, '.githooks'), { recursive: true });
+    fs.chmodSync(path.join(v.root, '.githooks', 'pre-commit'), 0o755);
+    git(v.root, ['config', 'core.hooksPath', '.githooks']);
+    const remote = path.join(tmpDir('remote'), 'vault.git');
+    git(path.dirname(remote), ['init', '-q', '--bare', remote]);
+    git(v.root, ['remote', 'add', 'origin', remote]);
+    git(v.root, ['push', '-q', '-u', 'origin', 'HEAD']);
+    // The session was started in a repository that put Node.js 20 first (nvm use, fnm, mise activate).
+    const pinned = tmpDir('pinned-node');
+    fs.writeFileSync(path.join(pinned, 'node'), '#!/bin/sh\necho "v20.20.2"\nexit 3\n', { mode: 0o755 });
+    const old = { PATH: `${pinned}${path.delimiter}${process.env.PATH}`, HOME: v.home, NVM_BIN: '' };
+    const refused = spawnSync('git', ['commit', '--allow-empty', '-qm', 'by hand'], { cwd: v.root, env: { ...process.env, ...old }, encoding: 'utf8' });
+    assert.notEqual(refused.status, 0, 'the hook refuses a commit with that node first');
+    assert.match(refused.stderr, /is not Node\.js 22 or newer/);
+    assert.equal(cli(v, ['remember', 'order new labels'], { cwd: v.root }).code, 0);
+    assert.equal(cli(v, ['hook', 'claude-code', 'autosync'], { env: old }).code, 0);
+    const synced = logOf(v).filter((e) => e.event === 'autosync').at(-1);
+    assert.deepEqual([synced.step, synced.ok], ['done', true], JSON.stringify(synced));
+    assert.equal(git(v.root, ['status', '--porcelain']), '');
+    assert.equal(spawnSync('git', ['config', '--get', 'memorykit.node'], { cwd: v.root }).status, 1, 'pinned for that commit only, not in the vault\'s config');
+  });
+
   test('autosync never concludes an unfinished merge, and a lock it cannot make is logged', () => {
     const v = vault('en', { withGit: true, projects: { enabled: true, autosync: true } });
     const waiting = path.join(v.root, 'waiting.md');

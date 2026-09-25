@@ -20,7 +20,7 @@ spaces and accents in the path of the vault.
 | a session starts anywhere | tells you, once per failure, when the last sync or a hook run failed, with the fix |
 | the agent finishes and the code changed | asks it once per session to rewrite the handoff and record fixed errors, dead ends and decisions (no extra model call: the agent is running anyway) |
 | a Bash or PowerShell command fails (Claude Code) | looks the error up in the project's gotchas and dead ends and hands a match (three lines at most) to the agent; interrupts, short errors and repeats are skipped, and a session makes five lookups at most |
-| the session ends | with `autosync` on: commits and pushes the vault in the background, never over a merge or rebase you have not finished |
+| the session ends | with `autosync` on: commits and pushes the vault in the background, never over a merge or rebase you have not finished; the vault's pre-commit check runs on the hook's Node.js, whatever the session's PATH starts with |
 
 Inside the vault and outside any git repository the hooks give the agent nothing extra. Claude Code
 shows what is meant for you as a message of its own; Codex has no such message, so the agent is

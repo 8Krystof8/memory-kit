@@ -39,7 +39,10 @@ changes for vaults that do not switch the project memory on; the data version st
   Bash or PowerShell command (Claude Code) with at least 20 characters of error text, not an
   interrupt: a lookup in gotchas and dead ends, once per error and at most five per session; every
   other failed tool call ends before the vault config is loaded. Session end: with `autosync` on, a
-  background commit and push of the vault under a lock, never over an unfinished merge or rebase.
+  background commit and push of the vault under a lock, never over an unfinished merge or rebase;
+  its commit gives the vault's pre-commit hook the hook's Node.js (`memorykit.node` for that
+  commit, and first on the PATH), so a session started in a repository that pins an older Node.js
+  does not make it refuse.
   The commands the hooks hand on (`project add`, `remember`, `doctor`, `sync`) name the Node.js of
   the hook by its full path, so they also work in a repository that pins an older Node.js.
 - **A failure is never silent**: every hook run and every autosync step (lock, check, commit,

@@ -754,6 +754,7 @@
     "hook.fix_git": "otevři paměť, spusť git status a oprav, co hlásí, pak spusť: {cmd} sync",
     "hook.fix_identity": "git ještě nezná tvé jméno a e-mail: nastav user.name a user.email přes git config --global, pak spusť: {cmd} sync",
     "hook.fix_lock": "zkontroluj, že {dir} je složka a dá se do ní zapisovat, pak spusť: {cmd} sync",
+    "hook.fix_node": "hook pre-commit v paměti nenašel Node.js 22 nebo novější: v paměti spusť git config memorykit.node \"{node}\", pak: {cmd} sync",
     "hook.fix_sync": "otevři paměť a spusť: {cmd} sync",
     "hook.timeout": "vypršel čas po {s} s",
     "hook.workdir_tracked": "git v paměti sleduje {n} souborů ze složky .memory-kit/ (protokoly, záznamy session a zálohy tohoto počítače, které mohou jmenovat repozitáře s kódem), proto se nic necommitlo",

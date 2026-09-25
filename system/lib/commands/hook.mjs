@@ -56,6 +56,7 @@ const DEFAULTS = {
   'hook.fix_git': 'open the vault, run git status and fix what it reports, then run: {cmd} sync',
   'hook.fix_identity': 'git does not know your name and e-mail yet: set user.name and user.email with git config --global, then run: {cmd} sync',
   'hook.fix_lock': 'make sure {dir} is a folder you can write to, then run: {cmd} sync',
+  'hook.fix_node': 'the pre-commit hook of the vault found no Node.js 22 or newer: in the vault run git config memorykit.node "{node}", then: {cmd} sync',
   'hook.fix_sync': 'open the vault and run: {cmd} sync',
   'hook.timeout': 'timed out after {s} s',
   'hook.workdir_tracked': 'git tracks {n} files of .memory-kit/ in the vault (per-computer logs, session records and backups, which can name code repositories), so nothing was committed',
@@ -307,6 +308,13 @@ function unfinished(cfg, git, porcelain) {
   return res.stdout.split('\n').map((l) => l.trim()).filter(Boolean).some((rel) => fs.existsSync(path.resolve(cfg.root, rel)));
 }
 
+/** env with the folder of the Node.js running now first on its PATH (PATH or Path on Windows). */
+function withNodeFirst(env) {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+  const dir = path.dirname(process.execPath);
+  return { ...env, [key]: env[key] ? `${dir}${path.delimiter}${env[key]}` : dir };
+}
+
 /**
  * .memory-kit/ holds per-computer files that can name code repositories (session records, the
  * hook log, the ignore list, copies of agent settings): it is never committed. A clone of a vault
@@ -334,7 +342,11 @@ function autosync(cfg, agent) {
   const t0 = performance.now();
   const cmd = vaultCommand(cfg);
   const log = (e) => logHook(cfg.root, { agent, event: 'autosync', ms: Math.round(performance.now() - t0), ...e });
-  const opts = (timeout) => ({ cwd: cfg.root, encoding: 'utf8', windowsHide: true, timeout, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+  // The session's PATH may start with a node a repository pinned (nvm use, fnm, mise activate):
+  // git and the vault's pre-commit hook get this Node.js first, and the hook gets it pinned.
+  const node = process.execPath.replace(/\\/g, '/');
+  const env = withNodeFirst({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
+  const opts = (timeout) => ({ cwd: cfg.root, encoding: 'utf8', windowsHide: true, timeout, stdio: ['ignore', 'pipe', 'pipe'], env });
   const git = (args) => spawnSync('git', args, opts(GIT_TIMEOUT_MS));
   const memory = (args, timeout) => spawnSync(process.execPath, [path.join(cfg.root, 'system', 'memory.mjs'), ...args, '--root', cfg.root], opts(timeout));
   const fail = (step, res, fix) => log({ step, ok: false, error: lastLine(res) ?? say(cfg, 'hook.timeout', { s: Math.round((res.timeout ?? 0) / 1000) }), fix });
@@ -367,11 +379,14 @@ function autosync(cfg, agent) {
       // The folder is ignored by now; should a rule change meanwhile, what got staged of it goes.
       const out = git(['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', WORK_DIR]);
       if (out.status !== 0) return fail('commit', { ...out, timeout: GIT_TIMEOUT_MS }, say(cfg, 'hook.fix_git', { cmd }));
-      const commit = git(['commit', '-q', '-m', say(cfg, 'hook.commit_message', { day: todayLocal() })]);
+      const commit = git(['-c', `memorykit.node=${node}`, 'commit', '-q', '-m', say(cfg, 'hook.commit_message', { day: todayLocal() })]);
       if (commit.status !== 0) {
-        const identity = /user\.email|user\.name|tell me who you are|identity/i.test(`${commit.stderr}${commit.stdout}`);
-        if (!/nothing (added )?to commit|nothing to commit/i.test(`${commit.stdout}${commit.stderr}`)) {
-          return fail('commit', { ...commit, timeout: GIT_TIMEOUT_MS }, say(cfg, identity ? 'hook.fix_identity' : 'hook.fix_git', { cmd }));
+        const said = `${commit.stderr}${commit.stdout}`;
+        const identity = /user\.email|user\.name|tell me who you are|identity/i.test(said);
+        const oldNode = /is not Node\.js 22|Node\.js 22 or newer/i.test(said);
+        if (!/nothing (added )?to commit|nothing to commit/i.test(said)) {
+          const fix = identity ? 'hook.fix_identity' : oldNode ? 'hook.fix_node' : 'hook.fix_git';
+          return fail('commit', { ...commit, timeout: GIT_TIMEOUT_MS }, say(cfg, fix, { cmd, node }));
         }
       }
     } else {
