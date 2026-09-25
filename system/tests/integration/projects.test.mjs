@@ -317,6 +317,44 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.equal(project(v, 'add', third, ['--store', 'cloud']).code, 2);
   });
 
+  test('a byte order mark in memory.json or projects.json: project add, remove and status work, links are kept; a broken projects.json is never overwritten', () => {
+    const root = copyKit(path.join(tmpDir('bom'), 'vault'));
+    const v = vault('en', { root, withGit: true });
+    const memFile = path.join(root, 'memory.json');
+    const bom = (file) => fs.writeFileSync(file, `\uFEFF${fs.readFileSync(file, 'utf8').replace(/\r?\n/g, '\r\n')}`);
+    // No local root yet, so project add writes memory.json: kept as CRLF, the BOM dropped.
+    bom(memFile);
+    const shop = codeRepo({ remote: 'git@github.com:linden/shop.git', name: 'shop' });
+    const added = projectJson(v, 'add', shop);
+    assert.deepEqual([added.code, added.sector], [0, 'dev'], JSON.stringify(added));
+    const memText = fs.readFileSync(memFile, 'utf8');
+    assert.ok(memText.includes('\r\n') && !memText.startsWith('\uFEFF'), 'the line ends kept');
+    assert.equal(JSON.parse(memText).roots.at(-1).id, 'private');
+    // The git store writes memory.json too.
+    bom(memFile);
+    const api = codeRepo({ remote: 'git@github.com:linden/api.git', name: 'api' });
+    assert.equal(projectJson(v, 'add', api, ['--store', 'git']).code, 0);
+    bom(memFile);
+    assert.equal(projectJson(v, 'remove', api).code, 0);
+    // projects.json with a BOM: still read, and a new link keeps the old ones.
+    const mapFile = path.join(root, '..', 'vault-private', 'projects.json');
+    bom(mapFile);
+    assert.equal(projectJson(v, 'status', shop).project.sector, 'dev');
+    const tools = codeRepo({ remote: 'git@github.com:linden/tools.git', name: 'tools' });
+    assert.equal(projectJson(v, 'add', tools).sector, 'dev-2');
+    assert.deepEqual(JSON.parse(fs.readFileSync(mapFile, 'utf8')).repos, { 'github.com/linden/shop': 'dev', 'github.com/linden/tools': 'dev-2' });
+    assert.ok(fs.readFileSync(mapFile, 'utf8').includes('\r\n'), 'its line ends kept');
+    // A hand edit gone wrong: nothing is written over it, and the command says why.
+    const broken = fs.readFileSync(mapFile, 'utf8').replace(/\}\s*$/, ',}\n');
+    fs.writeFileSync(mapFile, broken);
+    const booking = codeRepo({ remote: 'git@github.com:linden/booking.git', name: 'booking' });
+    const refused = project(v, 'add', booking);
+    assert.equal(refused.code, 1, refused.stdout);
+    assert.match(refused.stderr, /projects\.json is not valid JSON, so nothing was changed/);
+    assert.equal(project(v, 'ignore', booking).code, 1);
+    assert.equal(fs.readFileSync(mapFile, 'utf8'), broken, 'the file is as it was');
+  });
+
   test('hooks exit 0 and print nothing on garbage input, and do nothing while the project hooks are off', () => {
     const v = vault('en');
     const repo = codeRepo();

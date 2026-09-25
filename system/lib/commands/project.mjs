@@ -30,6 +30,7 @@ const DEFAULTS = {
   'project.no_id': 'no free sector id for the project; turn off old dev sectors first',
   'project.no_commit': 'this repository has no commit yet, so nothing identifies it for good; make the first commit, then run project add again',
   'project.slow': 'git took too long to find the first commit of this repository; try again in a moment',
+  'project.local_map': '{path} is not valid JSON, so nothing was changed (it holds the links of the local projects and the ignored repositories); fix it by hand, then run the command again',
   'project.off': 'the project hooks are off, so sessions do not see this project yet; turn them on with: {cmd} connect claude-code --projects',
   'project.removed': 'removed: this repository is no longer linked to sector {id}; its notes stay in {notes} (to archive them: {cmd} sector off {id})',
   'project.unknown': 'this repository is not a project; add it with: {cmd} project add',
@@ -232,9 +233,14 @@ export async function run(argv, cfg) {
     return 2;
   }
   keepWorkDirOut(cfg);
-  if (sub === 'add') return add(cfg, values);
-  if (sub === 'remove') return remove(cfg, values);
-  if (sub === 'ignore' || sub === 'unignore') return ignore(cfg, values, sub === 'ignore');
-  if (sub === 'list') return list(cfg, values);
-  return status(cfg, values);
+  try {
+    if (sub === 'add') return await add(cfg, values);
+    if (sub === 'remove') return remove(cfg, values);
+    if (sub === 'ignore' || sub === 'unignore') return ignore(cfg, values, sub === 'ignore');
+    if (sub === 'list') return list(cfg, values);
+    return await status(cfg, values);
+  } catch (err) {
+    if (!(err instanceof ProjectError)) throw err;
+    return report(values, { ok: false, reason: err.reason }, [say(cfg, `project.${err.reason}`, { path: err.detail || '?', cmd: vaultCommand(cfg) })], 1);
+  }
 }

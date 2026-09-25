@@ -13,6 +13,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { writeAtomic } from './fsafe.mjs';
+import { detectStyle, formatJson } from './jsonc.mjs';
 import { commandNode } from './nodepath.mjs';
 import { readSessionFile, safeId, sessionsDir as sessionsIn } from './hookinput.mjs';
 import { NAME_RE, SECTOR_ID_MAX, WORK_DIR, ensureWorkDirIgnored, insidePath, realpathLoose, todayLocal, toPosix } from './util.mjs';
@@ -40,7 +41,8 @@ const LOCK_STALE_MS = 2 * 60 * 1000;
 
 /**
  * A problem `project add` reports: reason is 'foreign_root' | 'inside_root' | 'no_id' | 'busy' |
- * 'no_commit' | 'slow'.
+ * 'no_commit' | 'slow' | 'local_map' (<localRoot>/projects.json exists but is not JSON: detail is
+ * its path, and it is never overwritten).
  */
 export class ProjectError extends Error {
   constructor(reason, detail = '') {
@@ -288,14 +290,14 @@ export async function ensureLocalRoot(cfg) {
   const abs = path.resolve(cfg.root, rel);
   if (!path.basename(cfg.root) || insidePath(realpathLoose(cfg.root), realpathLoose(abs))) throw new ProjectError('inside_root', rel);
   const file = path.join(cfg.root, 'memory.json');
-  const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const { value: j, text } = readJsonText(file);
   const roots = Array.isArray(j.roots) && j.roots.length ? j.roots : [{ id: 'main', path: '.', privacy: 'github' }];
   const ids = new Set(roots.map((r) => r?.id));
   let id = 'private';
   for (let i = 2; ids.has(id); i++) id = `private-${i}`;
   j.roots = [...roots, { id, path: rel, privacy: 'local' }];
   fs.mkdirSync(abs, { recursive: true });
-  writeAtomic(file, `${JSON.stringify(j, null, 2)}\n`);
+  writeAtomic(file, formatJson(j, detectStyle(text)));
   const { loadConfig } = await import('./config.mjs');
   const fresh = loadConfig(cfg.root);
   cfg.roots = fresh.roots;
@@ -303,27 +305,57 @@ export async function ensureLocalRoot(cfg) {
   return { root: localRoot(cfg), created: true, rel };
 }
 
+/**
+ * A JSON file as { value, text } (a byte order mark, as Windows PowerShell 5.1 and older Notepad
+ * write it, is dropped); throws when it cannot be read or parsed.
+ */
+function readJsonText(abs) {
+  const text = fs.readFileSync(abs, 'utf8');
+  return { value: JSON.parse(text.replace(/^\uFEFF/, '')), text };
+}
+
 function readJsonFile(abs) {
   try {
-    const j = JSON.parse(fs.readFileSync(abs, 'utf8'));
+    const j = readJsonText(abs).value;
     return isObj(j) ? j : null;
   } catch {
     return null;
   }
 }
 
-/** <localRoot>/projects.json: { version: 1, repos: {key: id} } (kept outside git). */
+/**
+ * <localRoot>/projects.json: { version: 1, repos: {key: id}, ignored? } (kept outside git), plus
+ * broken: true (and nothing in it) when the file is there but is not a JSON object: readers then
+ * see no projects, and writeLocalMap refuses, so a hand edit gone wrong never loses the links.
+ */
 function readLocalMap(cfg) {
   const lr = localRoot(cfg);
-  const j = lr ? readJsonFile(path.join(lr.path, LOCAL_MAP)) : null;
-  return { ...(j ?? {}), version: 1, repos: isObj(j?.repos) ? j.repos : {} };
+  if (!lr) return { version: 1, repos: {} };
+  const file = path.join(lr.path, LOCAL_MAP);
+  let j = null;
+  try {
+    j = readJsonText(file).value;
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { version: 1, repos: {} };
+  }
+  if (!isObj(j)) return { version: 1, repos: {}, broken: true };
+  return { ...j, version: 1, repos: isObj(j.repos) ? j.repos : {} };
 }
 
 function writeLocalMap(cfg, map) {
   const lr = localRoot(cfg);
   if (!lr) throw new ProjectError('foreign_root');
+  const file = path.join(lr.path, LOCAL_MAP);
+  if (map.broken || readLocalMap(cfg).broken) throw new ProjectError('local_map', file);
+  let style;
+  try {
+    style = detectStyle(fs.readFileSync(file, 'utf8'));
+  } catch {
+    style = detectStyle('');
+  }
   const repos = Object.fromEntries(Object.entries(map.repos).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-  writeAtomic(path.join(lr.path, LOCAL_MAP), `${JSON.stringify({ ...map, version: 1, repos }, null, 2)}\n`);
+  const { broken, ...rest } = map;
+  writeAtomic(file, formatJson({ ...rest, version: 1, repos }, style));
 }
 
 /** Every known mapping: [{ key, id, store }] (local ones first). */
@@ -392,9 +424,9 @@ export function setMapping(cfg, key, id, store) {
     return;
   }
   const abs = path.join(cfg.root, 'memory.json');
-  const j = JSON.parse(fs.readFileSync(abs, 'utf8'));
+  const { value: j, text } = readJsonText(abs);
   j.projects = { ...(isObj(j.projects) ? j.projects : {}), repos: { ...(isObj(j.projects?.repos) ? j.projects.repos : {}), [key]: id } };
-  writeAtomic(abs, `${JSON.stringify(j, null, 2)}\n`);
+  writeAtomic(abs, formatJson(j, detectStyle(text)));
   cfg.raw.projects = j.projects;
 }
 
@@ -408,10 +440,10 @@ export function unsetMapping(cfg, key, store) {
     return true;
   }
   const abs = path.join(cfg.root, 'memory.json');
-  const j = JSON.parse(fs.readFileSync(abs, 'utf8'));
+  const { value: j, text } = readJsonText(abs);
   if (!isObj(j.projects?.repos) || !Object.hasOwn(j.projects.repos, key)) return false;
   delete j.projects.repos[key];
-  writeAtomic(abs, `${JSON.stringify(j, null, 2)}\n`);
+  writeAtomic(abs, formatJson(j, detectStyle(text)));
   cfg.raw.projects = j.projects;
   return true;
 }

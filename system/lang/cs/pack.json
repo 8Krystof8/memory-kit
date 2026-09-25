@@ -773,6 +773,7 @@
     "project.no_id": "pro projekt není volné id sektoru; nejdřív vypni staré sektory dev",
     "project.no_commit": "tento repozitář ještě nemá žádný commit, takže ho nic trvale neidentifikuje; udělej první commit a pak znovu spusť project add",
     "project.slow": "git hledal první commit tohoto repozitáře příliš dlouho; zkus to za chvíli znovu",
+    "project.local_map": "{path} není platný JSON, proto se nic nezměnilo (jsou v něm odkazy lokálních projektů a ignorované repozitáře); oprav ho ručně a spusť příkaz znovu",
     "project.off": "hooky projektů jsou vypnuté, takže session tento projekt zatím nevidí; zapneš je: {cmd} connect claude-code --projects",
     "project.removed": "odebráno: tento repozitář už není propojený se sektorem {id}; jeho poznámky zůstávají v {notes} (archivace: {cmd} sector off {id})",
     "project.unknown": "tento repozitář není projekt; přidáš ho: {cmd} project add",

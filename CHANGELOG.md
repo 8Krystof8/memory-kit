@@ -60,6 +60,9 @@ changes for vaults that do not switch the project memory on; the data version st
   `--json`. A repository is
   known by its remote (https, ssh, ssh host aliases and Azure DevOps forms give one key; a local
   remote by its path), else by its first commit; two servers are never taken for one repository.
+  `memory.json` and `<local root>/projects.json` may start with a byte order mark (Windows
+  PowerShell 5.1, older Notepad) and keep their line ends when written; a `projects.json` that is
+  not valid JSON is never written over (the command says so and changes nothing).
 - Every project's dev sector has the same note names (`overview`, `handoff`, `gotchas`…), so
   `check` lets those notes share names with each other; a second project no longer makes every
   vault commit and every autosync fail with `NAME_DUPLICATE`.
