@@ -25,8 +25,9 @@
 #   -Mode, -Lang, -Sectors   setup answers, passed to init (MEMORY_KIT_MODE, MEMORY_KIT_LANG,
 #                        MEMORY_KIT_SECTORS)
 # NO_COLOR turns colors off. Exit codes: 0 done, 1 a step failed, 2 a usage error or a missing
-# prerequisite, 3 refused (the folder is in the way, or an elevated shell), 130 cancelled. Under
-# irm | iex the window stays open and the code is left in $LASTEXITCODE.
+# prerequisite, 3 refused (the folder is in the way, or an elevated shell; MEMORY_KIT_ALLOW_ADMIN=1
+# allows it), 130 cancelled. Under irm | iex the window stays open and the code is left in
+# $LASTEXITCODE.
 #
 # Very old Windows (.NET older than 4.7) may need TLS 1.2 for the download itself:
 #   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; irm https://raw.githubusercontent.com/8Krystof8/memory-kit/main/install.ps1 | iex
@@ -381,7 +382,7 @@ param(
       $elevated = ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     } catch { $elevated = $false }
     if ($elevated) {
-      Write-Fail 'do not run the installer as administrator: git would then refuse the folder as owned by someone else. Open a normal PowerShell window.'
+      Write-Fail 'do not run the installer as administrator: git would then refuse the folder as owned by someone else. Open a normal PowerShell window (MEMORY_KIT_ALLOW_ADMIN=1 overrides this).'
       Stop-Install 3
     }
   }

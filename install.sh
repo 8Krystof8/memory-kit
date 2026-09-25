@@ -25,7 +25,8 @@
 #   --mode, --lang, --sectors   setup answers, passed to init (MEMORY_KIT_MODE, MEMORY_KIT_LANG,
 #                         MEMORY_KIT_SECTORS)
 # NO_COLOR turns colors off. Exit codes: 0 done, 1 a step failed, 2 a usage error or a missing
-# prerequisite, 3 refused (the folder is in the way, or run through sudo), 130 cancelled.
+# prerequisite, 3 refused (the folder is in the way, or run through sudo; MEMORY_KIT_ALLOW_ROOT=1
+# allows root), 130 cancelled.
 #
 # POSIX sh only (dash, bash 3.2 as sh on macOS, busybox ash): no arrays, no `local`, no pipefail.
 # Everything below sits in one { } group that ends with the call of main: the shell reads the whole
@@ -385,7 +386,7 @@ check_prerequisites() {
 
 refuse_sudo() {
   if [ "$(id -u 2>/dev/null || printf 1)" = 0 ] && [ -n "${SUDO_USER-}" ] && ! is_true "${MEMORY_KIT_ALLOW_ROOT-}"; then
-    fail 'do not run the installer with sudo: the memory would belong to root. Run it as yourself.'
+    fail 'do not run the installer with sudo: the memory would belong to root. Run it as yourself (MEMORY_KIT_ALLOW_ROOT=1 overrides this).'
     exit 3
   fi
 }

@@ -108,11 +108,11 @@
       "group": "docs"
     },
     "install.ps1": {
-      "sha256": "621760bae0eebee6219b9ad53b4bbb38a00458dcae78dcc0ab0dcd0b04d6d461",
+      "sha256": "ce96676a9915dc6482bd98d8e7da20f9f9a375dc377c1b1fa5a664ef7b937191",
       "group": "config"
     },
     "install.sh": {
-      "sha256": "04ed41a5918fbc143f5f92e16fefc2a21e91e4399b802295dd4f01a19f3fb3f0",
+      "sha256": "71b076a3f8bb58373c0750ab0eab3857a1afe7b7f3d3edd8398315b03a4f862c",
       "group": "config"
     },
     "system/VERSION": {
