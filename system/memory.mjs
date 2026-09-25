@@ -27,8 +27,9 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const COMMANDS = ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp', 'remember', 'hook'];
+const COMMANDS = ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp', 'remember', 'project', 'hook'];
 const CONFIGLESS = new Set(['doctor', 'upgrade', 'mcp', 'hook']);
+const HOOK_AGENTS = new Set(['claude-code', 'codex']);
 const HELP = new Set(['help', '--help', '-h']);
 
 /** Drops only the ExperimentalWarning that node:sqlite prints on Node 22; every other warning passes. */
@@ -175,6 +176,15 @@ async function main(argv) {
     return 0;
   }
 
+  // Most failed commands of an agent can have no error lookup: those hook runs end here, before
+  // the config and the language packs load (the agent waits for the hook after each failure).
+  let hookCtx = {};
+  if (first === 'hook' && args[2] === 'tool-failure' && HOOK_AGENTS.has(args[1])) {
+    const early = await earlyToolFailure(root, args[1]);
+    if (early.done) return 0;
+    hookCtx = early.ctx;
+  }
+
   const { loadConfig, ConfigError } = await import('./lib/config.mjs');
   let cfg;
   try {
@@ -211,10 +221,30 @@ async function main(argv) {
   }
 
   const rest = mapFlags(cfg, args.slice(1));
-  if (command === 'sector' && rest.length && !rest[0].startsWith('-')) {
-    rest[0] = cfg.subcommands.sector[rest[0]] ?? rest[0];
+  if ((command === 'sector' || command === 'project') && rest.length && !rest[0].startsWith('-')) {
+    const table = cfg.subcommands[command] ?? cfg.pack?.subcommands?.[command];
+    if (table && typeof table === 'object' && Object.hasOwn(table, rest[0]) && typeof table[rest[0]] === 'string') rest[0] = table[rest[0]];
   }
-  return runCommand(command, rest, cfg, { root, kitRoot, configError: null });
+  return runCommand(command, rest, cfg, { root, kitRoot, configError: null, ...hookCtx });
+}
+
+/**
+ * The cheap part of `hook <agent> tool-failure`: memory.json read directly, the hook input read
+ * and filtered. { done: true } when nothing more is to be done (the run is logged when the
+ * project hooks are on); else { done: false, ctx } with the input for commands/hook.mjs.
+ */
+async function earlyToolFailure(root, agent) {
+  const started = performance.now();
+  const hi = await import('./lib/hookinput.mjs');
+  const projects = hi.rawProjects(root);
+  if (projects?.enabled !== true) return { done: true };
+  const input = await hi.readHookInput();
+  // A session the session start saw outside any known project has nothing to look up in.
+  const outside = hi.readSessionFile(root, input.session_id)?.sector === null;
+  if (projects.error_lookup !== false && !outside && hi.lookupCandidate(input)) return { done: false, ctx: { hookInput: input, hookStarted: started } };
+  const { logHook } = await import('./lib/hooklog.mjs');
+  logHook(root, { agent, event: 'tool-failure', ok: true, ms: Math.round(performance.now() - started) });
+  return { done: true };
 }
 
 async function runCommand(command, rest, cfg, ctx) {

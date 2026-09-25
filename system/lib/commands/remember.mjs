@@ -1,9 +1,12 @@
 // `remember "text"`: records one thing without ceremony. Inside the code repository of a known
 // project it appends a dated line to the right note of the project's dev sector (gotcha, dead end,
-// todo, command, convention, decision or fact); elsewhere it saves a capture into the inbox.
-// Secrets are refused. Reads the text from stdin when none is given.
+// todo, command, convention, decision or fact), in the local root for a local-store project;
+// elsewhere it saves a capture into the inbox, and inside a repository that is not a project yet
+// it also says how to add it. Secrets are refused. Reads the text from stdin when none is given.
 
-import { identify, sectorFor, appendLine, REMEMBER_TYPES } from '../projects.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { identify, insideVault, findProject, appendLine, noteAbs, REMEMBER_TYPES } from '../projects.mjs';
 import { scanText } from '../secrets.mjs';
 import { parseCli, todayLocal } from '../util.mjs';
 
@@ -15,6 +18,8 @@ const DEFAULTS = {
   'remember.secret': 'refused: the text contains a secret ({rule}); fix: remove it, keep secrets in a password manager',
   'remember.empty': 'nothing to remember: give the text in quotes or through stdin',
   'remember.type': 'unknown --type "{type}"; use one of: {types}',
+  'remember.inbox_repo': 'saved to the inbox: {rel}. This repository is not a project yet; to keep notes for it, run: {cmd} project add',
+  'remember.no_project': 'sector "{id}" has no project notes; see the projects with: {cmd} project list',
 };
 
 function say(cfg, key, vars = {}) {
@@ -22,6 +27,8 @@ function say(cfg, key, vars = {}) {
   if (typeof t === 'string' && t && t !== key) return t;
   return DEFAULTS[key].replace(/\{(\w+)\}/g, (a, n) => (n in vars ? String(vars[n]) : a));
 }
+
+const quote = (p) => (/[\s"'&()]/.test(p) ? `"${p}"` : p);
 
 async function stdinText() {
   if (process.stdin.isTTY) return '';
@@ -51,7 +58,15 @@ export async function run(argv, cfg) {
     process.stderr.write(`memory: ${say(cfg, 'remember.secret', { rule: hit.rule })}\n`);
     return 1;
   }
-  const sector = values.project || sectorFor(cfg, identify(process.cwd()));
+  const cmd = `node ${quote(path.join(cfg.root, 'system', 'memory.mjs'))}`;
+  const cwd = process.cwd();
+  const ident = (values.project || insideVault(cfg, cwd)) ? null : identify(cwd);
+  const repo = ident && !insideVault(cfg, ident.top) ? ident : null;
+  const sector = values.project || findProject(cfg, repo)?.id || null;
+  if (sector && !fs.existsSync(noteAbs(cfg, sector, role))) {
+    process.stderr.write(`memory: ${say(cfg, 'remember.no_project', { id: sector, cmd })}\n`);
+    return 1;
+  }
   let result;
   if (sector) {
     const tag = cfg.lang === 'cs'
@@ -65,8 +80,8 @@ export async function run(argv, cfg) {
     const mem = await openMemory(cfg.root);
     try {
       const r = await mem.inbox(text, { title: values.title, source: 'remember' });
-      result = { rel: r.path, sector: null, type: values.type };
-      if (!values.json) process.stdout.write(`${say(cfg, 'remember.inbox', { rel: r.path })}\n`);
+      result = { rel: r.path, sector: null, type: values.type, ...(repo ? { project: false } : {}) };
+      if (!values.json) process.stdout.write(`${say(cfg, repo ? 'remember.inbox_repo' : 'remember.inbox', { rel: r.path, cmd })}\n`);
     } finally {
       mem.close?.();
     }
