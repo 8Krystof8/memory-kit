@@ -151,7 +151,8 @@ memory-kit/
 │   └── tests/ golden.json unit/ integration/ fixtures/ helpers.mjs
 ├── .agents/skills/memory/SKILL.md  .claude/skills/memory/SKILL.md (same file)
 ├── .claude/agents/memory-searcher.md  .claude/settings.json
-├── .githooks/pre-commit  .github/workflows/ci.yml  .github/workflows/release.yml
+├── .githooks/pre-commit  .github/workflows/ci.yml
+├── .github/workflows/release.yml             maintainers only: tags and GitHub Releases; not upgraded
 └── .gitignore  .gitattributes                no editor settings: any markdown editor works (9.8)
 ```
 

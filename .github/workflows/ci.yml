@@ -72,11 +72,6 @@ jobs:
       - name: The kit itself passes the strict check
         if: ${{ !cancelled() }}
         run: node system/memory.mjs check --strict
-      # shellcheck comes with the Ubuntu runner image. The installer tests above run install.sh
-      # for real on Linux and macOS, and install.ps1 under both PowerShells on Windows.
-      - name: install.sh is portable POSIX sh (shellcheck)
-        if: ${{ !cancelled() && runner.os == 'Linux' }}
-        run: shellcheck --shell=sh install.sh
 
   vault:
     if: >-

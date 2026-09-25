@@ -310,7 +310,7 @@ describe('a 0.1.0 vault upgrades to this kit', { skip: NO_V010, concurrency: 4 }
     for (const [rel, entry] of Object.entries(manifest.files)) {
       if (rel === '.github/workflows/ci.yml') continue;
       if (entry.group === 'config' && keep[rel] === undefined) {
-        // A config file 0.1.0 did not ship (the installers, release.yml) is reported, not added.
+        // A config file 0.1.0 did not ship (the installers) is reported, not added.
         assert.ok(out.plan.files.some((f) => f.rel === rel && f.action === 'skip' && f.reason === 'missing'), `skipped: ${rel}`);
         assert.ok(!fs.existsSync(path.join(v.root, ...rel.split('/'))), `not added: ${rel}`);
         continue;

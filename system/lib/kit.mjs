@@ -27,11 +27,15 @@ export const MANIFEST_DEFAULTS = Object.freeze({
 const CODE_FILES = new Set(['system/memory.mjs', 'system/init.mjs', 'system/api.mjs', VERSION_FILE, KIT_FILE, HISTORY_FILE]);
 const CODE_DIRS = ['system/lib/', 'system/lang/', 'system/templates/', 'system/schema/', 'system/migrations/', 'system/tools/'];
 
-/** Config files the kit ships at fixed places; the owner may change them. */
+/**
+ * Config files the kit ships at fixed places; the owner may change them. Not here on purpose:
+ * .github/workflows/release.yml (maintainers only, it never runs in a vault). A changed workflow
+ * file makes the vault's next push need a token with the `workflow` scope, which gh's default
+ * login lacks, so an upgrade must change workflow files only when a vault needs it.
+ */
 export const CONFIG_FILES = Object.freeze([
   '.githooks/pre-commit',
   '.github/workflows/ci.yml',
-  '.github/workflows/release.yml',
   '.claude/settings.json',
   '.agents/skills/memory/SKILL.md',
   '.claude/skills/memory/SKILL.md',

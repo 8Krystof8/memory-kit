@@ -5,14 +5,17 @@
 // second run must change nothing. Missing prerequisites are simulated with a PATH that lacks them.
 // install.sh needs a POSIX sh (not on Windows). install.ps1 runs under every PowerShell found:
 // powershell (Windows PowerShell 5.1) and pwsh on PATH, plus the one MEMORY_TEST_PWSH names.
+// GitHub is never contacted: a fake gh on PATH stands in for the GitHub CLI, a small local HTTP
+// server for api.github.com (MEMORY_KIT_GITHUB_API), and git's url.<x>.insteadOf sends the
+// public kit URL to a tagged local copy. Interactive runs use a pseudo-terminal (util-linux script).
 
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { groupOf, loadManifest } from '../../lib/kit.mjs';
+import { groupOf, hashFile, loadHistory, loadManifest } from '../../lib/kit.mjs';
 import { absoluteLinks, extractSection, main as releaseNotes } from '../../tools/release-notes.mjs';
 import { KIT_ROOT, copyKit, removeTmpDirs, runCli, tmpDir } from '../helpers.mjs';
 
@@ -48,10 +51,16 @@ function findOnPath(name) {
 const POWERSHELLS = [...new Set([IS_WIN ? findOnPath('powershell') : null, findOnPath('pwsh'), process.env.MEMORY_TEST_PWSH || null]
   .filter(Boolean))];
 const SHELLCHECK = findOnPath('shellcheck');
+// The Ubuntu runners of GitHub Actions come with shellcheck: there its absence is a failure.
+const SHELLCHECK_REQUIRED = process.env.GITHUB_ACTIONS === 'true' && process.platform === 'linux';
+const PTY = process.platform === 'linux' && findOnPath('script') ? false : 'needs util-linux script (a pseudo-terminal)';
+const KIT_URL = 'https://github.com/8Krystof8/memory-kit.git';
 
 // Variables that would change what the installer or the kit does; the tests set them explicitly.
 const SCRUB = ['CLAUDE_CODE_REMOTE', 'CODESPACES', 'GITPOD_WORKSPACE_ID', 'NODE_OPTIONS', 'NODE_TEST_CONTEXT',
-  'MEMORY_SECTORS', 'MEMORY_SEARCH_ENGINE', 'NO_COLOR', 'FORCE_COLOR', 'CI', 'SUDO_USER', 'MEMORY_DEBUG'];
+  'MEMORY_SECTORS', 'MEMORY_SEARCH_ENGINE', 'NO_COLOR', 'FORCE_COLOR', 'CI', 'SUDO_USER', 'MEMORY_DEBUG',
+  'GH_TOKEN', 'GITHUB_TOKEN', 'GH_HOST', 'GH_CONFIG_DIR'];
+const NO_PROXY = ['127.0.0.1', 'localhost', process.env.NO_PROXY ?? process.env.no_proxy].filter(Boolean).join(',');
 
 /** A clean environment: temporary HOME, a git identity and no user or system git configuration. */
 function installEnv(extra = {}) {
@@ -74,6 +83,10 @@ function installEnv(extra = {}) {
     GIT_TERMINAL_PROMPT: '0',
     // GitHub's Windows runners are administrators; the installer refuses that by default.
     MEMORY_KIT_ALLOW_ADMIN: '1',
+    // Nothing listens there: a privacy check of a GitHub remote says "cannot tell" at once.
+    MEMORY_KIT_GITHUB_API: 'http://127.0.0.1:9',
+    NO_PROXY,
+    no_proxy: NO_PROXY,
     ...extra,
   };
 }
@@ -137,6 +150,123 @@ function assertRerunSafe(vault, res, before) {
   assertNoLeftovers(path.dirname(vault));
 }
 
+/** env with git sending the public kit URL to the tagged local copy (see taggedSource). */
+function withKitUrl(env) {
+  fs.appendFileSync(env.GIT_CONFIG_GLOBAL, `[url "${taggedSource().url}"]\n\tinsteadOf = ${KIT_URL}\n`);
+  return env;
+}
+
+/** A copy of this kit with a git remote per [name, url]. */
+function kitWithRemotes(label, remotes, env) {
+  const dir = path.join(tmpDir(label), 'memory');
+  copyKit(dir);
+  assert.equal(git(dir, ['init', '-q'], env).status, 0);
+  for (const [name, url] of remotes) assert.equal(git(dir, ['remote', 'add', name, url], env).status, 0);
+  return dir;
+}
+
+/** A git repository of someone else (a client project) with a remote. */
+function clientRepo(env) {
+  const client = path.join(tmpDir('client'), 'client-acme');
+  fs.mkdirSync(client);
+  assert.equal(git(client, ['init', '-q'], env).status, 0);
+  assert.equal(git(client, ['remote', 'add', 'origin', 'git@github.com:acme-corp/secret-app.git'], env).status, 0);
+  return client;
+}
+
+// A fake GitHub CLI: logged in as `tester`; every call is logged; `repo view` knows the
+// repositories of state.repos (owner/name -> visibility); `repo create NAME ... --clone` clones a
+// copy of this kit into ./NAME with the origin https://github.com/tester/NAME.git.
+const FAKE_GH_JS = `import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_GH_LOG, JSON.stringify(args) + '\\n');
+const file = process.env.FAKE_GH_STATE;
+const state = JSON.parse(fs.readFileSync(file, 'utf8'));
+const [a, b, ...rest] = args;
+if (a === 'auth' && b === 'status') process.exit(state.loggedIn ? 0 : 1);
+if (a === 'api' && b === 'user') { console.log(state.user); process.exit(0); }
+if (a === 'repo' && b === 'view') {
+  const visibility = state.repos[String(rest[0]).toLowerCase()];
+  if (!visibility) { console.error('GraphQL: Could not resolve to a Repository'); process.exit(1); }
+  if (rest.includes('--json')) console.log(visibility);
+  process.exit(0);
+}
+if (a === 'repo' && b === 'create') {
+  const name = rest[0];
+  const dest = path.join(process.cwd(), name);
+  fs.cpSync(state.template, dest, { recursive: true });
+  const git = (...g) => spawnSync('git', g, { cwd: dest, stdio: 'ignore', windowsHide: true });
+  git('init', '-q');
+  git('symbolic-ref', 'HEAD', 'refs/heads/main');
+  git('add', '-A');
+  git('commit', '-q', '--no-verify', '-m', 'Initial commit');
+  git('remote', 'add', 'origin', 'https://github.com/' + state.user + '/' + name + '.git');
+  state.repos[(state.user + '/' + name).toLowerCase()] = state.createAs;
+  fs.writeFileSync(file, JSON.stringify(state));
+  process.exit(0);
+}
+process.exit(1);
+`;
+
+let ghTemplate = null;
+function fakeGh({ repos = {}, createAs = 'PRIVATE', loggedIn = true } = {}) {
+  ghTemplate ??= copyKit(path.join(tmpDir('gh-template'), 'memory-kit'));
+  const dir = tmpDir('fake-gh');
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  const script = path.join(dir, 'gh.mjs');
+  const state = path.join(dir, 'state.json');
+  const log = path.join(dir, 'calls.jsonl');
+  fs.writeFileSync(script, FAKE_GH_JS);
+  fs.writeFileSync(state, JSON.stringify({ user: 'tester', loggedIn, createAs, template: ghTemplate, repos }));
+  if (IS_WIN) fs.writeFileSync(path.join(bin, 'gh.cmd'), `@"${process.execPath}" "${script}" %*\r\n`);
+  else fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`, { mode: 0o755 });
+  return {
+    env: { PATH: `${bin}${path.delimiter}${process.env.PATH}`, FAKE_GH_STATE: state, FAKE_GH_LOG: log },
+    calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []),
+    created: () => fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes('"create"'),
+  };
+}
+const GH_CREATE = ['repo', 'create', 'memory', '--template', '8Krystof8/memory-kit', '--private', '--clone'];
+
+// A stand-in for api.github.com in its own process (the tests block in spawnSync): 200 for the
+// public repositories named on its command line, 404 (private or missing) for every other one.
+const API_STUB_JS = `const http = require('node:http');
+const open = new Set(process.argv.slice(1).map((s) => s.toLowerCase()));
+const server = http.createServer((req, res) => {
+  const m = /^\\/repos\\/([^/]+\\/[^/]+)$/.exec(req.url);
+  res.writeHead(m && open.has(m[1].toLowerCase()) ? 200 : 404, { 'content-type': 'application/json' });
+  res.end('{}');
+});
+server.listen(0, '127.0.0.1', () => console.log(server.address().port));
+`;
+
+let apiStub = null;
+async function githubApi() {
+  if (apiStub) return apiStub.url;
+  const child = spawn(process.execPath, ['-e', API_STUB_JS, 'octocat/memory-kit'], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
+  const port = await new Promise((resolve, reject) => {
+    child.stdout.setEncoding('utf8');
+    child.stdout.once('data', (d) => resolve(d.trim()));
+    child.once('error', reject);
+    child.once('exit', (code) => reject(new Error(`the GitHub API stub exited (${code})`)));
+  });
+  child.stdout.destroy();
+  child.unref();
+  apiStub = { child, url: `http://127.0.0.1:${port}` };
+  return apiStub.url;
+}
+after(() => apiStub?.child.kill());
+
+const q = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/** A pseudo-terminal run of a sh command line: every prompt reads the lines of input. */
+function runPty(command, { env, input, cwd }) {
+  return run('script', ['-qec', command, '/dev/null'], { env, input, cwd });
+}
+
 /** A folder with a fake `node` that reports an old version (a POSIX shell script). */
 function fakeOldNode() {
   const bin = tmpDir('fake-bin');
@@ -197,24 +327,39 @@ describe('installer files', () => {
     }
   });
 
-  test('install.ps1: Windows PowerShell 5.1 syntax (no &&, ||, ??, `e or $PSStyle), body in & { }', () => {
+  test('install.ps1: Windows PowerShell 5.1 syntax (no &&, ||, ??, `e or $PSStyle), all of it in & { } @args', () => {
     const text = fs.readFileSync(INSTALL_PS1, 'utf8');
     const code = text.split('\n').filter((line) => !line.trimStart().startsWith('#'));
     for (const token of [' && ', ' || ', ' ?? ', '`e', '$PSStyle', '::new(']) {
       assert.ok(!code.some((line) => line.includes(token)), `no ${token.trim()} in install.ps1`);
     }
-    assert.match(text, /\n& \{\n/);
-    assert.match(text, /if \(\$FromFile\) \{ exit \$st\.code \}\n  \$global:LASTEXITCODE = \$st\.code\n\}/, 'never exit under irm | iex');
+    // Under irm | iex the text runs in the caller's scope: a top-level param() would overwrite the
+    // caller's variables, and exit would end the caller (its window, or the script around it).
+    const outside = code.join('\n').split(/^& \{$/m);
+    assert.equal(outside.length, 2, 'one & { at the top level');
+    assert.equal(outside[0].trim(), '', 'nothing before & { (no top-level param())');
+    assert.ok(text.endsWith('\n  if ($FromFile) { exit $st.code }\n  $global:LASTEXITCODE = $st.code\n} @args\n'));
+    assert.match(text, /\n {2}\$FromFile = \[bool\]\(\{ \}\.File\)\n/, 'exit only from a script file, never under iex');
     assert.ok(!/\$script:/.test(code.join('\n')), 'no script-scope variables (under iex that is the user\'s session)');
   });
 
-  test('the kit owns both installers and the release workflow (upgrades ship them)', () => {
+  test('the kit owns both installers (upgrades ship them), but not the maintainers\' release workflow', () => {
     const manifest = loadManifest(KIT_ROOT);
-    for (const rel of ['install.sh', 'install.ps1', '.github/workflows/release.yml']) {
+    for (const rel of ['install.sh', 'install.ps1']) {
       assert.equal(groupOf(rel), 'config', rel);
       assert.equal(manifest.files[rel]?.group, 'config', `system/kit.json lists ${rel} (run: node system/tools/release.mjs)`);
     }
+    // A changed workflow file in an upgrade makes the vault's next push need a token with the
+    // `workflow` scope (gh's default login has none), and release.yml never runs in a vault.
+    assert.equal(groupOf('.github/workflows/release.yml'), null);
+    assert.equal(manifest.files['.github/workflows/release.yml'], undefined);
     assert.equal(groupOf('system/tools/release-notes.mjs'), 'code');
+  });
+
+  test('0.1.2 ships the ci.yml of 0.1.1, so upgraded vaults push no workflow change', () => {
+    const history = loadHistory(KIT_ROOT);
+    assert.ok(history['0.1.1']?.['.github/workflows/ci.yml']);
+    assert.equal(hashFile(path.join(KIT_ROOT, '.github', 'workflows', 'ci.yml')), history['0.1.1']['.github/workflows/ci.yml']);
   });
 });
 
@@ -226,7 +371,8 @@ describe('install.sh', { skip: !SH ? 'install.sh is for macOS and Linux' : !HAS_
     assert.equal(res.code, 0, res.all);
   });
 
-  test('shellcheck finds nothing', { skip: SHELLCHECK ? false : 'shellcheck is not installed' }, () => {
+  test('shellcheck finds nothing', { skip: SHELLCHECK || SHELLCHECK_REQUIRED ? false : 'shellcheck is not installed' }, () => {
+    assert.ok(SHELLCHECK, 'shellcheck comes with the Ubuntu runners of GitHub Actions');
     const res = run(SHELLCHECK, ['--shell=sh', INSTALL_SH]);
     assert.equal(res.code, 0, res.all);
   });
@@ -298,15 +444,85 @@ describe('install.sh', { skip: !SH ? 'install.sh is for macOS and Linux' : !HAS_
   });
 
   test('a clone of the public kit repository is refused: notes must never be pushed there', () => {
-    const vault = path.join(tmpDir('sh-public'), 'memory');
-    copyKit(vault);
     const env = installEnv();
-    assert.equal(git(vault, ['init', '-q'], env).status, 0);
-    assert.equal(git(vault, ['remote', 'add', 'origin', 'https://github.com/8Krystof8/memory-kit.git'], env).status, 0);
+    const vault = kitWithRemotes('sh-public', [['origin', KIT_URL]], env);
     const res = runSh(['--yes', '--no-gh', '--source', KIT_ROOT, '--dir', vault, ...ANSWERS_SH], { env });
     assert.equal(res.code, 3, res.all);
     assert.match(res.all, /clone of the public kit repository/);
+    assert.match(res.stdout, /remote remove origin/);
     assert.equal(readJson(path.join(vault, 'memory.json')).initialized, false);
+
+    // The kit as another remote: the advice removes that one, not the owner's own origin.
+    const both = kitWithRemotes('sh-upstream', [['origin', 'https://github.com/me/my-memory.git'], ['upstream', KIT_URL]], env);
+    const res2 = runSh(['--yes', '--no-gh', '--source', KIT_ROOT, '--dir', both, ...ANSWERS_SH], { env });
+    assert.equal(res2.code, 3, res2.all);
+    assert.match(res2.stdout, /remote remove upstream\n/);
+    assert.doesNotMatch(res2.stdout, /remote remove origin/);
+  });
+
+  test('a folder whose GitHub remote is public (a fork, a public template copy) is refused; a private one goes on', async () => {
+    const env = installEnv({ MEMORY_KIT_GITHUB_API: await githubApi() });
+    const answers = ['--yes', '--no-gh', '--mode', 'github', '--lang', 'en', '--sectors', 'core'];
+    const fork = kitWithRemotes('sh-fork', [['origin', 'https://github.com/octocat/memory-kit.git']], env);
+    const res = runSh([...answers, '--dir', fork], { env });
+    assert.equal(res.code, 3, res.all);
+    assert.match(res.stderr, /the remote origin is the PUBLIC GitHub repository octocat\/memory-kit/);
+    assert.equal(readJson(path.join(fork, 'memory.json')).initialized, false, 'nothing was set up');
+
+    const own = kitWithRemotes('sh-own', [['origin', 'git@github.com:me/my-memory.git']], env);
+    const done = runSh([...answers, '--dir', own], { env });
+    assert.equal(done.code, 0, done.all);
+    assert.match(done.stdout, /the GitHub repository me\/my-memory is not public/);
+    assert.equal(readJson(path.join(own, 'memory.json')).initialized, true);
+    assert.match(done.stdout, /^ {4}git push$/m);
+
+    // No answer from GitHub: a warning, not a refusal.
+    const offline = runSh(['--yes', '--no-gh', '--dir', own], { env: installEnv() });
+    assert.equal(offline.code, 0, offline.all);
+    assert.match(offline.stdout, /cannot tell whether the GitHub repository me\/my-memory is private/);
+  });
+
+  test('a new memory inside another git work tree is refused, unless that repository ignores it', () => {
+    const env = installEnv();
+    const client = clientRepo(env);
+    const vault = path.join(client, 'notes');
+    const res = runSh(['--yes', '--no-gh', '--source', KIT_ROOT, '--dir', vault, ...ANSWERS_SH], { env });
+    assert.equal(res.code, 3, res.all);
+    assert.match(res.stderr, /notes is inside the git repository .*client-acme/);
+    assert.match(res.stdout, /MEMORY_KIT_ALLOW_NESTED=1/);
+    const relative = runSh(['--yes', '--no-gh', '--source', KIT_ROOT, '--dir', 'notes', ...ANSWERS_SH], { env, cwd: client });
+    assert.equal(relative.code, 3, relative.all);
+    assert.equal(git(client, ['status', '--porcelain'], env).stdout, '', 'nothing was created in the client repository');
+
+    // MEMORY_KIT_ALLOW_NESTED=1 lets it through (without the answers it stops after the download).
+    const allowed = runSh(['--yes', '--no-gh', '--source', KIT_ROOT, '--dir', vault], { env: { ...env, MEMORY_KIT_ALLOW_NESTED: '1' } });
+    assert.equal(allowed.code, 2, allowed.all);
+    assert.match(allowed.stdout, /is inside the git repository .*MEMORY_KIT_ALLOW_NESTED=1/);
+    fs.rmSync(vault, { recursive: true, force: true });
+
+    // Both folders ignored there: nothing of the memory can reach that repository.
+    fs.writeFileSync(path.join(client, '.gitignore'), 'notes/\nnotes-private/\n');
+    const ignored = runSh(['--yes', '--no-gh', '--source', KIT_ROOT, '--dir', vault, ...ANSWERS_SH], { env });
+    assertFreshVault(vault, ignored);
+    assert.equal(git(client, ['status', '--porcelain'], env).stdout, '?? .gitignore\n');
+  });
+
+  test('the setup\'s own ending: cancelled (130) and "not now" give 130; its other failures 1', () => {
+    const src = copyKit(path.join(tmpDir('fake-init'), 'kit'));
+    fs.writeFileSync(path.join(src, 'system', 'init.mjs'), 'process.exit(Number(process.env.FAKE_INIT_EXIT));\n');
+    const vault = path.join(tmpDir('sh-cancel'), 'memory');
+    const args = ['--yes', '--no-gh', '--source', src, '--dir', vault, ...ANSWERS_SH];
+    const cancelled = runSh(args, { env: installEnv({ FAKE_INIT_EXIT: '130' }) });
+    assert.equal(cancelled.code, 130, cancelled.all);
+    assert.match(cancelled.stdout, /The setup was cancelled; the kit stays in place/);
+    assert.doesNotMatch(cancelled.all, /did not finish/);
+    const notNow = runSh(args, { env: installEnv({ FAKE_INIT_EXIT: '0' }) });
+    assert.equal(notNow.code, 130, notNow.all);
+    assert.match(notNow.stdout, /continuing with the setup/);
+    assert.doesNotMatch(notNow.stdout, /Your memory is ready/);
+    const internal = runSh(args, { env: installEnv({ FAKE_INIT_EXIT: '3' }) });
+    assert.equal(internal.code, 1, internal.all);
+    assert.match(internal.stderr, /the setup did not finish \(init exit 3\)/);
   });
 
   test('missing git and Node.js are reported with the commands to install them (exit 2)', () => {
@@ -355,18 +571,142 @@ describe('install.sh', { skip: !SH ? 'install.sh is for macOS and Linux' : !HAS_
     assert.match(plain.stdout, /^ {2}-{34}$/m);
   });
 
-  test('interactive under curl | sh: prompts read the terminal; declining changes nothing (exit 130)',
-    { skip: process.platform === 'linux' && findOnPath('script') ? false : 'needs util-linux script (a pseudo-terminal)' }, () => {
-      const env = installEnv({ NO_COLOR: '1', TERM: 'xterm' });
-      const q = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
-      const command = `cat ${q(INSTALL_SH)} | sh -s -- --no-gh --source ${q(KIT_ROOT)}`;
-      const res = run('script', ['-qec', command, '/dev/null'], { env, input: '\nn\n' });
-      assert.equal(res.code, 130, res.all);
-      assert.match(res.stdout, /Folder for your memory \[~\/memory\]/);
-      assert.match(res.stdout, /Create the memory in ~\/memory\? \[Y\/n\]/);
-      assert.match(res.stdout, /Nothing was changed/);
-      assert.ok(!fs.existsSync(path.join(env.HOME, 'memory')));
-    });
+  test('interactive under curl | sh: prompts read the terminal; declining changes nothing (exit 130)', { skip: PTY }, () => {
+    const env = installEnv({ NO_COLOR: '1', TERM: 'xterm' });
+    const command = `cat ${q(INSTALL_SH)} | sh -s -- --no-gh --source ${q(KIT_ROOT)}`;
+    // Blanks alone are the default answer, not a folder named " ".
+    const res = runPty(command, { env, input: '   \nn\n', cwd: tmpDir('cwd') });
+    assert.equal(res.code, 130, res.all);
+    assert.match(res.stdout, /Folder for your memory \[~\/memory\]/);
+    assert.match(res.stdout, /Create the memory in ~\/memory\? \[Y\/n\]/);
+    assert.match(res.stdout, /Nothing was changed/);
+    assert.ok(!fs.existsSync(path.join(env.HOME, 'memory')));
+
+    // A folder name typed at the prompt is in the home folder (the prompt shows ~/memory), not in
+    // the directory the installer happens to run in.
+    const cwd = tmpDir('cwd');
+    const named = runPty(command, { env, input: ' notes \nn\n', cwd });
+    assert.equal(named.code, 130, named.all);
+    assert.match(named.stdout, /Create the memory in ~\/notes\? \[Y\/n\]/);
+    assert.deepEqual(fs.readdirSync(cwd), []);
+  });
+
+  test('an existing memory: doctor and upgrade are offered, and a newer kit is shown with both versions', { skip: PTY }, () => {
+    const env = installEnv({ NO_COLOR: '1', TERM: 'xterm' });
+    const vault = path.join(tmpDir('sh-vault-flow'), 'memory');
+    const made = runSh(['--yes', '--no-gh', '--source', KIT_ROOT, '--dir', vault, ...ANSWERS_SH], { env });
+    assert.equal(made.code, 0, made.all);
+    const versionFile = path.join(vault, 'system', 'VERSION');
+    const commit = (message) => {
+      assert.equal(git(vault, ['add', '-A'], env).status, 0);
+      assert.equal(git(vault, ['commit', '-q', '--no-verify', '-m', message], env).status, 0);
+    };
+    commit('Set up memory');
+    fs.writeFileSync(versionFile, '0.1.1\n');
+    commit('an older kit');
+    const kitVersion = fs.readFileSync(path.join(KIT_ROOT, 'system', 'VERSION'), 'utf8').trim();
+    const res = runPty(`sh ${q(INSTALL_SH)} --no-gh --source ${q(KIT_ROOT)} --dir ${q(vault)}`, { env, input: 'n\nn\n' });
+    assert.equal(res.code, 0, res.all);
+    assert.match(res.stdout, /Check it with doctor now\? \[Y\/n\]/);
+    assert.ok(res.stdout.includes(`memory-kit ${kitVersion} is available (this memory has 0.1.1)`), res.stdout);
+    assert.match(res.stdout, /Upgrade now\?/);
+    assert.equal(fs.readFileSync(versionFile, 'utf8'), '0.1.1\n', 'declined: nothing changed');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+
+describe('install.sh with the GitHub CLI (a fake gh)', { skip: !SH ? 'install.sh is for macOS and Linux' : !HAS_GIT ? 'git is not installed' : false }, () => {
+  const GH_ANSWERS = ['--yes', '--mode', 'github', '--lang', 'en', '--sectors', 'core'];
+
+  test('a private repository from the template: the exact gh command, the setup, and a push to do', () => {
+    const gh = fakeGh();
+    const parent = tmpDir('sh-gh');
+    const vault = path.join(parent, 'memory');
+    const res = runSh([...GH_ANSWERS, '--dir', vault], { env: installEnv(gh.env) });
+    assert.equal(res.code, 0, res.all);
+    const calls = gh.calls();
+    assert.deepEqual(calls.filter((c) => c[1] === 'create'), [GH_CREATE]);
+    assert.ok(!calls.flat().includes('--include-all-branches'), 'never the dev and other branches of the kit');
+    assert.deepEqual(calls.at(-1), ['repo', 'view', 'tester/memory', '--json', 'visibility', '--jq', '.visibility']);
+    assert.match(res.stdout, /in the private repository tester\/memory/);
+    assert.equal(git(vault, ['remote', 'get-url', 'origin']).stdout.trim(), 'https://github.com/tester/memory.git');
+    const cfg = readJson(path.join(vault, 'memory.json'));
+    assert.equal(cfg.initialized, true);
+    assert.equal(cfg.mode, 'github');
+    assert.match(res.stdout, /^ {4}git push$/m);
+    assertNoLeftovers(parent);
+  });
+
+  test('a repository that came out public: exit 3 and no folder; an existing name: exit 1 and the clone command', () => {
+    const pub = fakeGh({ createAs: 'PUBLIC' });
+    const parent = tmpDir('sh-gh-public');
+    const vault = path.join(parent, 'memory');
+    const res = runSh([...GH_ANSWERS, '--dir', vault], { env: installEnv(pub.env) });
+    assert.equal(res.code, 3, res.all);
+    assert.match(res.stderr, /tester\/memory is not private \(PUBLIC\)/);
+    assert.deepEqual(fs.readdirSync(parent), [], 'no folder is left behind');
+
+    const taken = fakeGh({ repos: { 'tester/memory': 'PRIVATE' } });
+    const again = runSh([...GH_ANSWERS, '--dir', vault], { env: installEnv(taken.env) });
+    assert.equal(again.code, 1, again.all);
+    assert.match(again.stderr, /the repository tester\/memory exists already/);
+    assert.match(again.stdout, /gh repo clone tester\/memory /);
+    assert.ok(!taken.created());
+    assert.deepEqual(fs.readdirSync(parent), []);
+  });
+
+  test('--ref, --no-gh and mode local never use gh (the template has only the newest kit)', () => {
+    for (const [label, args, why] of [
+      ['ref', ['--ref', 'v0.1.9', '--mode', 'github'], /GitHub CLI not used \(--ref v0\.1\.9/],
+      ['no-gh', ['--no-gh', '--mode', 'github'], /GitHub CLI not used \(--no-gh\)/],
+      ['local', ['--mode', 'local'], /GitHub CLI not used \(mode local/],
+    ]) {
+      const gh = fakeGh();
+      const vault = path.join(tmpDir(`sh-nogh-${label}`), 'memory');
+      const res = runSh(['--yes', '--lang', 'en', '--sectors', 'core', '--dir', vault, ...args], { env: withKitUrl(installEnv(gh.env)) });
+      assert.equal(res.code, 0, `${label}: ${res.all}`);
+      assert.match(res.stdout, why);
+      assert.ok(!gh.created(), `${label}: no repository was created`);
+      assert.equal(git(vault, ['remote']).stdout.trim(), '', `${label}: no remote`);
+      if (label === 'ref') assert.ok(!fs.existsSync(path.join(vault, 'release-marker.txt')), 'v0.1.9 has no marker');
+      else assert.equal(fs.readFileSync(path.join(vault, 'release-marker.txt'), 'utf8'), 'v0.1.10\n');
+    }
+  });
+
+  test('an existing folder whose remote gh reports public is refused (exit 3)', () => {
+    const gh = fakeGh({ repos: { 'me/my-memory': 'PUBLIC' } });
+    const env = installEnv(gh.env);
+    const dir = kitWithRemotes('sh-gh-own', [['origin', 'https://github.com/me/my-memory.git']], env);
+    const res = runSh([...GH_ANSWERS, '--dir', dir], { env });
+    assert.equal(res.code, 3, res.all);
+    assert.match(res.stderr, /PUBLIC GitHub repository me\/my-memory/);
+    assert.equal(readJson(path.join(dir, 'memory.json')).initialized, false);
+  });
+
+  test('interactive: the mode is asked before GitHub is offered; local never creates a repository', { skip: PTY }, () => {
+    const command = `cat ${q(INSTALL_SH)} | sh -s -- --lang en --sectors core`;
+    // Enter for the folder, 2 (local), yes to creating the memory.
+    const gh = fakeGh();
+    const env = withKitUrl(installEnv({ ...gh.env, NO_COLOR: '1', TERM: 'xterm' }));
+    const res = runPty(command, { env, input: '\n2\ny\n' });
+    assert.equal(res.code, 0, res.all);
+    assert.match(res.stdout, /Where should the memory live\?/);
+    assert.doesNotMatch(res.stdout, /Create the private GitHub repository/);
+    assert.ok(!gh.created(), 'no repository on GitHub');
+    const local = path.join(env.HOME, 'memory');
+    assert.equal(readJson(path.join(local, 'memory.json')).mode, 'local');
+    assert.equal(git(local, ['remote']).stdout.trim(), '');
+
+    // Enter everywhere: github, the private repository from the template, and init gets the mode.
+    const gh2 = fakeGh();
+    const env2 = withKitUrl(installEnv({ ...gh2.env, NO_COLOR: '1', TERM: 'xterm' }));
+    const res2 = runPty(command, { env: env2, input: '\n\n\n\n' });
+    assert.equal(res2.code, 0, res2.all);
+    assert.match(res2.stdout, /Create the private GitHub repository tester\/memory for it\? \[Y\/n\]/);
+    assert.deepEqual(gh2.calls().filter((c) => c[1] === 'create'), [GH_CREATE]);
+    assert.equal(readJson(path.join(env2.HOME, 'memory', 'memory.json')).mode, 'github');
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -391,17 +731,37 @@ for (const ps of POWERSHELLS) {
       const again = runPs(ps, ['-Yes', '-NoGh', '-Source', KIT_ROOT, '-Dir', vault, ...ANSWERS_PS], { env });
       assertRerunSafe(vault, again, before);
 
-      // irm | iex: the same run through Invoke-Expression (options from the environment) never
-      // closes the window, leaves the code in $LASTEXITCODE and no function behind.
-      const iex = 'Get-Content -Raw -LiteralPath $env:MK_TEST_PS1 | Invoke-Expression; \'still-alive:\' + $LASTEXITCODE; '
-        + 'if (Get-Command Invoke-Quiet -ErrorAction SilentlyContinue) { \'leaked\' }';
-      const viaIex = run(ps, ['-NoProfile', '-NonInteractive', '-Command', iex], {
-        env: { ...env, MK_TEST_PS1: INSTALL_PS1, MEMORY_KIT_YES: '1', MEMORY_KIT_NO_GH: '1', MEMORY_KIT_SOURCE: KIT_ROOT, MEMORY_KIT_DIR: vault },
-      });
+      // irm | iex at the prompt (options from the environment): the code is left in $LASTEXITCODE.
+      const iexEnv = { ...env, MK_TEST_PS1: INSTALL_PS1, MEMORY_KIT_YES: '1', MEMORY_KIT_NO_GH: '1', MEMORY_KIT_SOURCE: KIT_ROOT, MEMORY_KIT_DIR: vault };
+      const iex = 'Get-Content -Raw -LiteralPath $env:MK_TEST_PS1 | Invoke-Expression; \'still-alive:\' + $LASTEXITCODE';
+      const viaIex = run(ps, ['-NoProfile', '-NonInteractive', '-Command', iex], { env: iexEnv });
       assert.equal(viaIex.code, 0, viaIex.all);
-      assert.match(viaIex.stdout, /still-alive:0/);
-      assert.ok(!viaIex.stdout.includes('leaked'), viaIex.stdout);
       assert.match(viaIex.stdout, /already; nothing was downloaded/);
+      assert.match(viaIex.stdout, /still-alive:0/);
+
+      // irm | iex inside a script file, as a CI step runs it: the installer never ends the script
+      // around it (not even on success), and leaves nothing behind: no function, and the caller's
+      // $Dir, $Mode, $Help and $ErrorActionPreference as they were.
+      const step = path.join(tmpDir(`ps-step-${label}`), 'step.ps1');
+      fs.writeFileSync(step, [
+        "$Dir = 'mine'; $Mode = 'keep'; $Help = 'x'; $ErrorActionPreference = 'Continue'",
+        'Get-Content -Raw -LiteralPath $env:MK_TEST_PS1 | Invoke-Expression',
+        "'next step ran:' + $LASTEXITCODE + ' [' + $Dir + '|' + $Mode + '|' + $Help + '|' + $ErrorActionPreference + ']'",
+        "if (Get-Command Invoke-Quiet -ErrorAction SilentlyContinue) { 'leaked' }",
+        '& ([scriptblock]::Create((Get-Content -Raw -LiteralPath $env:MK_TEST_PS1))) -Bogus',
+        "'after an unknown parameter:' + $LASTEXITCODE",
+        '',
+      ].join('\n'));
+      const stepArgs = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', step];
+      const inStep = run(ps, stepArgs, { env: iexEnv });
+      assert.equal(inStep.code, 0, inStep.all);
+      assert.match(inStep.stdout, /already; nothing was downloaded/);
+      assert.match(inStep.stdout, /next step ran:0 \[mine\|keep\|x\|Continue\]/);
+      assert.ok(!inStep.stdout.includes('leaked'), inStep.stdout);
+      assert.match(inStep.stdout, /unknown parameter: -Bogus/);
+      assert.match(inStep.stdout, /after an unknown parameter:2/);
+      const failing = run(ps, stepArgs, { env: { ...iexEnv, MEMORY_KIT_MODE: 'cloud' } });
+      assert.match(failing.stdout, /next step ran:2 \[mine\|keep\|x\|Continue\]/, failing.all);
     });
 
     test('from a git URL: the newest vX.Y.Z tag, cloned without its history', () => {
@@ -422,6 +782,58 @@ for (const ps of POWERSHELLS) {
       assert.match(res.stdout, /is not a memory-kit folder/);
       assert.deepEqual(fs.readdirSync(dir), ['mine.txt']);
       assert.equal(runPs(ps, ['-Mode', 'cloud'], { env }).code, 2);
+      assert.equal(runPs(ps, ['-Bogus'], { env }).code, 2);
+    });
+
+    test('a new memory inside another git work tree is refused (exit 3)', () => {
+      const env = installEnv();
+      const client = clientRepo(env);
+      const res = runPs(ps, ['-Yes', '-NoGh', '-Source', KIT_ROOT, '-Dir', path.join(client, 'notes'), ...ANSWERS_PS], { env });
+      assert.equal(res.code, 3, res.all);
+      assert.match(res.stdout, /is inside the git repository/);
+      assert.equal(git(client, ['status', '--porcelain'], env).stdout, '');
+    });
+
+    test('remotes: the kit as upstream is named in the advice; a public GitHub remote is refused', async () => {
+      const env = installEnv({ MEMORY_KIT_GITHUB_API: await githubApi() });
+      const answers = ['-Yes', '-NoGh', '-Mode', 'github', '-Lang', 'en', '-Sectors', 'core'];
+      const both = kitWithRemotes(`ps-upstream-${label}`, [['origin', 'https://github.com/me/my-memory.git'], ['upstream', KIT_URL]], env);
+      const res = runPs(ps, [...answers, '-Dir', both], { env });
+      assert.equal(res.code, 3, res.all);
+      assert.match(res.stdout, /remote remove upstream/);
+      assert.doesNotMatch(res.stdout, /remote remove origin/);
+
+      const fork = kitWithRemotes(`ps-fork-${label}`, [['origin', 'https://github.com/octocat/memory-kit.git']], env);
+      const pub = runPs(ps, [...answers, '-Dir', fork], { env });
+      assert.equal(pub.code, 3, pub.all);
+      assert.match(pub.stdout, /the remote origin is the PUBLIC GitHub repository octocat\/memory-kit/);
+      assert.equal(readJson(path.join(fork, 'memory.json')).initialized, false);
+
+      const own = kitWithRemotes(`ps-own-${label}`, [['origin', 'git@github.com:me/my-memory.git']], env);
+      const priv = runPs(ps, ['-Yes', '-NoGh', '-Dir', own], { env });
+      assert.equal(priv.code, 2, priv.all);
+      assert.match(priv.stdout, /the GitHub repository me\/my-memory is not public/);
+      assert.match(priv.stdout, /--mode github or combined: this folder has a remote/);
+    });
+
+    test('with a logged-in gh (a fake): a private repository from the template; a public one is refused', () => {
+      const gh = fakeGh();
+      const parent = tmpDir(`ps-gh-${label}`);
+      const vault = path.join(parent, 'memory');
+      const answers = ['-Yes', '-Mode', 'github', '-Lang', 'en', '-Sectors', 'core'];
+      const res = runPs(ps, [...answers, '-Dir', vault], { env: installEnv(gh.env) });
+      assert.equal(res.code, 0, res.all);
+      assert.deepEqual(gh.calls().filter((c) => c[1] === 'create'), [GH_CREATE]);
+      assert.equal(git(vault, ['remote', 'get-url', 'origin']).stdout.trim(), 'https://github.com/tester/memory.git');
+      assert.equal(readJson(path.join(vault, 'memory.json')).mode, 'github');
+      assertNoLeftovers(parent);
+
+      const pub = fakeGh({ createAs: 'PUBLIC' });
+      const other = tmpDir(`ps-gh-public-${label}`);
+      const bad = runPs(ps, [...answers, '-Dir', path.join(other, 'memory')], { env: installEnv(pub.env) });
+      assert.equal(bad.code, 3, bad.all);
+      assert.match(bad.stdout, /tester\/memory is not private \(PUBLIC\)/);
+      assert.deepEqual(fs.readdirSync(other), []);
     });
 
     // On Windows the installer first looks at the PATH of the system settings, which has them.
@@ -572,9 +984,5 @@ describe('release workflow', () => {
     assert.match(release, /gh release create "\$tag"/);
     assert.match(release, /--latest="\$latest"/);
     assert.ok(!release.slice(release.indexOf('run: |')).includes('${{'), 'inputs reach the script only through env variables');
-  });
-
-  test('ci.yml runs shellcheck on install.sh on Linux', () => {
-    assert.match(ci, /if: \$\{\{ !cancelled\(\) && runner\.os == 'Linux' \}\}\n {8}run: shellcheck --shell=sh install\.sh/);
   });
 });

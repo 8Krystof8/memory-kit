@@ -9,47 +9,59 @@
 #
 # It checks git and Node.js 22.5 or newer (it never installs them: it prints the winget commands),
 # then creates the memory folder (default $HOME\memory). With the GitHub CLI logged in it offers a
-# new PRIVATE repository made from the template. Otherwise it downloads the kit without its history
-# and starts a fresh git repository with no remote, so a note can never be pushed to the public kit
-# repository. Then it runs the setup (node system\init.mjs). A folder that already holds a memory
-# is left alone: the installer offers doctor and upgrade instead.
+# new PRIVATE repository made from the template (after the mode is known: local never gets a
+# remote). Otherwise it downloads the kit without its history and starts a fresh git repository
+# with no remote, so a note can never be pushed to the public kit repository. Then it runs the
+# setup (node system\init.mjs). A folder that already holds a memory is left alone: the installer
+# offers doctor and upgrade instead. A folder whose GitHub remote is public, and a new memory
+# inside another git work tree (a client repository would pick up the notes), are refused.
 #
 # Parameters (environment variable in brackets):
-#   -Dir <path>          the memory folder (MEMORY_KIT_DIR; default $HOME\memory)
+#   -Dir <path>          the memory folder (MEMORY_KIT_DIR; default $HOME\memory); a folder typed
+#                        at the prompt is under your home folder unless it is a full path
 #   -Yes                 ask nothing (MEMORY_KIT_YES=1); the setup then needs the three answers
 #   -NoGh                never use the GitHub CLI (MEMORY_KIT_NO_GH=1)
 #   -Source <url|dir>    where the kit comes from (MEMORY_KIT_SOURCE; default the public kit
 #                        repository); a folder is copied as it is, or cloned at -Ref
 #   -Ref <tag|branch>    the kit version (MEMORY_KIT_REF; default the newest v* tag, else the
-#                        default branch)
+#                        default branch); the GitHub template always has the newest, so an
+#                        explicit -Ref downloads the kit instead
 #   -Mode, -Lang, -Sectors   setup answers, passed to init (MEMORY_KIT_MODE, MEMORY_KIT_LANG,
 #                        MEMORY_KIT_SECTORS)
 # NO_COLOR turns colors off. Exit codes: 0 done, 1 a step failed, 2 a usage error or a missing
-# prerequisite, 3 refused (the folder is in the way, or an elevated shell; MEMORY_KIT_ALLOW_ADMIN=1
-# allows it), 130 cancelled. Under irm | iex the window stays open and the code is left in
-# $LASTEXITCODE.
+# prerequisite, 3 refused (the folder is in the way, a public remote, inside another git work tree
+# (MEMORY_KIT_ALLOW_NESTED=1 allows it), or an elevated shell (MEMORY_KIT_ALLOW_ADMIN=1 allows
+# it)), 130 cancelled. Run as a file (powershell -File install.ps1, or & .\install.ps1) it exits
+# with that code; under irm | iex, also inside another script, it never exits: the code is left
+# in $LASTEXITCODE and the caller goes on. The privacy check of a remote asks gh, else the GitHub
+# API without credentials (MEMORY_KIT_GITHUB_API replaces https://api.github.com in tests).
 #
 # Very old Windows (.NET older than 4.7) may need TLS 1.2 for the download itself:
 #   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; irm https://raw.githubusercontent.com/8Krystof8/memory-kit/main/install.ps1 | iex
 #
 # Written for Windows PowerShell 5.1 too: pure ASCII (5.1 reads a file without a BOM in the ANSI
 # code page), no && or ||, no ternary or ??, colors only through [char]27 on a VT-capable host.
-# Everything runs inside & { }, so no function or preference is left behind in the session.
-
-param(
-  [string]$Dir = '',
-  [switch]$Yes,
-  [switch]$NoGh,
-  [string]$Source = '',
-  [string]$Ref = '',
-  [string]$Mode = '',
-  [string]$Lang = '',
-  [string[]]$Sectors = @(),
-  [switch]$Help
-)
+# Everything, the parameters included, lives inside & { ... } @args: under irm | iex the text runs
+# in the caller's scope, so a top-level param() would overwrite the caller's $Dir, $Mode and the
+# rest, and every function or preference would stay behind. Under iex $args is empty.
 
 & {
-  param($P, [bool]$FromFile)
+  param(
+    [string]$Dir = '',
+    [switch]$Yes,
+    [switch]$NoGh,
+    [string]$Source = '',
+    [string]$Ref = '',
+    [string]$Mode = '',
+    [string]$Lang = '',
+    [string[]]$Sectors = @(),
+    [switch]$Help
+  )
+  $P = @{ Dir = $Dir; Yes = $Yes; NoGh = $NoGh; Source = $Source; Ref = $Ref; Mode = $Mode; Lang = $Lang; Sectors = $Sectors; Help = $Help }
+  $unknownArgs = @($args)
+  # A file run (-File, & .\install.ps1) may exit; irm | iex and [scriptblock]::Create have no
+  # file, and exit there would end the caller: the PowerShell window, or the script around it.
+  $FromFile = [bool]({ }.File)
 
   $ErrorActionPreference = 'Stop'
   $ProgressPreference = 'SilentlyContinue'
@@ -129,6 +141,7 @@ param(
     Say '  -Sectors core,work,...                                         MEMORY_KIT_SECTORS'
     Say '  -Help'
     Say ''
+    Say 'inside another git work tree only with MEMORY_KIT_ALLOW_NESTED=1'
     Say 'exit codes: 0 done, 1 a step failed, 2 usage or missing prerequisite, 3 refused, 130 cancelled'
   }
 
@@ -242,6 +255,7 @@ param(
     $o.noGh = [bool]$P.NoGh -or (Test-True ([string]$env:MEMORY_KIT_NO_GH))
     $o.source = Get-Option $P.Source 'MEMORY_KIT_SOURCE'
     $o.ref = Get-Option $P.Ref 'MEMORY_KIT_REF'
+    $o.refGiven = [bool]$o.ref
     $o.mode = Get-Option $P.Mode 'MEMORY_KIT_MODE'
     $o.lang = Get-Option $P.Lang 'MEMORY_KIT_LANG'
     $o.sectors = Get-Option (@($P.Sectors) -join ',') 'MEMORY_KIT_SECTORS'
@@ -290,6 +304,44 @@ param(
     $answer = Read-Answer $Question $hint
     if ($answer -eq '') { return $Default }
     return @('y', 'yes', 'a', 'ano') -contains $answer
+  }
+
+  # Where the memory lives, asked before GitHub is offered: mode local must never get a remote.
+  function Read-Mode {
+    Write-Host ('  ' + (Paint '36' '?') + ' Where should the memory live?')
+    Write-Host ('      1 github    ' + (Paint '90' 'a private GitHub repository (your phone and cloud agents reach it)'))
+    Write-Host ('      2 local     ' + (Paint '90' 'only this computer (git without a remote)'))
+    Write-Host ('      3 combined  ' + (Paint '90' 'a private GitHub repository plus a private folder on this computer'))
+    while ($true) {
+      Write-Host ('    1, 2 or 3 ' + (Paint '90' '[1]') + ' ') -NoNewline
+      $answer = Read-Host
+      if ($null -eq $answer) { $answer = '' }
+      $answer = $answer.Trim()
+      if (@('', '1', 'github') -contains $answer) { return 'github' }
+      if (@('2', 'local') -contains $answer) { return 'local' }
+      if (@('3', 'combined') -contains $answer) { return 'combined' }
+    }
+  }
+
+  # Runs $Action again for up to about 10 seconds while it fails (Windows only): an antivirus
+  # scanner or the search indexer may hold a file of a folder that was just written for a moment.
+  function Invoke-Retry([scriptblock]$Action) {
+    if (-not $onWindows) {
+      & $Action
+      return
+    }
+    $wait = 100
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ($true) {
+      try {
+        & $Action
+        return
+      } catch {
+        if ([DateTime]::UtcNow -ge $deadline) { throw }
+        Start-Sleep -Milliseconds $wait
+        if ($wait -lt 1600) { $wait = $wait * 2 }
+      }
+    }
   }
 
   # -------------------------------------------------------------------------------------------
@@ -417,24 +469,160 @@ param(
     }
   }
 
-  function Get-PublicKitRemote([string]$Path) {
-    if (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) { return '' }
-    $r = Invoke-Quiet $st.git @('-C', $Path, 'remote', '-v')
-    foreach ($entry in $r.out) {
-      $parts = -split [string]$entry
-      if ($parts.Count -ge 2 -and $parts[1] -match '8krystof8/memory-kit(\.git)?/?$') { return $parts[1] }
+  # Every remote of a folder: @{ name; url } for each fetch and push URL, each once.
+  function Get-Remotes([string]$Path) {
+    if (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) { return }
+    $seen = @{}
+    foreach ($entry in @((Invoke-Quiet $st.git @('-C', $Path, 'remote')).out)) {
+      $name = ([string]$entry).Trim()
+      if (-not $name) { continue }
+      $urls = @((Invoke-Quiet $st.git @('-C', $Path, 'remote', 'get-url', '--all', $name)).out)
+      $urls += @((Invoke-Quiet $st.git @('-C', $Path, 'remote', 'get-url', '--push', '--all', $name)).out)
+      foreach ($item in $urls) {
+        $url = ([string]$item).Trim()
+        if (-not $url -or $seen.ContainsKey($name + ' ' + $url)) { continue }
+        $seen[$name + ' ' + $url] = $true
+        @{ name = $name; url = $url }
+      }
     }
-    return ''
+  }
+
+  function Test-HasRemote {
+    $r = Invoke-Quiet $st.git @('-C', $opt.dir, 'remote')
+    return [bool]($r.code -eq 0 -and (Get-FirstLine $r.out))
+  }
+
+  # A URL for the screen: a user name or token before @ in https://user:token@host/ is left out.
+  function Format-Url([string]$Url) {
+    return ($Url -replace '^([A-Za-z][A-Za-z0-9+.-]*://)[^/@]*@', '$1')
+  }
+
+  # @{ name; url } of the first remote that points at the public kit repository, or $null.
+  function Get-PublicKitRemote([string]$Path) {
+    foreach ($remote in @(Get-Remotes $Path)) {
+      if ($remote.url -match '[/:]8krystof8/memory-kit(\.git)?/?$') { return $remote }
+    }
+    return $null
   }
 
   function Test-PublicRemote {
     $remote = Get-PublicKitRemote $opt.dir
     if ($remote) {
-      Write-Fail ((Format-Path $opt.dir) + ' is a clone of the public kit repository (' + $remote + ').')
+      Write-Fail ((Format-Path $opt.dir) + ' is a clone of the public kit repository (remote ' + $remote.name + ': ' + (Format-Url $remote.url) + ').')
       Write-Note 'Personal notes must never be pushed there. Remove that remote, or choose another folder:'
-      Write-Command ('git -C ' + (Format-Arg $opt.dir) + ' remote remove origin')
+      Write-Command ('git -C ' + (Format-Arg $opt.dir) + ' remote remove ' + (Format-Arg $remote.name))
       Stop-Install 3
     }
+  }
+
+  # owner/name (lower case) of a remote URL on github.com, or '': another host, a folder, or an
+  # ssh host alias the installer cannot resolve.
+  function Get-GitHubRepo([string]$Url) {
+    $u = $Url.ToLowerInvariant().TrimEnd('/')
+    if ($u.EndsWith('.git')) { $u = $u.Substring(0, $u.Length - 4) }
+    if ($u -match '^(?:https?|ssh|git)://(?:[^/@]*@)?github\.com(?::\d+)?/([^/]+/[^/]+)$') { return $Matches[1] }
+    if ($u -match '^(?:[^@/:]*@)?github\.com:([^/]+/[^/]+)$') { return $Matches[1] }
+    return ''
+  }
+
+  # The HTTP status of a GET without credentials; 0 when there is no answer.
+  function Get-HttpStatus([string]$Url) {
+    try {
+      $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 20 -UserAgent 'memory-kit-installer'
+      return [int]$response.StatusCode
+    } catch {
+      $response = $null
+      try { $response = $_.Exception.Response } catch { $response = $null }
+      if ($null -eq $response) { return 0 }
+      try { return [int]$response.StatusCode } catch { return 0 }
+    }
+  }
+
+  # public, private or unknown for the GitHub repository owner/name. Asks gh when it is logged in
+  # (and not refused with -NoGh), else the GitHub API without credentials: it answers 404 for a
+  # private repository (and for one that does not exist) and 200 for a public one.
+  function Get-GitHubVisibility([string]$Repo) {
+    if (-not $opt.noGh) {
+      $gh = Find-App 'gh'
+      if ($gh -and (Invoke-Quiet $gh @('auth', 'status')).code -eq 0) {
+        $seen = Get-FirstLine (Invoke-Quiet $gh @('repo', 'view', $Repo, '--json', 'visibility', '--jq', '.visibility')).out
+        if ($seen -ceq 'PUBLIC') { return 'public' }
+        if ($seen -ceq 'PRIVATE' -or $seen -ceq 'INTERNAL') { return 'private' }
+      }
+    }
+    $api = 'https://api.github.com'
+    if ($env:MEMORY_KIT_GITHUB_API) { $api = $env:MEMORY_KIT_GITHUB_API.TrimEnd('/') }
+    $status = Get-HttpStatus ($api + '/repos/' + $Repo)
+    if ($status -eq 200) { return 'public' }
+    if ($status -eq 404) { return 'private' }
+    return 'unknown'
+  }
+
+  # A folder with a public GitHub remote is refused (exit 3): every push would publish the notes.
+  # A copy of the template made public on github.com/new, or a fork, looks like any other folder.
+  function Test-RemotePrivacy {
+    $checked = @{}
+    foreach ($remote in @(Get-Remotes $opt.dir)) {
+      $repo = Get-GitHubRepo $remote.url
+      if (-not $repo) {
+        if ($remote.url -match '://' -or $remote.url -match '^[^/\\]+@[^/\\]+:') {
+          Write-Warn ('the remote ' + $remote.name + ' (' + (Format-Url $remote.url) + ') is not on github.com: make sure it is private before you push')
+        }
+        continue
+      }
+      if ($checked.ContainsKey($repo)) { continue }
+      $checked[$repo] = $true
+      $visibility = Get-GitHubVisibility $repo
+      if ($visibility -eq 'public') {
+        Write-Fail ('the remote ' + $remote.name + ' is the PUBLIC GitHub repository ' + $repo + ': everything pushed there is visible to everyone.')
+        Write-Note 'Make it private first (on GitHub: Settings > General > Danger Zone > Change visibility),'
+        Write-Note 'or choose another folder with -Dir. Then run the installer again.'
+        Stop-Install 3
+      } elseif ($visibility -eq 'private') {
+        Write-Ok ('the GitHub repository ' + $repo + ' is not public')
+      } else {
+        Write-Warn ('cannot tell whether the GitHub repository ' + $repo + ' is private (no network?): make sure it is before you push')
+      }
+    }
+  }
+
+  # The top folder of the git work tree that holds $Path (or its nearest existing parent), or ''.
+  function Get-EnclosingWorkTree([string]$Path) {
+    $p = $Path
+    while ($p -and -not (Test-Path -LiteralPath $p -PathType Container)) { $p = [IO.Path]::GetDirectoryName($p) }
+    if (-not $p) { return '' }
+    $r = Invoke-Quiet $st.git @('-C', $p, 'rev-parse', '--show-toplevel')
+    if ($r.code -ne 0) { return '' }
+    $top = Get-FirstLine $r.out
+    if ($onWindows) { $top = $top.Replace('/', '\') }
+    return $top
+  }
+
+  # A memory inside another git work tree (a client repository, a home folder kept in git) would
+  # be picked up by that repository's `git add -A`, and so would the private folder next to it.
+  # Allowed when that repository ignores both folders, with MEMORY_KIT_ALLOW_NESTED=1, or when the
+  # person says yes; otherwise refused (exit 3).
+  function Test-Nested {
+    $top = Get-EnclosingWorkTree ([IO.Path]::GetDirectoryName($opt.dir))
+    if (-not $top) { return }
+    $plain = $opt.dir.Replace('\', '/')
+    $ignored = (Invoke-Quiet $st.git @('-C', $top, 'check-ignore', '-q', '--', ($plain + '/'))).code -eq 0
+    if ($ignored) { $ignored = (Invoke-Quiet $st.git @('-C', $top, 'check-ignore', '-q', '--', ($plain + '-private/'))).code -eq 0 }
+    if ($ignored) { return }
+    $where = (Format-Path $opt.dir) + ' is inside the git repository ' + (Format-Path $top)
+    if (Test-True ([string]$env:MEMORY_KIT_ALLOW_NESTED)) {
+      Write-Warn ($where + ' (MEMORY_KIT_ALLOW_NESTED=1)')
+      return
+    }
+    $why = ': its next `git add -A` would take your notes and the private folder along.'
+    if ($st.interactive) {
+      Write-Warn ($where + $why)
+      if (Confirm-Step 'Create the memory there anyway?' $false) { return }
+    } else {
+      Write-Fail ($where + $why)
+    }
+    Write-Note 'Choose a folder outside it with -Dir, or ignore both folders there (MEMORY_KIT_ALLOW_NESTED=1 skips this check).'
+    Stop-Install 3
   }
 
   # -------------------------------------------------------------------------------------------
@@ -504,7 +692,7 @@ param(
       }
     }
     $gitDir = Join-Path $Dest '.git'
-    if (Test-Path -LiteralPath $gitDir) { Remove-Item -LiteralPath $gitDir -Recurse -Force }
+    if (Test-Path -LiteralPath $gitDir) { Invoke-Retry { Remove-Item -LiteralPath $gitDir -Recurse -Force } }
     & $st.git init --quiet $Dest
     $ok = $LASTEXITCODE -eq 0
     if ($ok) {
@@ -517,11 +705,13 @@ param(
     }
   }
 
-  # True when gh can make the repository: installed, logged in, not refused, the default source,
-  # and a mode that allows a remote. $st.ghReason says why not.
+  # True when gh can make the repository: installed, logged in, not refused, the default source at
+  # its default version, and a mode that allows a remote. $st.ghReason says why not.
   function Test-Gh {
     if ($opt.noGh) { $st.ghReason = 'not used (-NoGh)'; return $false }
     if (-not $opt.sourceDefault) { $st.ghReason = 'not used (-Source)'; return $false }
+    # The template always has the kit's default branch; a chosen version is downloaded instead.
+    if ($opt.refGiven) { $st.ghReason = 'not used (-Ref ' + $opt.ref + ': the template has only the newest kit)'; return $false }
     if ($opt.mode -eq 'local') { $st.ghReason = 'not used (mode local keeps everything on this computer)'; return $false }
     $st.gh = Find-App 'gh'
     if (-not $st.gh) { $st.ghReason = 'not installed (optional)'; return $false }
@@ -535,10 +725,17 @@ param(
     return $true
   }
 
+  # How the vault is made. The mode comes first: a repository made on GitHub and then refused by
+  # mode local would be left behind.
   function Select-Method {
     $st.useGh = $false
     if (-not (Test-Gh)) {
       Write-Note ('GitHub CLI ' + $st.ghReason)
+      return
+    }
+    if ($st.interactive -and -not $opt.mode) { $opt.mode = Read-Mode }
+    if ($opt.mode -eq 'local') {
+      Write-Note 'GitHub CLI not used (mode local keeps everything on this computer)'
       return
     }
     if ($st.interactive) {
@@ -593,9 +790,18 @@ param(
       $made = Join-Path $st.staging 'kit'
       Get-Kit $made
     }
-    if (Test-Path -LiteralPath $opt.dir) { Remove-Item -LiteralPath $opt.dir -Force }
-    [IO.Directory]::Move($made, $opt.dir)
-    Remove-Item -LiteralPath $st.staging -Recurse -Force
+    try {
+      if (Test-Path -LiteralPath $opt.dir) { Invoke-Retry { Remove-Item -LiteralPath $opt.dir -Force } }
+      Invoke-Retry { [IO.Directory]::Move($made, $opt.dir) }
+    } catch {
+      Write-Fail ('cannot move the new memory to ' + (Format-Path $opt.dir) + ' (another program may hold a file): ' + $_.Exception.Message)
+      if ($st.useGh) {
+        Write-Note ('The private repository ' + $st.ghUser + '/' + $st.ghName + ' is on GitHub; get it with:')
+        Write-Command ('gh repo clone ' + $st.ghUser + '/' + $st.ghName + ' ' + (Format-Arg $opt.dir))
+      }
+      Stop-Install 1
+    }
+    try { Invoke-Retry { Remove-Item -LiteralPath $st.staging -Recurse -Force } } catch { }
     $st.staging = ''
     $version = Read-KitVersion
     if ($st.useGh) {
@@ -622,8 +828,22 @@ param(
     if ($opt.sectors) { $sectors = $opt.sectors }
     Write-Command ('cd ' + (Format-Arg $opt.dir))
     Write-Command 'node system/init.mjs'
-    Write-Note 'or with the answers (--mode github, local or combined; --lang en or cs):'
+    if (Test-HasRemote) {
+      # init refuses mode local while the folder has a remote.
+      if ($mode -eq 'local') { $mode = 'github' }
+      Write-Note 'or with the answers (--mode github or combined: this folder has a remote; --lang en or cs):'
+    } else {
+      Write-Note 'or with the answers (--mode github, local or combined; --lang en or cs):'
+    }
     Write-Command ('node system/init.mjs --mode ' + $mode + ' --lang ' + $lang + ' --sectors ' + $sectors + ' --yes')
+  }
+
+  # init (or its wizard) ended with exit 130, or said "not now": the kit stays for the next run.
+  function Stop-Cancelled {
+    Write-Note 'The setup was cancelled; the kit stays in place. Run the installer again to continue, or:'
+    Write-FinishHint
+    Say ''
+    Stop-Install 130
   }
 
   function Invoke-Setup {
@@ -643,13 +863,17 @@ param(
     & $st.node @argv
     $code = $LASTEXITCODE
     Say ''
+    if ($code -eq 130) { Stop-Cancelled }
     if ($code -ne 0) {
       Write-Fail ('the setup did not finish (init exit ' + [string]$code + '). Nothing is lost: run it again:')
       Write-FinishHint
       Say ''
+      # 2 is a usage error for both; init's other codes (1 refused or failed, 3 internal) are a
+      # step that failed here, since the installer's 3 means it refused on its own.
       if ($code -eq 2) { Stop-Install 2 }
       Stop-Install 1
     }
+    if ((Get-DirState $opt.dir) -ne 'vault') { Stop-Cancelled }
   }
 
   function Write-Summary {
@@ -661,7 +885,7 @@ param(
       Write-Command 'git add -A'
       Write-Command 'git commit -m "Set up memory"'
     }
-    if ($st.useGh) { Write-Command 'git push' }
+    if (Test-HasRemote) { Write-Command 'git push' }
     Write-Command 'node system/memory.mjs doctor'
     Write-Command 'node system/memory.mjs connect --list'
     Write-Note 'connect --list shows your AI apps; node system/memory.mjs connect <app> links one'
@@ -743,6 +967,7 @@ param(
       Write-Usage
       return
     }
+    if ($unknownArgs.Count -gt 0) { Stop-Usage ('unknown parameter: ' + [string]$unknownArgs[0]) }
     Read-Options
     $st.ref = $opt.ref
     Write-Header
@@ -751,7 +976,10 @@ param(
     $st.interactive = Test-Interactive
     Test-Prerequisites
     if ($st.interactive -and -not $opt.dirGiven) {
+      # The question shows ~\memory, so an answer like `notes` means ~\notes, not a folder in
+      # whatever directory the installer was started from.
       $answer = Read-Answer 'Folder for your memory' (Format-Path $opt.dir)
+      if ($answer -and -not [IO.Path]::IsPathRooted($answer) -and -not $answer.StartsWith('~')) { $answer = Join-Path $HOME $answer }
       if ($answer) { $opt.dir = Resolve-FullPath $answer }
     }
     switch (Get-DirState $opt.dir) {
@@ -761,16 +989,21 @@ param(
       }
       'vault' {
         Test-PublicRemote
+        Test-RemotePrivacy
         Invoke-VaultFlow
         return
       }
       'kit' {
         Test-PublicRemote
+        Test-RemotePrivacy
+        Test-Nested
         Write-Ok ('memory-kit is downloaded in ' + (Format-Path $opt.dir) + '; continuing with the setup')
       }
       default {
-        Resolve-Ref
+        Test-Nested
         Select-Method
+        # The template has its own version; only a download needs to know which one to take.
+        if (-not $st.useGh) { Resolve-Ref }
         if ($st.interactive -and -not (Confirm-Step ('Create the memory in ' + (Format-Path $opt.dir) + '?') $true)) {
           Write-Note 'Nothing was changed.'
           Stop-Install 130
@@ -801,4 +1034,4 @@ param(
   }
   if ($FromFile) { exit $st.code }
   $global:LASTEXITCODE = $st.code
-} @{ Dir = $Dir; Yes = $Yes; NoGh = $NoGh; Source = $Source; Ref = $Ref; Mode = $Mode; Lang = $Lang; Sectors = $Sectors; Help = $Help } ([bool]$MyInvocation.MyCommand.Path)
+} @args

@@ -9,24 +9,30 @@
 #
 # It checks git and Node.js 22.5 or newer (it never installs them and never runs sudo: it prints
 # the commands), then creates the memory folder (default ~/memory). With the GitHub CLI logged in
-# it offers a new PRIVATE repository made from the template. Otherwise it downloads the kit without
-# its history and starts a fresh git repository with no remote, so a note can never be pushed to
-# the public kit repository. Then it runs the setup (node system/init.mjs). A folder that already
-# holds a memory is left alone: the installer offers doctor and upgrade instead.
+# it offers a new PRIVATE repository made from the template (after the mode is known: local never
+# gets a remote). Otherwise it downloads the kit without its history and starts a fresh git
+# repository with no remote, so a note can never be pushed to the public kit repository. Then it
+# runs the setup (node system/init.mjs). A folder that already holds a memory is left alone: the
+# installer offers doctor and upgrade instead. A folder whose GitHub remote is public, and a new
+# memory inside another git work tree (a client repository would pick up the notes), are refused.
 #
 # Options (environment variable in brackets):
-#   --dir <path>          the memory folder (MEMORY_KIT_DIR; default ~/memory)
+#   --dir <path>          the memory folder (MEMORY_KIT_DIR; default ~/memory); a folder typed at
+#                         the prompt is under your home folder unless it starts with / or ~
 #   --yes                 ask nothing (MEMORY_KIT_YES=1); the setup then needs the three answers
 #   --no-gh               never use the GitHub CLI (MEMORY_KIT_NO_GH=1)
 #   --source <url|dir>    where the kit comes from (MEMORY_KIT_SOURCE; default the public kit
 #                         repository); a folder is copied as it is, or cloned at --ref
 #   --ref <tag|branch>    the kit version (MEMORY_KIT_REF; default the newest v* tag, else the
-#                         default branch)
+#                         default branch); the GitHub template always has the newest, so an
+#                         explicit --ref downloads the kit instead
 #   --mode, --lang, --sectors   setup answers, passed to init (MEMORY_KIT_MODE, MEMORY_KIT_LANG,
 #                         MEMORY_KIT_SECTORS)
 # NO_COLOR turns colors off. Exit codes: 0 done, 1 a step failed, 2 a usage error or a missing
-# prerequisite, 3 refused (the folder is in the way, or run through sudo; MEMORY_KIT_ALLOW_ROOT=1
-# allows root), 130 cancelled.
+# prerequisite, 3 refused (the folder is in the way, a public remote, inside another git work tree
+# (MEMORY_KIT_ALLOW_NESTED=1 allows it), or run through sudo (MEMORY_KIT_ALLOW_ROOT=1 allows it)),
+# 130 cancelled. The privacy check of a remote asks gh, else the GitHub API without credentials
+# (MEMORY_KIT_GITHUB_API replaces https://api.github.com in tests).
 #
 # POSIX sh only (dash, bash 3.2 as sh on macOS, busybox ash): no arrays, no `local`, no pipefail.
 # Everything below sits in one { } group that ends with the call of main: the shell reads the whole
@@ -41,6 +47,7 @@ KIT_TEMPLATE=8Krystof8/memory-kit
 NODE_MIN_MAJOR=22
 NODE_MIN_MINOR=5
 NODE_FAST_MINOR=13
+TAB=$(printf '\t')
 
 # ---------------------------------------------------------------------------------------------
 # Output: two-space margin, one accent color, ASCII glyphs when the locale is not UTF-8.
@@ -113,6 +120,7 @@ options:
   --sectors core,work,...                                         MEMORY_KIT_SECTORS
   --help
 
+inside another git work tree only with MEMORY_KIT_ALLOW_NESTED=1
 exit codes: 0 done, 1 a step failed, 2 usage or missing prerequisite, 3 refused, 130 cancelled
 EOF
 }
@@ -157,6 +165,7 @@ parse_args() {
   if is_true "${MEMORY_KIT_NO_GH-}"; then MK_NO_GH=1; fi
   MK_SOURCE=${MEMORY_KIT_SOURCE-}
   MK_REF=${MEMORY_KIT_REF-}
+  MK_REF_GIVEN=0
   MK_MODE=${MEMORY_KIT_MODE-}
   MK_LANG=${MEMORY_KIT_LANG-}
   MK_SECTORS=${MEMORY_KIT_SECTORS-}
@@ -209,6 +218,7 @@ validate_args() {
     MK_SOURCE=$KIT_URL_DEFAULT
     MK_SOURCE_DEFAULT=1
   fi
+  if [ -n "$MK_REF" ]; then MK_REF_GIVEN=1; fi
 }
 
 # An absolute path without a trailing slash; ~ means the home folder.
@@ -239,6 +249,7 @@ detect_interactive() {
   fi
 }
 
+# One line from the terminal in $answer, without leading and trailing blanks ('' at end of input).
 read_answer() {
   answer=''
   if [ -t 0 ]; then
@@ -246,6 +257,7 @@ read_answer() {
   else
     IFS= read -r answer </dev/tty || answer=''
   fi
+  answer=$(printf '%s' "$answer" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
 }
 
 # confirm "question" Y|N: 0 for yes. Non-interactive runs take the default.
@@ -264,11 +276,34 @@ confirm() {
   esac
 }
 
+# The folder question shows ~/memory, so an answer like `notes` means ~/notes, not a folder in
+# whatever directory the installer was started from.
 ask_dir() {
   if [ "$MK_INTERACTIVE" != 1 ] || [ "$MK_DIR_GIVEN" = 1 ]; then return 0; fi
   printf '  %s?%s Folder for your memory %s[%s]%s ' "$C_ACCENT" "$C_RESET" "$C_DIM" "$(pretty_path "$MK_DIR")" "$C_RESET"
   read_answer
-  if [ -n "$answer" ]; then MK_DIR=$(absolute_path "$answer"); fi
+  case $answer in
+    '') ;;
+    / | /* | \~ | \~/*) MK_DIR=$(absolute_path "$answer") ;;
+    *) MK_DIR=$(absolute_path "${HOME:-/}/$answer") ;;
+  esac
+}
+
+# Where the memory lives, asked before GitHub is offered: mode local must never get a remote.
+ask_mode() {
+  printf '  %s?%s Where should the memory live?\n' "$C_ACCENT" "$C_RESET"
+  printf '      1 github    %sa private GitHub repository (your phone and cloud agents reach it)%s\n' "$C_DIM" "$C_RESET"
+  printf '      2 local     %sonly this computer (git without a remote)%s\n' "$C_DIM" "$C_RESET"
+  printf '      3 combined  %sa private GitHub repository plus a private folder on this computer%s\n' "$C_DIM" "$C_RESET"
+  while :; do
+    printf '    1, 2 or 3 %s[1]%s ' "$C_DIM" "$C_RESET"
+    read_answer
+    case $answer in
+      '' | 1 | github) MK_MODE=github; return 0 ;;
+      2 | local) MK_MODE=local; return 0 ;;
+      3 | combined) MK_MODE=combined; return 0 ;;
+    esac
+  done
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -413,14 +448,34 @@ inspect_dir() {
   if [ "$code" = 1 ]; then DIR_STATE=kit; else DIR_STATE=vault; fi
 }
 
-# The first remote of a folder that points at the public kit repository, or nothing.
-public_kit_remote() {
+# Every remote of a folder as "name<TAB>url" lines: fetch and push URLs, each once.
+remote_lines() {
   if [ ! -e "$1/.git" ]; then return 0; fi
-  git -C "$1" remote -v 2>/dev/null </dev/null | while read -r _name url _kind; do
+  names=$(git -C "$1" remote 2>/dev/null </dev/null) || return 0
+  for name in $names; do
+    {
+      git -C "$1" remote get-url --all "$name" 2>/dev/null </dev/null || true
+      git -C "$1" remote get-url --push --all "$name" 2>/dev/null </dev/null || true
+    } | while IFS= read -r url; do
+      printf '%s\t%s\n' "$name" "$url"
+    done
+  done | sort -u
+}
+
+has_remote() { [ -n "$(git -C "$MK_DIR" remote 2>/dev/null </dev/null || true)" ]; }
+
+# A URL for the screen: a user name or token before @ in https://user:token@host/ is left out.
+redact_url() {
+  printf '%s' "$1" | sed 's#^\([A-Za-z][A-Za-z0-9+.-]*://\)[^/@]*@#\1#'
+}
+
+# "name<TAB>url" of the first remote that points at the public kit repository, or nothing.
+public_kit_remote() {
+  remote_lines "$1" | while IFS="$TAB" read -r name url; do
     lower=$(printf '%s' "$url" | tr '[:upper:]' '[:lower:]')
     case $lower in
-      *8krystof8/memory-kit | *8krystof8/memory-kit.git | *8krystof8/memory-kit/)
-        printf '%s' "$url"
+      *[/:]8krystof8/memory-kit | *[/:]8krystof8/memory-kit.git | *[/:]8krystof8/memory-kit/)
+        printf '%s\t%s' "$name" "$url"
         break
         ;;
     esac
@@ -428,13 +483,119 @@ public_kit_remote() {
 }
 
 refuse_public_remote() {
-  remote=$(public_kit_remote "$MK_DIR")
-  if [ -n "$remote" ]; then
-    fail "$(pretty_path "$MK_DIR") is a clone of the public kit repository ($remote)."
+  found=$(public_kit_remote "$MK_DIR")
+  if [ -n "$found" ]; then
+    name=${found%%"$TAB"*}
+    fail "$(pretty_path "$MK_DIR") is a clone of the public kit repository (remote $name: $(redact_url "${found#*"$TAB"}"))."
     note 'Personal notes must never be pushed there. Remove that remote, or choose another folder:'
-    command_line "git -C $(shell_quote "$MK_DIR") remote remove origin"
+    command_line "git -C $(shell_quote "$MK_DIR") remote remove $(shell_quote "$name")"
     exit 3
   fi
+}
+
+# owner/name (lower case) of a remote URL on github.com, or nothing: another host, a folder, or
+# an ssh host alias the installer cannot resolve.
+github_repo_of() {
+  printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]' | sed -n \
+    -e 's#/*$##' \
+    -e 's#\.git$##' \
+    -e 's#^https\{0,1\}://\([^/@]*@\)\{0,1\}github\.com\(:[0-9]*\)\{0,1\}/\([^/]*\)/\([^/]*\)$#\3/\4#p' \
+    -e 's#^ssh://\([^/@]*@\)\{0,1\}github\.com\(:[0-9]*\)\{0,1\}/\([^/]*\)/\([^/]*\)$#\3/\4#p' \
+    -e 's#^git://github\.com/\([^/]*\)/\([^/]*\)$#\1/\2#p' \
+    -e 's#^\([^@/:]*@\)\{0,1\}github\.com:\([^/]*\)/\([^/]*\)$#\2/\3#p'
+}
+
+# public, private or unknown for the GitHub repository owner/name. Asks gh when it is logged in
+# (and not refused with --no-gh), else the GitHub API without credentials: it answers 404 for a
+# private repository (and for one that does not exist) and 200 for a public one.
+github_visibility() {
+  if [ "$MK_NO_GH" != 1 ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 </dev/null; then
+    seen=$(gh repo view "$1" --json visibility --jq .visibility 2>/dev/null </dev/null) || seen=''
+    case $seen in
+      PUBLIC) printf 'public'; return 0 ;;
+      PRIVATE | INTERNAL) printf 'private'; return 0 ;;
+    esac
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    printf 'unknown'
+    return 0
+  fi
+  status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "${MEMORY_KIT_GITHUB_API:-https://api.github.com}/repos/$1" </dev/null 2>/dev/null) || true
+  case $status in
+    200) printf 'public' ;;
+    404) printf 'private' ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+# A folder with a public GitHub remote is refused (exit 3): every push would publish the notes.
+# A copy of the template made public on github.com/new, or a fork, looks like any other folder.
+check_remote_privacy() {
+  lines=$(remote_lines "$MK_DIR")
+  if [ -z "$lines" ]; then return 0; fi
+  checked=' '
+  while IFS="$TAB" read -r name url; do
+    if [ -z "$url" ]; then continue; fi
+    repo=$(github_repo_of "$url")
+    if [ -z "$repo" ]; then
+      case $url in
+        *://* | *@*:*) warn "the remote $name ($(redact_url "$url")) is not on github.com: make sure it is private before you push" ;;
+      esac
+      continue
+    fi
+    case $checked in *" $repo "*) continue ;; esac
+    checked="$checked$repo "
+    case $(github_visibility "$repo") in
+      public)
+        fail "the remote $name is the PUBLIC GitHub repository $repo: everything pushed there is visible to everyone."
+        note 'Make it private first (on GitHub: Settings > General > Danger Zone > Change visibility),'
+        note 'or choose another folder with --dir. Then run the installer again.'
+        exit 3
+        ;;
+      private) ok "the GitHub repository $repo is not public" ;;
+      *) warn "cannot tell whether the GitHub repository $repo is private (no network?): make sure it is before you push" ;;
+    esac
+  done <<EOF
+$lines
+EOF
+}
+
+# The top folder of the git work tree that holds folder $1 (or its nearest existing parent), or
+# nothing.
+enclosing_work_tree() {
+  p=$1
+  while [ ! -d "$p" ]; do
+    p=${p%/*}
+    if [ -z "$p" ]; then p=/; fi
+  done
+  git -C "$p" rev-parse --show-toplevel 2>/dev/null </dev/null || true
+}
+
+# A memory inside another git work tree (a client repository, a home folder kept in git) would
+# be picked up by that repository's `git add -A`, and so would the private folder next to it.
+# Allowed when that repository ignores both folders, with MEMORY_KIT_ALLOW_NESTED=1, or when the
+# person says yes; otherwise refused (exit 3).
+refuse_nested() {
+  parent=${MK_DIR%/*}
+  if [ -z "$parent" ]; then parent=/; fi
+  top=$(enclosing_work_tree "$parent")
+  if [ -z "$top" ]; then return 0; fi
+  if git -C "$top" check-ignore -q -- "$MK_DIR/" </dev/null 2>/dev/null \
+    && git -C "$top" check-ignore -q -- "$MK_DIR-private/" </dev/null 2>/dev/null; then
+    return 0
+  fi
+  if is_true "${MEMORY_KIT_ALLOW_NESTED-}"; then
+    warn "$(pretty_path "$MK_DIR") is inside the git repository $(pretty_path "$top") (MEMORY_KIT_ALLOW_NESTED=1)"
+    return 0
+  fi
+  if [ "$MK_INTERACTIVE" = 1 ]; then
+    warn "$(pretty_path "$MK_DIR") is inside the git repository $(pretty_path "$top"): its next \`git add -A\` would take your notes and the private folder along."
+    if confirm 'Create the memory there anyway?' N; then return 0; fi
+  else
+    fail "$(pretty_path "$MK_DIR") is inside the git repository $(pretty_path "$top"): its next \`git add -A\` would take your notes and the private folder along."
+  fi
+  note 'Choose a folder outside it with --dir, or ignore both folders there (MEMORY_KIT_ALLOW_NESTED=1 skips this check).'
+  exit 3
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -506,11 +667,14 @@ download_kit() {
   fi
 }
 
-# gh is usable: installed, logged in, not refused, the default source, and a mode that allows a remote.
+# gh is usable: installed, logged in, not refused, the default source at its default version, and
+# a mode that allows a remote.
 gh_available() {
   GH_REASON=''
   if [ "$MK_NO_GH" = 1 ]; then GH_REASON='not used (--no-gh)'; return 1; fi
   if [ "$MK_SOURCE_DEFAULT" != 1 ]; then GH_REASON='not used (--source)'; return 1; fi
+  # The template always has the kit's default branch; a chosen version is downloaded instead.
+  if [ "$MK_REF_GIVEN" = 1 ]; then GH_REASON="not used (--ref $MK_REF: the template has only the newest kit)"; return 1; fi
   if [ "$MK_MODE" = local ]; then GH_REASON='not used (mode local keeps everything on this computer)'; return 1; fi
   if ! command -v gh >/dev/null 2>&1; then GH_REASON='not installed (optional)'; return 1; fi
   if ! gh auth status >/dev/null 2>&1 </dev/null; then GH_REASON='not logged in (optional: gh auth login)'; return 1; fi
@@ -521,11 +685,17 @@ gh_available() {
   return 0
 }
 
-# Chooses how the vault is made: USE_GH=1 for a private repository from the template.
+# Chooses how the vault is made: USE_GH=1 for a private repository from the template. The mode
+# comes first: a repository made on GitHub and then refused by mode local would be left behind.
 choose_method() {
   USE_GH=0
   if ! gh_available; then
     note "GitHub CLI $GH_REASON"
+    return 0
+  fi
+  if [ "$MK_INTERACTIVE" = 1 ] && [ -z "$MK_MODE" ]; then ask_mode; fi
+  if [ "$MK_MODE" = local ]; then
+    note 'GitHub CLI not used (mode local keeps everything on this computer)'
     return 0
   fi
   if [ "$MK_INTERACTIVE" = 1 ]; then
@@ -597,8 +767,23 @@ answers_complete() { [ -n "$MK_MODE" ] && [ -n "$MK_LANG" ] && [ -n "$MK_SECTORS
 finish_hint() {
   command_line "cd $(shell_quote "$MK_DIR")"
   command_line 'node system/init.mjs'
-  note 'or with the answers (--mode github, local or combined; --lang en or cs):'
-  command_line "node system/init.mjs --mode ${MK_MODE:-github} --lang ${MK_LANG:-en} --sectors ${MK_SECTORS:-core,work} --yes"
+  hint_mode=${MK_MODE:-github}
+  if has_remote; then
+    # init refuses mode local while the folder has a remote.
+    if [ "$hint_mode" = local ]; then hint_mode=github; fi
+    note 'or with the answers (--mode github or combined: this folder has a remote; --lang en or cs):'
+  else
+    note 'or with the answers (--mode github, local or combined; --lang en or cs):'
+  fi
+  command_line "node system/init.mjs --mode $hint_mode --lang ${MK_LANG:-en} --sectors ${MK_SECTORS:-core,work} --yes"
+}
+
+# init (or its wizard) ended with exit 130, or said "not now": the kit stays for the next run.
+setup_cancelled() {
+  note 'The setup was cancelled; the kit stays in place. Run the installer again to continue, or:'
+  finish_hint
+  line ''
+  exit 130
 }
 
 run_setup() {
@@ -624,13 +809,18 @@ run_setup() {
     node "$@" </dev/null || code=$?
   fi
   line ''
+  if [ "$code" = 130 ]; then setup_cancelled; fi
   if [ "$code" != 0 ]; then
     fail "the setup did not finish (init exit $code). Nothing is lost: run it again:"
     finish_hint
     line ''
+    # 2 is a usage error for both; init's other codes (1 refused or failed, 3 internal) are a
+    # step that failed here, since the installer's 3 means it refused on its own.
     if [ "$code" = 2 ]; then exit 2; fi
     exit 1
   fi
+  inspect_dir
+  if [ "$DIR_STATE" != vault ]; then setup_cancelled; fi
 }
 
 summary() {
@@ -641,7 +831,7 @@ summary() {
     command_line 'git add -A'
     command_line 'git commit -m "Set up memory"'
   fi
-  if [ "$USE_GH" = 1 ]; then command_line 'git push'; fi
+  if has_remote; then command_line 'git push'; fi
   command_line 'node system/memory.mjs doctor'
   command_line 'node system/memory.mjs connect --list'
   note 'connect --list shows your AI apps; node system/memory.mjs connect <app> links one'
@@ -744,17 +934,22 @@ main() {
       ;;
     vault)
       refuse_public_remote
+      check_remote_privacy
       vault_flow
       exit 0
       ;;
     kit)
       refuse_public_remote
+      check_remote_privacy
+      refuse_nested
       USE_GH=0
       ok "memory-kit is downloaded in $(pretty_path "$MK_DIR"); continuing with the setup"
       ;;
     new)
-      resolve_ref
+      refuse_nested
       choose_method
+      # The template has its own version; only a download needs to know which one to take.
+      if [ "$USE_GH" != 1 ]; then resolve_ref; fi
       if [ "$MK_INTERACTIVE" = 1 ] && ! confirm "Create the memory in $(pretty_path "$MK_DIR")?" Y; then
         note 'Nothing was changed.'
         exit 130
