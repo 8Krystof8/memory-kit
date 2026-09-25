@@ -44,7 +44,7 @@
       "group": "docs"
     },
     "docs/architecture.md": {
-      "sha256": "d10972a1fe6ebd01fc401bbba3d97438919cd8045fa86d4b563833be88b06362",
+      "sha256": "a3e3b807101eeb0d1d94aef809c4f0ef01180d1ae0bd165f33a23f23e335154a",
       "group": "docs"
     },
     "docs/integrations/chatgpt.md": {
@@ -96,7 +96,7 @@
       "group": "docs"
     },
     "docs/upgrading.md": {
-      "sha256": "a74631e61b4f0cbca89932735a9ac71c0de87177211fbc2465da75fbc5cd08bf",
+      "sha256": "3f85e04c5db937c7389b2a09e6ea7b67a20937e6e240024ee886c84685079b54",
       "group": "docs"
     },
     "system/VERSION": {
@@ -223,6 +223,10 @@
       "sha256": "f438f05e3e1155730eea8bf7b56a1c7caf6709b6a8f7a6ccb09cbeb6d2d448c3",
       "group": "code"
     },
+    "system/lib/lockcheck.mjs": {
+      "sha256": "26ba7ffdacb487f5ba3042895addfd2b4f8a1381374a2d259443166728f509c9",
+      "group": "code"
+    },
     "system/lib/mcp.mjs": {
       "sha256": "62bc18dee23f20eec0b30ef77a9278bd301e30cdabbbb020f5fff5d320ca1b36",
       "group": "code"
@@ -252,7 +256,7 @@
       "group": "code"
     },
     "system/lib/upgrade.mjs": {
-      "sha256": "630fbb136d1b414b9ea6ea234f8f604da3850254bab0b64f497539570b1e6dcf",
+      "sha256": "6264979f3d5d6984c0c9f9df6be19c9c08ad42c9662e83aec183694e6615cb38",
       "group": "code"
     },
     "system/lib/util.mjs": {
@@ -264,7 +268,7 @@
       "group": "code"
     },
     "system/memory.mjs": {
-      "sha256": "0b30f3a005b960a5803bc9f4616c37b164c000a17dbc1cda3ab15f60a6ef2f54",
+      "sha256": "12be2c6b6c45d151ace34f71aad832b4eeb5a3d89cc66655a84bf933ba791220",
       "group": "code"
     },
     "system/migrations/index.mjs": {
@@ -840,7 +844,7 @@
       "group": "tests"
     },
     "system/tests/helpers.mjs": {
-      "sha256": "4938bee29f2d6cebc57683fd39ba2a787e993ec488bc9716153c5ea2e0e418ff",
+      "sha256": "824b5b24552b9764f86e77ed5e3e40cb30d784f50419ac0b80fdc4007308cb1d",
       "group": "tests"
     },
     "system/tests/integration/kit.test.mjs": {
@@ -888,7 +892,7 @@
       "group": "tests"
     },
     "system/tests/unit/doctor.test.mjs": {
-      "sha256": "c3d288885915b013f6ec8a4310addaa8ce1b1c923aed680efbdc9ee8cf558201",
+      "sha256": "f6771ee880eb3a28797843a2b10fd896077c1fca33d88f76a5f3105b4bc89a76",
       "group": "tests"
     },
     "system/tests/unit/eval.test.mjs": {
@@ -919,6 +923,10 @@
       "sha256": "42e33eb8e00cb71b9b1ac467cf211532adc33e23499b7adca0ede5e81b9aa6ea",
       "group": "tests"
     },
+    "system/tests/unit/lockcheck.test.mjs": {
+      "sha256": "ff9c28203b6062ca54711637e7451ef55b672f7cc4d9fd8c5139434e473b658a",
+      "group": "tests"
+    },
     "system/tests/unit/pack.test.mjs": {
       "sha256": "2ed93acd22048d74a2ef012863cc5c8d8b9ca539dc9dae6013d7f2fdaf8a9f3d",
       "group": "tests"
@@ -932,7 +940,7 @@
       "group": "tests"
     },
     "system/tests/unit/review.test.mjs": {
-      "sha256": "b211a93cb2ae7b9ba00c77ea67ee6e2a3725d539f416de32635a042960b17a87",
+      "sha256": "434119eec7fde99f259e139f2b33f54119be1b153d5958c3319e208dd6c1547c",
       "group": "tests"
     },
     "system/tests/unit/schema.test.mjs": {

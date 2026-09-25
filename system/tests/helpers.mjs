@@ -9,6 +9,19 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export const KIT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+// Git must not repack or prune in the background while a test copies a repository: a detached
+// `git gc --auto` or `git maintenance` removed .git/objects folders under a copy in CI. Every git
+// the tests start (directly or through the CLI) inherits these settings.
+{
+  const n = Number(process.env.GIT_CONFIG_COUNT) || 0;
+  const settings = [['gc.auto', '0'], ['gc.autoDetach', 'false'], ['maintenance.auto', 'false']];
+  settings.forEach(([key, value], i) => {
+    process.env[`GIT_CONFIG_KEY_${n + i}`] = key;
+    process.env[`GIT_CONFIG_VALUE_${n + i}`] = value;
+  });
+  process.env.GIT_CONFIG_COUNT = String(n + settings.length);
+}
 export const FIXTURES_DIR = path.join(KIT_ROOT, 'system', 'tests', 'fixtures');
 
 /** The fixed as-of date of every fixture test. Fixture dates are chosen relative to it. */
@@ -90,8 +103,21 @@ export function overlay(src, dest) {
 
 /** Copies a whole folder to a new place (a second machine, in effect). */
 export function cloneDir(src, dest) {
-  fs.cpSync(src, dest, { recursive: true });
+  copyTree(src, dest);
   return dest;
+}
+
+// A plain recursive copy: fs.cpSync of Node 24 aborts the whole process when a folder vanishes
+// while it copies (a C++ exception), which a test must survive as an ordinary error at worst.
+function copyTree(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const from = path.join(src, entry.name);
+    const to = path.join(dest, entry.name);
+    if (entry.isDirectory()) copyTree(from, to);
+    else if (entry.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(from), to);
+    else fs.copyFileSync(from, to);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

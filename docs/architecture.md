@@ -1521,7 +1521,7 @@ upgraded), the runner is the source.
   marks a file check --generate rebuilds, `note` and `gitignore` one it may rewrite without changing
   the owner's part (`text`: the hash of a note's normalized text, or of the `.gitignore` lines
   outside the kit block); `after` is the raw hash when the upgrade finished. Then the recovery tool
-  (`tool/`: copies of `upgrade.mjs`, `kit.mjs`, `fsafe.mjs`, `migrations.mjs` and a generated
+  (`tool/`: copies of `upgrade.mjs`, `kit.mjs`, `fsafe.mjs`, `migrations.mjs`, `lockcheck.mjs` and a generated
   `rollback.mjs`) → the lock `.memory-kit/upgrade.lock` `{backup, from, to, started, pid, host,
   runner, recover}` → files via `fsafe.copyAtomic` (mode 0755 for `.githooks/*`) → proposed copies
   to `.memory-kit/upgrade/<to>/proposed/<rel>` → verified obsolete files removed → AGENTS block

@@ -96,11 +96,12 @@ async function doctorOf(root, opts = {}) {
   } catch (err) {
     configError = err;
   }
-  // No real `claude --version`: the Claude Code of the machine that runs the tests decides nothing.
+  // No real `claude --version` and a Git Bash that exists: neither the Claude Code nor the
+  // shell setup of the machine that runs the tests (a Windows runner too) decides anything.
   const { io, ...rest } = opts;
   const res = await diagnose(root, {
     kitRoot: root, cfg, configError, env: {}, home: emptyHome, clients: { findCli: () => null }, ...rest,
-    io: { claudeVersion: () => null, ...io },
+    io: { claudeVersion: () => null, gitBash: () => true, ...io },
   });
   assertValid(res.report);
   const byId = Object.fromEntries(res.report.checks.map((c) => [c.id, c]));

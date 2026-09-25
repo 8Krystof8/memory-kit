@@ -261,7 +261,7 @@ describe('init guards', () => {
     const root = kit();
     const home = tmpDir('home');
     const res = runInit(root, ['--mode', 'combined', '--lang', 'en', '--sectors', 'core,work,health',
-      '--private-root', path.join(home, 'alice-private'), '--today', TODAY, '--yes'], { env: { HOME: home } });
+      '--private-root', path.join(home, 'alice-private'), '--today', TODAY, '--yes'], { env: { HOME: home, USERPROFILE: home } });
     assert.equal(res.code, 0, res.stdout + res.stderr);
     const cfg = JSON.parse(readFile(root, 'memory.json'));
     assert.equal(cfg.roots[1].path, '~/alice-private');
