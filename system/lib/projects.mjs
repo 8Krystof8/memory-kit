@@ -37,7 +37,10 @@ export const STORES = Object.freeze(['local', 'git']);
 const LOCAL_MAP = 'projects.json';
 const LOCK_STALE_MS = 2 * 60 * 1000;
 
-/** A problem `project add` reports: reason is 'foreign_root' | 'inside_root' | 'no_id' | 'busy'. */
+/**
+ * A problem `project add` reports: reason is 'foreign_root' | 'inside_root' | 'no_id' | 'busy' |
+ * 'no_commit' | 'slow'.
+ */
 export class ProjectError extends Error {
   constructor(reason, detail = '') {
     super(`${reason}${detail ? `: ${detail}` : ''}`);
@@ -48,14 +51,29 @@ export class ProjectError extends Error {
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
+const runRaw = (cmd, args, cwd, timeout = 5000) => spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+
 function run(cmd, args, cwd, timeout = 5000) {
-  const res = spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  const res = runRaw(cmd, args, cwd, timeout);
   return res.status === 0 && typeof res.stdout === 'string' ? res.stdout.trim() : null;
 }
 
 /** The first 12 hex digits of the SHA-256 of a text: how logs and marker files name a repository. */
 export function repoHash(key) {
   return createHash('sha256').update(String(key)).digest('hex').slice(0, 12);
+}
+
+/**
+ * The vault's CLI as a command to paste into any shell: node and the script path in double quotes
+ * with forward slashes, which sh, bash (Git Bash too), zsh, PowerShell and cmd all read alike (Git
+ * Bash would drop the backslashes of an unquoted Windows path). A path with ", $, `, % or ! (which
+ * some of those shells expand inside double quotes) goes into single quotes instead.
+ */
+export function vaultCommand(cfg, { platform = process.platform } = {}) {
+  const root = platform === 'win32' ? String(cfg.root).replace(/\\/g, '/') : String(cfg.root);
+  const script = `${root.replace(/\/+$/, '')}/system/memory.mjs`;
+  if (!/["$`%!\r\n]/.test(script)) return `node "${script}"`;
+  return `node '${script.replace(/'/g, "'\\''")}'`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -66,14 +84,19 @@ export function repoHash(key) {
  * ports, www. and .git are dropped, ssh.github.com is github.com, and the Azure DevOps forms
  * (dev.azure.com/org/project/_git/repo, ssh.dev.azure.com:v3/…, org@vs-ssh.visualstudio.com:v3/…,
  * org.visualstudio.com/project/_git/repo) all give dev.azure.com/org/project/repo. A local path
- * or file:// URL gives file:<folder name>. null when nothing usable is left.
+ * or file:// URL gives file:<folder name>@<8 hex of the whole path> (a relative path is taken from
+ * `base`, the top of the repository), so two local remotes with the same folder name stay apart.
+ * null when nothing usable is left.
  */
-export function remoteKey(url) {
+export function remoteKey(url, base) {
   const s = String(url ?? '').trim();
   if (!s) return null;
   if (/^file:\/\//i.test(s) || /^[a-z]:[\\/]/i.test(s) || /^[\\/.~]/.test(s)) {
-    const name = s.replace(/[\\/]+$/, '').split(/[\\/]/).pop().replace(/\.git$/i, '').toLowerCase();
-    return name ? `file:${name}` : null;
+    let p = s.replace(/^file:\/\//i, '').replace(/^\/([a-z]:[\\/])/i, '$1');
+    if (/^\.\.?([\\/]|$)/.test(p) && base) p = path.resolve(base, p);
+    p = p.replace(/\\/g, '/').replace(/\/+$/, '').replace(/\.git$/i, '').toLowerCase();
+    const name = p.split('/').pop();
+    return name ? `file:${name}@${createHash('sha256').update(p).digest('hex').slice(0, 8)}` : null;
   }
   let host;
   let rest;
@@ -121,13 +144,42 @@ export function keyPath(key) {
   return i > 0 && i < k.length - 1 ? k.slice(i + 1) : null;
 }
 
+const ROOTS_CACHE_MAX = 200;
+
 /**
- * The project a folder belongs to: { top, key, name, legacy } or null outside a git repository.
- * key: the origin remote, else the first remote by name, else root:<12 hex of the root commit>,
- * else path:<folder name>. legacy is the path:<folder name> key older versions used. Worktrees
- * and subfolders give the key of their repository.
+ * The root commit of a repository without remotes (the first by hash when there are several):
+ * { sha } or { why: 'no_commit' | 'slow' }. Walking the history takes seconds in a big repository,
+ * so the answer is kept per top folder in cacheFile and only confirmed (one cheap git call) later.
  */
-export function identify(cwd) {
+function rootCommit(top, cacheFile) {
+  const real = realpathLoose(top);
+  const cache = cacheFile ? readJsonFile(cacheFile) : null;
+  const known = isObj(cache?.roots) ? cache.roots[real] : null;
+  if (typeof known === 'string' && /^[0-9a-f]{40,64}$/.test(known) && run('git', ['cat-file', '-e', `${known}^{commit}`], top) !== null) return { sha: known };
+  const res = runRaw('git', ['rev-list', '--max-parents=0', 'HEAD'], top);
+  if (res.error?.code === 'ETIMEDOUT' || (res.signal && res.status === null)) return { why: 'slow' };
+  const roots = (res.status === 0 ? String(res.stdout ?? '') : '').split('\n').map((l) => l.trim()).filter((l) => /^[0-9a-f]{40,64}$/.test(l)).sort();
+  if (!roots.length) return { why: 'no_commit' };
+  if (cacheFile) {
+    try {
+      const entries = Object.entries(isObj(cache?.roots) ? cache.roots : {}).filter(([k]) => k !== real);
+      writeAtomic(cacheFile, `${JSON.stringify({ version: 1, roots: Object.fromEntries([...entries.slice(-(ROOTS_CACHE_MAX - 1)), [real, roots[0]]]) })}\n`);
+    } catch {
+      /* the cache is only a shortcut */
+    }
+  }
+  return { sha: roots[0] };
+}
+
+/**
+ * The project a folder belongs to: { top, key, name, legacy, unsettled? } or null outside a git
+ * repository. key: the origin remote, else the first remote by name, else root:<12 hex of the root
+ * commit>, else path:<folder name> with unsettled 'no_commit' (no commit yet) or 'slow' (git took
+ * too long): such a key is not lasting, so no project is ever made under it. legacy is the
+ * path:<folder name> key older versions gave a repository without a remote. Worktrees and
+ * subfolders give the key of their repository. cacheFile keeps root commits (see identifyIn).
+ */
+export function identify(cwd, { cacheFile } = {}) {
   if (!cwd) return null;
   try {
     if (!fs.statSync(cwd).isDirectory()) return null;
@@ -145,17 +197,27 @@ export function identify(cwd) {
   }
   const names = [...urls.keys()].sort();
   let key = null;
+  let unsettled;
   for (const name of urls.has('origin') ? ['origin', ...names] : names) {
-    key = remoteKey(urls.get(name));
+    key = remoteKey(urls.get(name), top);
     if (key) break;
   }
   if (!key) {
-    const roots = (run('git', ['rev-list', '--max-parents=0', 'HEAD'], top) ?? '').split('\n').map((l) => l.trim()).filter((l) => /^[0-9a-f]{12,}$/.test(l)).sort();
-    key = roots.length ? `root:${roots[0].slice(0, 12)}` : `path:${folder}`;
+    const root = rootCommit(top, cacheFile);
+    key = root.sha ? `root:${root.sha.slice(0, 12)}` : `path:${folder}`;
+    unsettled = root.why;
   }
-  const name = /^(root|path):/.test(key) ? path.basename(top) : key.replace(/^file:/, '').split('/').pop();
-  return { top, key, name, legacy: `path:${folder}` };
+  const name = /^(root|path):/.test(key) ? path.basename(top) : key.replace(/^file:/, '').replace(/@[0-9a-f]+$/, '').split('/').pop();
+  return { top, key, name, legacy: `path:${folder}`, ...(unsettled ? { unsettled } : {}) };
 }
+
+/** identify() with the root-commit cache of the vault (.memory-kit/projects/roots.json). */
+export function identifyIn(cfg, cwd) {
+  return identify(cwd, { cacheFile: path.join(cfg.root, '.memory-kit', 'projects', 'roots.json') });
+}
+
+/** True for a key without a remote behind it (root:, path:): only these may use a legacy key. */
+const remoteless = (key) => /^(root|path):/.test(String(key ?? ''));
 
 /** True when dir is the vault or lies inside it. */
 export function insideVault(cfg, dir) {
@@ -253,23 +315,43 @@ export function sectorExists(cfg, id) {
   return typeof id === 'string' && NAME_RE.test(id) && fs.existsSync(path.join(cfg.root, cfg.dirs.sectors, id));
 }
 
+/** The host a git ssh alias stands for: 'github.com-work' → 'github.com'; other hosts stay. */
+function aliasBase(host) {
+  return /^(.*\.[^.-]+)-[^.]+$/.exec(host)?.[1] ?? host;
+}
+
 /**
- * The known project of an identity: { key, id, store } or null. The exact key first; else the one
- * sector mapped under the same owner/repo on another host (ssh host aliases such as
- * github.com-work); else the path:<folder> key of older versions. Mappings whose sector is gone
- * do not count.
+ * True when two remote hosts are one server: the same host, or the same host under an ssh alias
+ * that names it (github.com-work, github.com-home and github.com). Two different hosts
+ * (github.com and gitlab.example) never are, and neither is an alias that does not name its host
+ * ("work"): it may stand for any server, a client's own among them.
  */
-export function findProject(cfg, ident) {
+export function sameServer(a, b) {
+  return a === b || aliasBase(a) === aliasBase(b);
+}
+
+const hostOf = (key) => String(key).slice(0, String(key).indexOf('/'));
+
+/**
+ * The known project of an identity: { key, id, store, exact } or null. The exact key first. Then,
+ * unless exactOnly or the repository is ignored, a looser match: the one sector mapped under the
+ * same owner/repo on the same server under another host name (sameServer: ssh host aliases); for
+ * a repository without a remote, the path:<folder> key older versions used. Mappings whose sector
+ * is gone do not count.
+ */
+export function findProject(cfg, ident, { exactOnly = false } = {}) {
   if (!ident) return null;
   const all = mappings(cfg).filter((m) => sectorExists(cfg, m.id));
   const exact = all.find((m) => m.key === ident.key);
-  if (exact) return exact;
+  if (exact) return { ...exact, exact: true };
+  if (exactOnly || isIgnored(cfg, ident)) return null;
   const own = keyPath(ident.key);
   if (own) {
-    const same = all.filter((m) => keyPath(m.key) === own);
-    if (same.length && new Set(same.map((m) => m.id)).size === 1) return same[0];
+    const same = all.filter((m) => keyPath(m.key) === own && sameServer(hostOf(m.key), hostOf(ident.key)));
+    if (same.length && new Set(same.map((m) => m.id)).size === 1) return { ...same[0], exact: false };
   }
-  return all.find((m) => m.key === ident.legacy) ?? null;
+  const legacy = remoteless(ident.key) ? all.find((m) => m.key === ident.legacy) : null;
+  return legacy ? { ...legacy, exact: false } : null;
 }
 
 /** The dev sector id of a project, or null. */
@@ -312,29 +394,42 @@ export function unsetMapping(cfg, key, store) {
 
 const projectsDir = (cfg) => path.join(cfg.root, '.memory-kit', 'projects');
 const ignoredFile = (cfg) => path.join(projectsDir(cfg), 'ignored.json');
+const keyList = (v) => (Array.isArray(v) ? v.filter((k) => typeof k === 'string') : []);
 
-/** Ignored repository keys (.memory-kit/projects/ignored.json, never committed). */
+/**
+ * Ignored repository keys, never committed: "ignored" of <localRoot>/projects.json, plus
+ * .memory-kit/projects/ignored.json, where they go while the vault has no local root.
+ */
 export function ignoredKeys(cfg) {
-  const j = readJsonFile(ignoredFile(cfg));
-  const local = readLocalMap(cfg).ignored;
-  return [...new Set([...(Array.isArray(j?.ignored) ? j.ignored : []), ...(Array.isArray(local) ? local : [])].filter((k) => typeof k === 'string'))];
+  return [...new Set([...keyList(readLocalMap(cfg).ignored), ...keyList(readJsonFile(ignoredFile(cfg))?.ignored)])];
 }
 
+/** True when the repository is ignored (the folder key of older versions counts without a remote). */
 export function isIgnored(cfg, ident) {
   if (!ident) return false;
   const keys = new Set(ignoredKeys(cfg));
-  return keys.has(ident.key) || keys.has(ident.legacy);
+  return keys.has(ident.key) || (remoteless(ident.key) && keys.has(ident.legacy));
 }
 
-/** Adds (on) or removes a key from the ignore list; true when the list changed. */
+/**
+ * Adds (on) a key to the ignore list of the local root (or of .memory-kit/projects while there is
+ * none), or removes it (off) from both lists; true when a list changed.
+ */
 export function setIgnored(cfg, key, on) {
-  const j = readJsonFile(ignoredFile(cfg));
-  const list = Array.isArray(j?.ignored) ? j.ignored.filter((k) => typeof k === 'string') : [];
-  const has = list.includes(key);
-  if (on === has) return false;
-  const next = on ? [...list, key].sort() : list.filter((k) => k !== key);
-  writeAtomic(ignoredFile(cfg), `${JSON.stringify({ version: 1, ignored: next }, null, 2)}\n`);
-  return true;
+  const lr = localRoot(cfg);
+  const local = lr ? readLocalMap(cfg) : null;
+  const side = readJsonFile(ignoredFile(cfg));
+  const inLocal = keyList(local?.ignored).includes(key);
+  const inSide = keyList(side?.ignored).includes(key);
+  if (on) {
+    if (inLocal || inSide) return false;
+    if (local) writeLocalMap(cfg, { ...local, ignored: [...keyList(local.ignored), key].sort() });
+    else writeAtomic(ignoredFile(cfg), `${JSON.stringify({ version: 1, ignored: [...keyList(side?.ignored), key].sort() }, null, 2)}\n`);
+    return true;
+  }
+  if (inLocal) writeLocalMap(cfg, { ...local, ignored: keyList(local.ignored).filter((k) => k !== key) });
+  if (inSide) writeAtomic(ignoredFile(cfg), `${JSON.stringify({ version: 1, ignored: keyList(side.ignored).filter((k) => k !== key) }, null, 2)}\n`);
+  return inLocal || inSide;
 }
 
 /** The marker of the one-time hint in a repository the vault does not know. */
@@ -528,22 +623,26 @@ function takeLock(file) {
 
 /**
  * Creates the dev sector of a project and its notes, and links the repository to it. Without
- * force it does so only when projects.auto_add is on. store defaults to projects.store; title
- * names the project in its notes (and in the manifest of a git-store project). Returns
- * { id, store, created } ({ id: null, busy: true } while another process creates it).
+ * force it does so only when projects.auto_add is on and no project matches even loosely; with
+ * force (`project add`) only the exact key counts, so a repository that merely resembles a known
+ * one gets a project of its own. store defaults to projects.store; title names the project in its
+ * notes (and in the manifest of a git-store project). Returns { id, store, created } ({ id: null,
+ * busy: true } while another process creates it). Throws ProjectError('no_commit' | 'slow') for a
+ * repository without a lasting key.
  */
 export async function ensureProject(cfg, ident, { today, force = false, store, title } = {}) {
-  const existing = findProject(cfg, ident);
+  const existing = findProject(cfg, ident, { exactOnly: force });
   if (existing) return { id: existing.id, store: existing.store, created: false };
   const set = projectSettings(cfg);
   if (!force && !set.auto_add) return { id: null, created: false };
+  if (ident.unsettled || ident.key.startsWith('path:')) throw new ProjectError(ident.unsettled === 'slow' ? 'slow' : 'no_commit');
   const kind = STORES.includes(store) ? store : set.store;
   const lock = path.join(projectsDir(cfg), `${repoHash(ident.key)}.lock`);
   const fd = takeLock(lock);
   if (fd === null) return { id: null, created: false, busy: true };
   try {
     if (kind === 'local') await ensureLocalRoot(cfg);
-    const again = findProject(cfg, ident);
+    const again = findProject(cfg, ident, { exactOnly: force });
     if (again) return { id: again.id, store: again.store, created: false };
     const { repoFacts, clean } = await import('./repofacts.mjs');
     const facts = repoFacts(ident.top);
@@ -596,26 +695,35 @@ export function writeSession(cfg, sid, data) {
   if (sid) writeAtomic(path.join(sessionsDir(cfg), `${sid}.json`), `${JSON.stringify({ ...data, t: new Date().toISOString() })}\n`);
 }
 
-/** Links the open sessions (the last day) of a repository to its new sector, so they need no restart. */
+/**
+ * Links the open sessions (the last day) of a repository to its new sector, so they need no
+ * restart. The git state of now becomes their baseline: stop asks for a handoff only after the
+ * code changes from here on. Returns how many sessions were linked.
+ */
 export function linkSessions(cfg, top, sector, store) {
   let names = [];
   try {
     names = fs.readdirSync(sessionsDir(cfg)).filter((n) => n.endsWith('.json'));
   } catch {
-    return;
+    return 0;
   }
   const since = Date.now() - 86400000;
+  let g = null;
+  let linked = 0;
   for (const name of names) {
     const abs = path.join(sessionsDir(cfg), name);
     try {
       if (fs.statSync(abs).mtimeMs < since) continue;
       const s = JSON.parse(fs.readFileSync(abs, 'utf8'));
       if (s?.sector || !s?.top || path.resolve(s.top) !== path.resolve(top)) continue;
-      writeAtomic(abs, `${JSON.stringify({ ...s, sector, store })}\n`);
+      g ??= gitState(top);
+      writeAtomic(abs, `${JSON.stringify({ ...s, sector, store, head: g.head, dirty: g.dirty })}\n`);
+      linked++;
     } catch {
       /* a session file of another version */
     }
   }
+  return linked;
 }
 
 /** Removes session files older than 30 days (a few per session start at most). */
@@ -685,17 +793,16 @@ function bodyOf(cfg, sector, role, max) {
   }
 }
 
-/** The project brief printed above the start view; `warnings` lines come first; `git` is gitState(). */
-export function projectBrief(cfg, sector, ident, vaultCmd, { warnings = [], git } = {}) {
+/** The project brief printed above the start view; `git` is gitState(). */
+export function projectBrief(cfg, sector, ident, vaultCmd, { git } = {}) {
   const cs = cfg.lang === 'cs';
   const g = git ?? gitState(ident.top);
   const t = texts(cfg);
+  const record = `${vaultCmd} remember --project ${sector} --type gotcha|dead-end|todo|run|convention|decision "…"`;
   const out = [
-    ...warnings,
-    ...(warnings.length ? [''] : []),
     cs ? `# Projekt ${ident.name} · sektor paměti \`${sector}\`` : `# Project ${ident.name} · memory sector \`${sector}\``,
-    cs ? `Paměť projektu je mimo repo s kódem. Příkazy: \`${vaultCmd} <příkaz>\`. Zapsat: \`${vaultCmd} remember --type gotcha|dead-end|todo|run|convention|decision "…"\` (z repa projektu sám pozná projekt).`
-      : `The project memory lives outside the code repository. Commands: \`${vaultCmd} <command>\`. Record: \`${vaultCmd} remember --type gotcha|dead-end|todo|run|convention|decision "…"\` (run inside the repo, it finds the project).`,
+    cs ? `Paměť projektu je mimo repo s kódem. Příkazy: \`${vaultCmd} <příkaz>\`. Zapsat: \`${record}\`.`
+      : `The project memory lives outside the code repository. Commands: \`${vaultCmd} <command>\`. Record: \`${record}\`.`,
     '',
     cs ? `## Git: větev ${g.branch}, necommitnuté soubory ${g.dirty}` : `## Git: branch ${g.branch}, uncommitted files ${g.dirty}`,
     ...g.commits.map((c) => `- ${c}`),
@@ -772,10 +879,15 @@ export function autosyncLockState(cfg, { now = Date.now() } = {}) {
   return { state: 'busy', ...info };
 }
 
-/** Takes the autosync lock; returns a release function, or null while another autosync runs. */
+/**
+ * Takes the autosync lock; returns a release function, or null while another autosync runs.
+ * Throws when the lock cannot be made at all (the caller logs it). On Windows a lock file being
+ * deleted, or held by an antivirus scan, refuses to open for a moment: tried again three times.
+ */
 export function takeAutosyncLock(cfg) {
   const file = autosyncLockFile(cfg);
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  let held = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const fd = fs.openSync(file, 'wx');
@@ -792,6 +904,12 @@ export function takeAutosyncLock(cfg) {
         }
       };
     } catch (err) {
+      if (['EPERM', 'EACCES', 'EBUSY'].includes(err?.code) && held < 3 && fs.existsSync(file)) {
+        held++;
+        attempt--;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+        continue;
+      }
       if (err?.code !== 'EEXIST') throw err;
       if (autosyncLockState(cfg).state !== 'stale') return null;
       try {

@@ -70,10 +70,13 @@ export function readSessionFile(root, sid) {
   }
 }
 
-/** memory.json "projects" of a vault as written (an object), or null when it cannot be read. */
+/**
+ * memory.json "projects" of a vault as written (an object), or null when the file cannot be read
+ * or parsed (a UTF-8 byte order mark, as Windows PowerShell 5.1 writes it, is fine).
+ */
 export function rawProjects(root) {
   try {
-    const j = JSON.parse(fs.readFileSync(path.join(root, 'memory.json'), 'utf8'));
+    const j = JSON.parse(fs.readFileSync(path.join(root, 'memory.json'), 'utf8').replace(/^﻿/, ''));
     const p = j?.projects;
     return p && typeof p === 'object' && !Array.isArray(p) ? p : {};
   } catch {

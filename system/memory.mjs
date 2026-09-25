@@ -231,13 +231,15 @@ async function main(argv) {
 /**
  * The cheap part of `hook <agent> tool-failure`: memory.json read directly, the hook input read
  * and filtered. { done: true } when nothing more is to be done (the run is logged when the
- * project hooks are on); else { done: false, ctx } with the input for commands/hook.mjs.
+ * project hooks are on); else { done: false, ctx } with the input for commands/hook.mjs. A
+ * memory.json this cannot read goes the full way, where the config loader decides and logs.
  */
 async function earlyToolFailure(root, agent) {
   const started = performance.now();
   const hi = await import('./lib/hookinput.mjs');
   const projects = hi.rawProjects(root);
-  if (projects?.enabled !== true) return { done: true };
+  if (projects === null) return { done: false, ctx: {} };
+  if (projects.enabled !== true) return { done: true };
   const input = await hi.readHookInput();
   // A session the session start saw outside any known project has nothing to look up in.
   const outside = hi.readSessionFile(root, input.session_id)?.sector === null;

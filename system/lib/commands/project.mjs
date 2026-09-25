@@ -1,15 +1,17 @@
 // `project add|remove|ignore|unignore|list|status`: the coding projects of the vault, run inside
 // the code repository (docs/projects.md). add links the repository to a new dev sector (store
-// local keeps its notes and the link in the local root, store git in the repository); remove
-// unlinks it and keeps the notes; ignore silences the one-time hint of the session start; list
-// shows every project; status shows this repository, the settings, the last hook runs, recent
-// failures and the autosync lock. Every subcommand takes --json.
+// local keeps its notes and the link in the local root, store git in the repository; only its own
+// key counts, and a repository without a commit is refused); remove unlinks it and keeps the
+// notes; ignore silences the one-time hint of the session start (and a loose match to another
+// repository's project); list shows every project; status shows this repository, the settings,
+// the last hook runs, recent failures and the autosync lock. Every subcommand takes --json.
 
 import path from 'node:path';
 import fs from 'node:fs';
 import {
-  STORES, ProjectError, identify, insideVault, findProject, ensureProject, projectSettings, mappings, noteAbs, shownPath,
+  STORES, ProjectError, identifyIn, insideVault, findProject, ensureProject, projectSettings, mappings, noteAbs, shownPath,
   isIgnored, setIgnored, ignoredKeys, unsetMapping, hintMarker, lastSessions, linkSessions, autosyncLockState, sectorExists,
+  vaultCommand,
 } from '../projects.mjs';
 import { parseCli, usageError } from '../util.mjs';
 
@@ -26,9 +28,12 @@ const DEFAULTS = {
   'project.foreign_root': 'the local root "{path}" is a path of another operating system; fix memory.json "roots", or add the project with --store git',
   'project.inside_root': 'no local root could be made next to the vault ({path}); add one to memory.json "roots", or add the project with --store git',
   'project.no_id': 'no free sector id for the project; turn off old dev sectors first',
+  'project.no_commit': 'this repository has no commit yet, so nothing identifies it for good; make the first commit, then run project add again',
+  'project.slow': 'git took too long to find the first commit of this repository; try again in a moment',
   'project.off': 'the project hooks are off, so sessions do not see this project yet; turn them on with: {cmd} connect claude-code --projects',
   'project.removed': 'removed: this repository is no longer linked to sector {id}; its notes stay in {notes} (to archive them: {cmd} sector off {id})',
   'project.unknown': 'this repository is not a project; add it with: {cmd} project add',
+  'project.borrowed': 'this repository has no link of its own: it uses the project of {key} (sector {id}), found under another host name; nothing was removed. To stop that, run: {cmd} project ignore',
   'project.ignored': 'ignored: session starts in this repository stay silent',
   'project.already_ignored': 'this repository is already ignored',
   'project.ignore_known': 'this repository is project sector {id}; unlink it first with: {cmd} project remove',
@@ -41,6 +46,7 @@ const DEFAULTS = {
   'project.status_repo': 'repository: {key} ({top})',
   'project.status_no_repo': 'repository: none (not inside a git repository)',
   'project.status_known': 'project: sector {id}, store {store}, notes in {notes}',
+  'project.status_via': 'found through the link of {key} (another host name or an older key); {cmd} project add gives this repository a project of its own',
   'project.status_unknown': 'project: not added (add it with: {cmd} project add)',
   'project.status_ignored': 'project: ignored (undo it with: {cmd} project unignore)',
   'project.status_vault': 'project: none, this is the memory vault itself',
@@ -66,8 +72,6 @@ function say(cfg, key, vars = {}) {
   return DEFAULTS[key].replace(/\{(\w+)\}/g, (a, n) => (n in vars ? String(vars[n]) : a));
 }
 
-const quote = (p) => (/[\s"'&()]/.test(p) ? `"${p}"` : p);
-const vaultCommand = (cfg) => `node ${quote(path.join(cfg.root, 'system', 'memory.mjs'))}`;
 const notesOf = (cfg, id) => shownPath(cfg, path.dirname(noteAbs(cfg, id, 'overview')));
 
 /** Prints a result: the JSON object with --json, else the lines. Returns the exit code. */
@@ -81,7 +85,7 @@ function report(values, json, lines, code = 0) {
 function here(cfg, values) {
   const cwd = process.cwd();
   if (insideVault(cfg, cwd)) return { refused: report(values, { ok: false, reason: 'in_vault' }, [say(cfg, 'project.in_vault')], 1) };
-  const ident = identify(cwd);
+  const ident = identifyIn(cfg, cwd);
   if (!ident) return { refused: report(values, { ok: false, reason: 'not_repo' }, [say(cfg, 'project.not_repo')], 1) };
   if (insideVault(cfg, ident.top)) return { refused: report(values, { ok: false, reason: 'in_vault' }, [say(cfg, 'project.in_vault')], 1) };
   return { ident };
@@ -96,7 +100,8 @@ async function add(cfg, values) {
   if (!ident) return refused;
   const set = projectSettings(cfg);
   const off = set.enabled ? [] : [say(cfg, 'project.off', { cmd: vaultCommand(cfg) })];
-  const found = findProject(cfg, ident);
+  // Only this repository's own key counts: one that merely resembles a project gets its own.
+  const found = findProject(cfg, ident, { exactOnly: true });
   if (found) {
     return report(values, { ok: true, action: 'add', created: false, sector: found.id, store: found.store, key: ident.key, notes: notesOf(cfg, found.id) },
       [say(cfg, 'project.exists', { id: found.id, store: found.store, notes: notesOf(cfg, found.id) }), ...off]);
@@ -107,7 +112,7 @@ async function add(cfg, values) {
   } catch (err) {
     if (err?.code === 'SECTOR') return report(values, { ok: false, reason: err.reason, detail: err.message }, [err.message], 1);
     if (!(err instanceof ProjectError)) throw err;
-    return report(values, { ok: false, reason: err.reason }, [say(cfg, `project.${err.reason}`, { path: err.detail })], 1);
+    return report(values, { ok: false, reason: err.reason }, [say(cfg, `project.${err.reason}`, { path: err.detail, cmd: vaultCommand(cfg) })], 1);
   }
   if (!made.id) return report(values, { ok: false, reason: 'busy' }, [say(cfg, 'project.busy')], 1);
   setIgnored(cfg, ident.key, false);
@@ -123,6 +128,10 @@ function remove(cfg, values) {
   const cmd = vaultCommand(cfg);
   const found = findProject(cfg, ident);
   if (!found) return report(values, { ok: false, reason: 'unknown', key: ident.key }, [say(cfg, 'project.unknown', { cmd })], 1);
+  if (!found.exact) {
+    return report(values, { ok: false, reason: 'borrowed', key: ident.key, via: found.key, sector: found.id },
+      [say(cfg, 'project.borrowed', { key: found.key, id: found.id, cmd })], 1);
+  }
   unsetMapping(cfg, found.key, found.store);
   const notes = notesOf(cfg, found.id);
   return report(values, { ok: true, action: 'remove', sector: found.id, store: found.store, key: found.key, notes },
@@ -132,7 +141,7 @@ function remove(cfg, values) {
 function ignore(cfg, values, on) {
   const { ident, refused } = here(cfg, values);
   if (!ident) return refused;
-  const found = findProject(cfg, ident);
+  const found = findProject(cfg, ident, { exactOnly: true });
   if (on && found) {
     return report(values, { ok: false, reason: 'known', sector: found.id }, [say(cfg, 'project.ignore_known', { id: found.id, cmd: vaultCommand(cfg) })], 1);
   }
@@ -166,7 +175,7 @@ async function status(cfg, values) {
   const set = projectSettings(cfg);
   const cwd = process.cwd();
   const vault = insideVault(cfg, cwd);
-  const ident = vault ? null : identify(cwd);
+  const ident = vault ? null : identifyIn(cfg, cwd);
   const inVault = vault || (ident && insideVault(cfg, ident.top));
   const found = ident && !inVault ? findProject(cfg, ident) : null;
   const ignored = Boolean(ident && !found && isIgnored(cfg, ident));
@@ -175,9 +184,9 @@ async function status(cfg, values) {
   const lock = autosyncLockState(cfg);
   const settings = { enabled: set.enabled, auto_add: set.auto_add, store: set.store, autosync: set.autosync, checkpoint: set.checkpoint, error_lookup: set.error_lookup };
   const json = {
-    repo: ident && !inVault ? { key: ident.key, top: ident.top } : null,
+    repo: ident && !inVault ? { key: ident.key, top: ident.top, unsettled: ident.unsettled ?? null } : null,
     vault: Boolean(inVault),
-    project: found ? { sector: found.id, store: found.store, notes: notesOf(cfg, found.id) } : null,
+    project: found ? { sector: found.id, store: found.store, notes: notesOf(cfg, found.id), via: found.exact ? null : found.key } : null,
     ignored,
     settings,
     hooks: {
@@ -193,6 +202,8 @@ async function status(cfg, values) {
   else {
     lines.push(say(cfg, 'project.status_repo', { key: ident.key, top: ident.top }));
     if (found) lines.push(say(cfg, 'project.status_known', { id: found.id, store: found.store, notes: notesOf(cfg, found.id) }));
+    if (found && !found.exact) lines.push(say(cfg, 'project.status_via', { key: found.key, cmd }));
+    else if (ident.unsettled && !ignored) lines.push(say(cfg, `project.${ident.unsettled}`));
     else lines.push(say(cfg, ignored ? 'project.status_ignored' : 'project.status_unknown', { cmd }));
   }
   lines.push(say(cfg, 'project.status_settings', settings));

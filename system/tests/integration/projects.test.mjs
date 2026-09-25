@@ -1,9 +1,11 @@
 // Memory for coding projects end to end, in both languages and both stores: the hook events
-// (session start: nothing inside the vault or outside git, a one-time hint in a new repository,
-// the brief in a known one; stop; the error lookup and its filters; autosync against a local bare
-// remote), the project command, remember, and the proof that a local-store project leaves nothing
-// about the repository in the files git sees. The project settings are written into memory.json
-// directly; everything runs against a fake home.
+// (session start: nothing inside the vault or outside git, a one-time hint for the user in a new
+// repository, the brief in a known one, failures reported once to the user; stop, also after a
+// project added mid-session; the error lookup and its filters; autosync against a local bare
+// remote, never over an unfinished merge), the project command, remember, two clients' look-alike
+// repositories kept apart, and the proof that a local-store project or a note taken in an unknown
+// repository leaves nothing about it in the files git sees. The project settings are written into
+// memory.json directly; everything runs against a fake home.
 
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -50,7 +52,15 @@ const projectJson = (v, sub, repo, extra = []) => {
   }
 };
 const hook = (v, event, input, { agent = 'claude-code', cwd } = {}) => cli(v, ['hook', agent, event], { cwd: cwd ?? input.cwd, input: JSON.stringify(input) });
-const start = (v, repo, sid) => hook(v, 'session-start', { cwd: repo, session_id: sid, hook_event_name: 'SessionStart', source: 'startup' });
+const start = (v, repo, sid, agent) => hook(v, 'session-start', { cwd: repo, session_id: sid, hook_event_name: 'SessionStart', source: 'startup' }, { agent });
+/** Claude Code session start output: { user (systemMessage), context }. */
+function startOut(res) {
+  const out = res.stdout.trim();
+  if (!out.startsWith('{')) return { user: '', context: out };
+  const j = JSON.parse(out);
+  return { user: j.systemMessage ?? '', context: j.hookSpecificOutput?.additionalContext ?? '' };
+}
+const vaultCmd = (v) => `node "${v.root.replace(/\\/g, '/')}/system/memory.mjs"`;
 const failure = (v, repo, sid, extra) => hook(v, 'tool-failure', { cwd: repo, session_id: sid, hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', is_interrupt: false, ...extra });
 const logOf = (v) => {
   try {
@@ -126,12 +136,18 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
       const repo = codeRepo({ name: lang === 'cs' ? 'Pekárna obchod' : 'harbor shop' });
       const first = start(v, repo, 's1');
       assert.equal(first.code, 0, first.stderr);
-      const lines = first.stdout.trim().split('\n');
-      assert.ok(lines.length <= 2, first.stdout);
-      assert.match(first.stdout, / project add\b/);
-      assert.match(first.stdout, / project ignore\b/);
-      assert.ok(first.stdout.includes(path.join(v.root, 'system', 'memory.mjs')), 'the full vault command');
+      // The hint is for the user (systemMessage); the agent only learns not to act on it by itself.
+      const { user, context } = startOut(first);
+      assert.ok(user.split('\n').length <= 2, user);
+      assert.match(user, / project add\b/);
+      assert.match(user, / project ignore\b/);
+      assert.ok(user.includes(`${vaultCmd(v)} project add`), 'the full vault command, quoted, forward slashes');
+      assert.match(context, lang === 'cs' ? /jen tehdy, když o to uživatel požádá/ : /only when the user asks/);
       assert.equal(start(v, repo, 's2').stdout, '', 'the hint is shown once per repository');
+      const codexRepo = codeRepo({ remote: 'https://github.com/linden/codex.git', name: 'codex' });
+      const relay = start(v, codexRepo, 'c1', 'codex').stdout.trim();
+      assert.equal(relay.split('\n').length, 1, relay);
+      assert.match(relay, lang === 'cs' ? /Řekni to uživateli.*sám nespouštěj/ : /Tell the user once.*do not run either yourself/, 'Codex: plain text, the agent passes it on');
       assert.equal(start(v, v.root, 's3').stdout, '', 'the vault prints its own start view through its own hook');
       assert.equal(start(v, path.join(v.root, SECTORS[lang]), 's4').stdout, '', 'also in a subfolder of the vault');
       assert.equal(start(v, tmpDir('plain'), 's5').stdout, '', 'outside git: no personal memory in random folders');
@@ -142,7 +158,7 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
       assert.equal(start(v, other, 's6').stdout, '', 'an ignored repository is silent');
       assert.equal(projectJson(v, 'ignore', other).changed, false);
       assert.equal(projectJson(v, 'unignore', other).changed, true);
-      assert.match(start(v, other, 's7').stdout, / project add\b/, 'after unignore the hint comes once more');
+      assert.match(startOut(start(v, other, 's7')).user, / project add\b/, 'after unignore the hint comes once more');
       assert.equal(start(v, other, 's8').stdout, '');
 
       assert.ok(!fs.existsSync(path.join(v.root, SECTORS[lang], 'dev')), 'auto_add is off: no sector by itself');
@@ -152,6 +168,15 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
       const refused = project(v, 'add', tmpDir('plain'));
       assert.equal(refused.code, 1);
       assert.equal(project(v, 'add', v.root).code, 1, 'the vault is not a project');
+
+      // An ignore written where the settings contract puts it (the local root) is undone too.
+      const third = codeRepo({ remote: 'https://github.com/linden/third.git', name: 'third' });
+      fs.mkdirSync(path.join(v.root, '..', 'private'), { recursive: true });
+      fs.writeFileSync(path.join(v.root, '..', 'private', 'projects.json'), JSON.stringify({ version: 1, repos: {}, ignored: ['github.com/linden/third'] }));
+      assert.equal(projectJson(v, 'status', third).ignored, true);
+      assert.equal(projectJson(v, 'unignore', third).changed, true);
+      assert.equal(projectJson(v, 'status', third).ignored, false);
+      assert.deepEqual(JSON.parse(fs.readFileSync(path.join(v.root, '..', 'private', 'projects.json'), 'utf8')).ignored, []);
     });
 
     for (const store of ['local', 'git']) {
@@ -188,7 +213,7 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
         assert.match(list.projects[0].last_session, /^\d{4}-\d{2}-\d{2}T/);
 
         const status = projectJson(v, 'status', repo);
-        assert.deepEqual(status.project, { sector: 'dev', store, notes: notesDir });
+        assert.deepEqual(status.project, { sector: 'dev', store, notes: notesDir, via: null });
         assert.deepEqual(status.settings, { enabled: true, auto_add: false, store, autosync: false, checkpoint: true, error_lookup: true });
         assert.equal(status.hooks.last_runs['session-start'].ok, true);
         assert.deepEqual(status.hooks.failures, []);
@@ -200,9 +225,13 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
         assert.ok(rem.stdout.includes(`${notesDir}/${lang === 'cs' ? 'pasti' : 'gotchas'}.md`), rem.stdout);
         const secret = cli(v, ['remember', `token ${plantSecret().github}`], { cwd: repo });
         assert.equal(secret.code, 1);
-        const stray = cli(v, ['remember', 'the release checklist lives in the wiki'], { cwd: codeRepo({ remote: 'https://github.com/linden/other.git', name: 'other' }) });
+        const stray = cli(v, ['remember', 'the release checklist lives in the wiki', '--json'], { cwd: codeRepo({ remote: 'https://github.com/linden/other.git', name: 'other' }) });
         assert.equal(stray.code, 0, stray.stderr);
-        assert.match(stray.stdout, / project add\b/, 'an unknown repository: inbox, and how to add the project');
+        const kept = JSON.parse(stray.stdout);
+        assert.deepEqual([kept.project, kept.local], [false, store === 'local'], 'an unknown repository: the local inbox while the store is local');
+        assert.ok(kept.rel.startsWith(store === 'local' ? '../private/inbox/' : 'inbox/'), kept.rel);
+        assert.match(cli(v, ['remember', 'the wiki moved'], { cwd: codeRepo({ remote: 'https://github.com/linden/wiki.git', name: 'wiki' }) }).stdout, / project add\b/,
+          'and how to add the project');
 
         // Stop: silent without code changes, asks once after a change, then silent again; Codex too.
         const stopIn = { cwd: repo, session_id: 's1', stop_hook_active: false };
@@ -351,9 +380,40 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     const runs = logOf(v).filter((e) => e.event === 'tool-failure');
     assert.ok(runs.length >= 12 && runs.every((e) => e.ok === true && e.agent === 'claude-code' && Number.isInteger(e.ms)), JSON.stringify(runs));
 
-    // A hook run that failed shows up at the top of the next brief.
-    fs.appendFileSync(path.join(v.root, '.memory-kit', 'logs', 'hooks.jsonl'), `${JSON.stringify({ t: new Date().toISOString(), agent: 'claude-code', event: 'stop', ok: false, error: 'EACCES' })}\n`);
-    assert.match(start(v, repo, 's5').stdout.split('\n')[0], /^Warning: failed memory hook runs in the last 7 days: 1; run: node .*memory\.mjs.* doctor$/);
+    // A hook run that failed is told to the user once, at the next session start wherever it is.
+    const failedRun = () => fs.appendFileSync(path.join(v.root, '.memory-kit', 'logs', 'hooks.jsonl'),
+      `${JSON.stringify({ t: new Date().toISOString(), agent: 'claude-code', event: 'stop', ok: false, error: 'EACCES' })}\n`);
+    failedRun();
+    const told = startOut(start(v, repo, 's5'));
+    assert.match(told.user, /^Warning: failed memory hook runs since the last warning: 1; see: node ".*memory\.mjs" doctor$/);
+    assert.match(told.context, /^# Project shop/, 'the brief still reaches the agent');
+    assert.equal(startOut(start(v, repo, 's6')).user, '', 'once');
+    failedRun();
+    assert.match(startOut(start(v, v.root, 's7')).user, /^Warning: failed memory hook runs since the last warning: 1;/, 'in the vault too');
+    failedRun();
+    assert.match(startOut(start(v, tmpDir('plain'), 's8')).user, /^Warning: failed memory hook runs since the last warning: 1;/, 'and outside any repository');
+    failedRun();
+    assert.match(start(v, other, 's9', 'codex').stdout, /^memory-kit asks you to pass this on to the user: Warning: failed memory hook runs since the last warning: 1;/, 'Codex: the agent passes it on');
+  });
+
+  test('a memory.json with a byte order mark: the error lookup still works and is logged', () => {
+    const v = vault('en');
+    const repo = codeRepo();
+    assert.equal(projectJson(v, 'add', repo).code, 0);
+    assert.equal(cli(v, ['remember', '--type', 'gotcha', GOTCHA], { cwd: repo }).code, 0);
+    start(v, repo, 'b1');
+    const file = path.join(v.root, 'memory.json');
+    fs.writeFileSync(file, `\uFEFF${fs.readFileSync(file, 'utf8')}`);
+    const before = logOf(v).filter((e) => e.event === 'tool-failure').length;
+    assert.match(failure(v, repo, 'b1', { error: ENOSPC }).stdout, /ENOSPC watcher limit/);
+    assert.equal(logOf(v).filter((e) => e.event === 'tool-failure').length, before + 1);
+    // memory.json that cannot be read at all: nothing printed, exit 0, and the failure is logged.
+    fs.writeFileSync(file, '{ broken');
+    const broken = failure(v, repo, 'b1', { error: ENOSPC });
+    assert.deepEqual([broken.code, broken.stdout], [0, '']);
+    const last = logOf(v).at(-1);
+    assert.deepEqual([last.event, last.ok], ['tool-failure', false]);
+    assert.match(last.error, /memory\.json/);
   });
 
   test('autosync: commits and pushes, logs a failed push with its fix and the next session start shows it; a busy lock is skipped', () => {
@@ -385,25 +445,29 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.equal(projectJson(v, 'status', repo).lock.state, 'busy');
     fs.rmSync(lock);
 
-    // The push fails: logged with the step, the error and the fix; the next brief warns first.
+    // The push fails: logged with the step, the error and the fix; the next session start tells the user.
     git(v.root, ['remote', 'set-url', '--push', 'origin', path.join(tmpDir('gone'), 'missing.git')]);
     cli(v, ['hook', 'claude-code', 'autosync']);
     const failed = logOf(v).at(-1);
     assert.deepEqual([failed.event, failed.step, failed.ok], ['autosync', 'push', false], JSON.stringify(failed));
     assert.ok(failed.error && failed.fix.includes('memory.mjs') && failed.fix.includes('sync'), JSON.stringify(failed));
-    const brief = start(v, repo, 's1').stdout;
-    const first = brief.split('\n')[0];
-    assert.match(first, /^Warning: the last memory sync failed \(.* UTC, step push\): .+\. Fix: open the vault and run: node .*memory\.mjs.* sync$/);
+    const told = startOut(start(v, repo, 's1'));
+    assert.match(told.user, /^Warning: the last memory sync failed \(.* UTC, step push\): .+\. Fix: open the vault and run: node ".*memory\.mjs" sync$/);
+    assert.match(told.context, /^# Project shop/);
     const status = projectJson(v, 'status', repo);
     assert.deepEqual([status.hooks.last_sync.ok, status.hooks.last_sync.step], [false, 'push']);
     assert.equal(status.hooks.failures.length, 1);
 
-    // The remote folder is gone: the pull fails first, logged the same way.
+    // The remote folder is gone: the pull fails first, logged the same way, and told in a repository
+    // the vault does not know as well.
     git(v.root, ['remote', 'set-url', '--delete', '--push', 'origin', '.*']);
     fs.rmSync(remote, { recursive: true, force: true });
     cli(v, ['hook', 'claude-code', 'autosync']);
     const gone = logOf(v).at(-1);
     assert.ok(['pull', 'push'].includes(gone.step) && gone.ok === false && gone.fix.includes('sync'), JSON.stringify(gone));
+    const stranger = startOut(start(v, codeRepo({ remote: 'https://github.com/linden/stranger.git', name: 'stranger' }), 's1b'));
+    assert.match(stranger.user, /Warning: the last memory sync failed/);
+    assert.match(stranger.user, / project add\b/, 'next to the hint of the new repository');
 
     // A working remote again: session end starts the autosync in the background, the warning goes.
     git(path.dirname(remote), ['init', '-q', '--bare', remote]);
@@ -414,6 +478,168 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     const deadline = Date.now() + 30000;
     while (logOf(v).at(-1)?.step !== 'done' && Date.now() < deadline) spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 200)']);
     assert.equal(logOf(v).at(-1)?.step, 'done', JSON.stringify(logOf(v).at(-1)));
-    assert.ok(!/Warning/.test(start(v, repo, 's2').stdout.split('\n')[0]), 'a successful sync clears the warning');
+    assert.equal(startOut(start(v, repo, 's2')).user, '', 'a successful sync: nothing to tell');
+  });
+
+  test('autosync never concludes an unfinished merge, and a lock it cannot make is logged', () => {
+    const v = vault('en', { withGit: true, projects: { enabled: true, autosync: true } });
+    const waiting = path.join(v.root, 'waiting.md');
+    const base = fs.existsSync(waiting) ? fs.readFileSync(waiting, 'utf8') : '# Waiting\n';
+    fs.writeFileSync(waiting, base);
+    git(v.root, ['add', '-A']);
+    git(v.root, ['commit', '-q', '--allow-empty', '-m', 'base']);
+    const main = git(v.root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+    git(v.root, ['checkout', '-qb', 'side']);
+    fs.writeFileSync(waiting, `${base}\n- the side line\n`);
+    git(v.root, ['commit', '-qam', 'side']);
+    git(v.root, ['checkout', '-q', main]);
+    fs.writeFileSync(waiting, `${base}\n- the main line\n`);
+    git(v.root, ['commit', '-qam', 'main']);
+    const merge = spawnSync('git', ['merge', 'side'], { cwd: v.root, encoding: 'utf8', windowsHide: true });
+    assert.notEqual(merge.status, 0, 'a conflict');
+    assert.match(git(v.root, ['status', '--porcelain']), /^UU waiting\.md/m);
+    const head = git(v.root, ['rev-parse', 'HEAD']);
+    const res = cli(v, ['hook', 'claude-code', 'autosync']);
+    assert.deepEqual([res.code, res.stdout], [0, '']);
+    const logged = logOf(v).at(-1);
+    assert.deepEqual([logged.event, logged.step, logged.ok], ['autosync', 'check', false], JSON.stringify(logged));
+    assert.match(logged.error, /merge/);
+    assert.match(logged.fix, /abort.*sync/);
+    assert.equal(git(v.root, ['rev-parse', 'HEAD']), head, 'nothing committed');
+    assert.match(fs.readFileSync(waiting, 'utf8'), /^<<<<<<< /m, 'the conflict is left to the user');
+    // Resolved in the files but the merge not committed yet: still left alone.
+    fs.writeFileSync(waiting, `${base}\n- the main line\n- the side line\n`);
+    git(v.root, ['add', 'waiting.md']);
+    cli(v, ['hook', 'claude-code', 'autosync']);
+    assert.deepEqual([logOf(v).at(-1).step, logOf(v).at(-1).ok], ['check', false]);
+    assert.equal(git(v.root, ['rev-parse', 'HEAD']), head);
+    git(v.root, ['merge', '--abort']);
+
+    // The lock folder is a file: the failure is logged with a fix, the hook still exits 0.
+    fs.rmSync(path.join(v.root, '.memory-kit', 'capture'), { recursive: true, force: true });
+    fs.mkdirSync(path.join(v.root, '.memory-kit'), { recursive: true });
+    fs.writeFileSync(path.join(v.root, '.memory-kit', 'capture'), 'not a folder');
+    const locked = cli(v, ['hook', 'claude-code', 'autosync']);
+    assert.deepEqual([locked.code, locked.stdout, locked.stderr], [0, '', '']);
+    const lockLog = logOf(v).at(-1);
+    assert.deepEqual([lockLog.event, lockLog.step, lockLog.ok], ['autosync', 'lock', false], JSON.stringify(lockLog));
+    assert.ok(lockLog.error && lockLog.fix.includes('capture'), JSON.stringify(lockLog));
+    for (const e of logOf(v).filter((x) => x.event === 'autosync')) assert.ok(['lock', 'check', 'commit', 'pull', 'push', 'done'].includes(e.step), e.step);
+  });
+
+  test("two clients' look-alike repositories stay apart", () => {
+    const v = vault('en', { withGit: true });
+    const a = codeRepo({ remote: 'git@github.com:team/website.git', name: 'website' });
+    const b = codeRepo({ remote: 'https://gitlab.clientb.example/team/website.git', name: 'website' });
+    assert.equal(projectJson(v, 'add', a).sector, 'dev');
+    assert.equal(cli(v, ['remember', '--type', 'gotcha', 'ClientA payment gateway rejects amounts with three decimals'], { cwd: a }).code, 0);
+    const bStart = startOut(start(v, b, 'b1'));
+    assert.ok(!/ClientA|# Project/.test(`${bStart.user}${bStart.context}`), 'B gets the hint, not the notes of A');
+    assert.match(bStart.user, / project add\b/);
+    assert.equal(projectJson(v, 'status', b).project, null);
+    const kept = JSON.parse(cli(v, ['remember', '--type', 'decision', 'ClientB wants invoices monthly', '--json'], { cwd: b }).stdout);
+    assert.equal(kept.sector, null, 'nothing goes into the notes of A');
+    assert.equal(projectJson(v, 'remove', b).code, 1, 'B cannot unlink A');
+    const bAdd = projectJson(v, 'add', b);
+    assert.deepEqual([bAdd.created, bAdd.sector], [true, 'dev-2'], 'B gets a project of its own');
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(v.root, '..', 'private', 'projects.json'), 'utf8')).repos,
+      { 'github.com/team/website': 'dev', 'gitlab.clientb.example/team/website': 'dev-2' });
+    assert.equal(projectJson(v, 'remove', b).sector, 'dev-2');
+    assert.equal(projectJson(v, 'status', a).project.sector, 'dev', 'A keeps its project');
+
+    // The same repository through an ssh host alias still finds its project, marked as such; remove
+    // there unlinks nothing, and ignore stops the loose match.
+    const alias = codeRepo({ remote: 'git@github.com-work:team/website.git', name: 'website-work' });
+    const via = projectJson(v, 'status', alias);
+    assert.deepEqual(via.project && [via.project.sector, via.project.via], ['dev', 'github.com/team/website']);
+    const refused = projectJson(v, 'remove', alias);
+    assert.deepEqual([refused.code, refused.reason, refused.via], [1, 'borrowed', 'github.com/team/website']);
+    const own = codeRepo({ remote: 'git@github.com-home:team/website.git', name: 'website-home' });
+    assert.deepEqual([projectJson(v, 'add', own).created, projectJson(v, 'status', own).project.via], [true, null], 'add there makes a project of its own');
+    assert.equal(projectJson(v, 'ignore', alias).changed, true);
+    assert.equal(projectJson(v, 'status', alias).project, null);
+    assert.equal(projectJson(v, 'status', a).project.sector, 'dev');
+
+    // A repository without a commit has no lasting key: project add refuses, and a repository
+    // elsewhere with the same folder name is not taken for it.
+    const empty = path.join(tmpDir('empty'), 'api');
+    fs.mkdirSync(empty, { recursive: true });
+    git(empty, ['init', '-q']);
+    const noCommit = projectJson(v, 'add', empty);
+    assert.deepEqual([noCommit.code, noCommit.reason], [1, 'no_commit']);
+    assert.equal(start(v, empty, 'e1').stdout, '', 'no hint either until the first commit');
+    assert.equal(projectJson(v, 'status', empty).repo.unsettled, 'no_commit');
+    assert.match(project(v, 'status', empty).stdout, /no commit yet/);
+    const api = codeRepo({ remote: 'https://github.com/otherclient/billing-api.git', name: 'api' });
+    assert.equal(projectJson(v, 'status', api).project, null);
+
+    // Two local remotes with the same folder name are two projects.
+    const bare1 = path.join(tmpDir('bare1'), 'shop.git');
+    const bare2 = path.join(tmpDir('bare2'), 'shop.git');
+    const s1 = codeRepo({ remote: bare1, name: 's1' });
+    const s2 = codeRepo({ remote: bare2, name: 's2' });
+    assert.equal(projectJson(v, 'add', s1).created, true);
+    assert.equal(projectJson(v, 'status', s2).project, null);
+
+    // Nothing about either client reached the files git sees.
+    assert.deepEqual(leaks(v.root, 'clienta|clientb|team/website'), []);
+    clean(a);
+    clean(b);
+  });
+
+  test('a note in a repository that is not a project stays on this computer', () => {
+    const v = vault('en', { withGit: true });
+    const repo = codeRepo({ remote: 'git@github.com:acme-corp/portal.git', name: 'portal' });
+    const res = cli(v, ['remember', '--type', 'gotcha', 'Acme portal: SSO callback breaks when tenant id has uppercase'], { cwd: repo });
+    assert.equal(res.code, 0, res.stderr);
+    assert.match(res.stdout, /local inbox.*\.\.\/private\/inbox\/.*\.md.* project add/);
+    const [file] = fs.readdirSync(path.join(v.root, '..', 'private', 'inbox'));
+    assert.match(fs.readFileSync(path.join(v.root, '..', 'private', 'inbox', file), 'utf8'), /SSO callback breaks/);
+    assert.deepEqual(leaks(v.root, 'acme'), []);
+    const check = checkJson(v.root, ['--generate', '--strict']);
+    assert.equal(check.code, 0, describeFindings(check));
+    // In the vault itself, or outside any repository, a note goes into the vault's inbox as before.
+    const own = JSON.parse(cli(v, ['remember', 'buy flour', '--json'], { cwd: v.root }).stdout);
+    assert.match(own.rel, /^inbox\//);
+    assert.match(JSON.parse(cli(v, ['remember', 'call the baker', '--json'], { cwd: tmpDir('plain') }).stdout).rel, /^inbox\//);
+    clean(repo);
+  });
+
+  test('stop after a project added mid-session asks only when the code changes from then on', () => {
+    const v = vault('en');
+    const repo = codeRepo();
+    assert.match(start(v, repo, 'm1').stdout, / project add\b/, 'a new repository: the hint');
+    assert.equal(projectJson(v, 'add', repo).created, true);
+    const stopIn = { cwd: repo, session_id: 'm1', stop_hook_active: false };
+    assert.equal(hook(v, 'stop', stopIn).stdout, '', 'a clean tree: nothing to ask');
+    fs.appendFileSync(path.join(repo, 'index.js'), 'console.log(3);\n');
+    const ask = JSON.parse(hook(v, 'stop', stopIn).stdout);
+    assert.equal(ask.decision, 'block');
+    assert.match(ask.reason, /remember --project dev --type gotcha/, 'the command names the project, whatever the cwd');
+    git(repo, ['checkout', '--', 'index.js']);
+    // A record linked by an older version (no baseline): the first stop only records it.
+    const sessions = path.join(v.root, '.memory-kit', 'capture', 'sessions');
+    fs.writeFileSync(path.join(sessions, 'old.json'), JSON.stringify({ top: repo, sector: 'dev', store: 'local' }));
+    fs.appendFileSync(path.join(repo, 'index.js'), 'console.log(4);\n');
+    assert.equal(hook(v, 'stop', { ...stopIn, session_id: 'old' }).stdout, '');
+    assert.equal(hook(v, 'stop', { ...stopIn, session_id: 'old' }).stdout, '', 'no change since the baseline');
+    git(repo, ['checkout', '--', 'index.js']);
+  });
+
+  test('session records: also in the vault and outside projects, old ones pruned; Codex in the vault gets the start view', () => {
+    const v = vault('en');
+    const sessions = path.join(v.root, '.memory-kit', 'capture', 'sessions');
+    fs.mkdirSync(sessions, { recursive: true });
+    const old = path.join(sessions, 'old1.json');
+    fs.writeFileSync(old, JSON.stringify({ top: null, sector: null }));
+    const past = new Date(Date.now() - 60 * 86400000);
+    fs.utimesSync(old, past, past);
+    assert.equal(start(v, v.root, 'v1').stdout, '');
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(sessions, 'v1.json'), 'utf8')).sector, null, 'a vault session is recorded');
+    assert.ok(!fs.existsSync(old), 'records older than 30 days are pruned on any session start');
+    assert.equal(failure(v, v.root, 'v1', { error: ENOSPC }).stdout, '');
+    const codex = start(v, v.root, 'v2', 'codex');
+    assert.equal(codex.code, 0, codex.stderr);
+    assert.ok(codex.stdout.trim().length > 0 && !codex.stdout.trim().startsWith('{'), 'Codex: the start view as plain text');
   });
 });
