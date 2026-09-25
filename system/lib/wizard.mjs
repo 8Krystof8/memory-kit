@@ -27,7 +27,7 @@ export const WIZARD_DEFAULTS = {
   'wizard.tagline': 'set up your memory',
   'wizard.lang.question': 'Language of the memory (folder names, note fields, messages)',
   'wizard.mode.question': 'Where should the memory live?',
-  'wizard.mode.github': 'a private GitHub repository; your phone and cloud agents reach it',
+  'wizard.mode.github': 'a private GitHub repository; phone and cloud agents reach it',
   'wizard.mode.local': 'only this computer; git without a remote',
   'wizard.mode.combined': 'a private GitHub repository plus a private folder here',
   'wizard.sectors.question': 'Which sectors (areas of life)?',
@@ -553,6 +553,7 @@ export async function runWizard({ root, opts = {}, ui: givenUi, env = process.en
       ui.error(err.message);
       return 2;
     }
+    ui.close();
     throw err;
   }
 }
@@ -578,6 +579,7 @@ export async function runSetup({ root, cfg, ui: givenUi, env = process.env, ...i
       ui.cancelled(t('tui.cancelled'));
       return 130;
     }
+    ui.close();
     throw err;
   }
 }

@@ -120,7 +120,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "3c1fe41f30a85fd85ce5617a4f9e9cf1664f717c8e543bbb4a74283e290c37cb",
+      "sha256": "53820e0d8dcc1f1307b7f0964fcb4fe0f77495af884025b43a7d756c945c5bed",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -204,7 +204,7 @@
       "group": "code"
     },
     "system/lib/commands/upgrade.mjs": {
-      "sha256": "7ce224ef3a660878893e14cd01273bb2c10b12f334594aab50e52938ae5d2420",
+      "sha256": "f8f44e4e97de201c31b8294ddf1aebf201447b8535bd771d4ce0ae4d90312b74",
       "group": "code"
     },
     "system/lib/config.mjs": {
@@ -288,7 +288,7 @@
       "group": "code"
     },
     "system/lib/tui.mjs": {
-      "sha256": "a520297528bdfe9274456a8c247e0c716b26bf6fc9b252517f2b358afee29be5",
+      "sha256": "98fa16fee45367bdd1ffa90385d40e9f0f895d0dff1043ec501331a3957ecb92",
       "group": "code"
     },
     "system/lib/upgrade.mjs": {
@@ -304,7 +304,7 @@
       "group": "code"
     },
     "system/lib/wizard.mjs": {
-      "sha256": "ccc3c8e3344831529e8b2007c68cafb59bb08f15f587bcf0a6c620849264ead0",
+      "sha256": "c0494d463c1963472076d1c19648e2b901c09af901476069da209e5728612d65",
       "group": "code"
     },
     "system/memory.mjs": {
@@ -1016,7 +1016,7 @@
       "group": "tests"
     },
     "system/tests/unit/tui.test.mjs": {
-      "sha256": "f223bf1e8e3ffcaecf6d88fe6fd19055f55a2814854c88cf729fa9acbc2c54b2",
+      "sha256": "dbbf90d5a3c60100550593a684d1f12eb1421c0d57a8a1bb6f353fddb82e6398",
       "group": "tests"
     },
     "system/tests/unit/util.test.mjs": {

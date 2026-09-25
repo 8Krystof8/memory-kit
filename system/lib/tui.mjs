@@ -124,7 +124,7 @@ export function capabilities({ stdout = process.stdout, stdin = process.stdin, e
 // ---------------------------------------------------------------------------------------------
 // Text width (no dependencies): ANSI stripped, NFC, zero-width marks, East Asian wide = 2
 
-const SEGMENTER = new Intl.Segmenter();
+let segmenter = null; // created on first use: it costs about 10 ms
 const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}\p{Default_Ignorable_Code_Point}]+$/u;
 const EMOJI = /^\p{RGI_Emoji}$/v;
 const ASCII = /^[\x20-\x7e]*$/;
@@ -138,7 +138,7 @@ function isWide(c) {
 }
 
 const clusterWidth = (g) => (ZERO_WIDTH.test(g) ? 0 : EMOJI.test(g) || isWide(g.codePointAt(0)) ? 2 : 1);
-const clusters = (s) => [...SEGMENTER.segment(s.normalize('NFC'))].map((x) => x.segment);
+const clusters = (s) => [...(segmenter ??= new Intl.Segmenter()).segment(s.normalize('NFC'))].map((x) => x.segment);
 
 export const stripAnsi = (s) => stripVTControlCharacters(String(s));
 
@@ -414,6 +414,7 @@ export function createUI(opts = {}) {
   }
 
   // --- spinner ------------------------------------------------------------------------------
+  let turning = null; // the spinner that runs now, for close()
   /**
    * { start(msg), message(msg), stop(msg, state), clear() }: a turning frame and a message; stop
    * leaves "◇  msg" (state ok, warn, error, info), clear leaves nothing. Without a live terminal
@@ -432,10 +433,11 @@ export function createUI(opts = {}) {
       process.exitCode = 130;
       stdout.write('', () => process.exit(130));
     };
-    return {
+    const api = {
       start(msg = '') {
         if (running) return;
         running = true;
+        turning = api;
         text = msg;
         if (!caps.live) return;
         if (withSpacer) print([spacer()]);
@@ -455,6 +457,7 @@ export function createUI(opts = {}) {
       stop(msg = text, state = 'ok') {
         if (!running) return;
         running = false;
+        if (turning === api) turning = null;
         clearInterval(timer);
         if (signals) process.removeListener('SIGINT', onSigint);
         const done = header(msg, state);
@@ -464,6 +467,7 @@ export function createUI(opts = {}) {
       clear() {
         if (!running) return;
         running = false;
+        if (turning === api) turning = null;
         clearInterval(timer);
         if (signals) process.removeListener('SIGINT', onSigint);
         if (!caps.live) return;
@@ -475,6 +479,13 @@ export function createUI(opts = {}) {
         return running;
       },
     };
+    return api;
+  }
+
+  /** After an unexpected error: a turning spinner ends as failed and the cursor is shown. */
+  function close() {
+    turning?.stop(undefined, 'error');
+    showCursor();
   }
 
   // --- prompts ------------------------------------------------------------------------------
@@ -798,5 +809,6 @@ export function createUI(opts = {}) {
       translate = typeof fn === 'function' ? fn : null;
     },
     intro, outro, step, note, info, warn, error, success, message, command, spinner, select, confirm, text, multiselect, cancelled,
+    close,
   };
 }

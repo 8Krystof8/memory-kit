@@ -831,6 +831,7 @@ async function runScreen(ui, { cfg, values, context, hints, parent, runner, src,
       ui.cancelled();
       return 130;
     }
+    ui.close?.();
     throw err;
   }
 }

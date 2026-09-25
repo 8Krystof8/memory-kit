@@ -511,7 +511,7 @@
     "wizard.tagline": "nastavení paměti",
     "wizard.lang.question": "Jazyk paměti (názvy složek, pole poznámek, hlášky)",
     "wizard.mode.question": "Kde má paměť bydlet?",
-    "wizard.mode.github": "soukromé repo na GitHubu; dosáhne na něj telefon i cloudoví agenti",
+    "wizard.mode.github": "soukromé repo na GitHubu, dosáhne na něj telefon i cloud",
     "wizard.mode.local": "jen tento počítač; git bez vzdáleného repa",
     "wizard.mode.combined": "soukromé repo na GitHubu a k tomu soukromá složka tady",
     "wizard.sectors.question": "Jaké sektory (oblasti života)?",

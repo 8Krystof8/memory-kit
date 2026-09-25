@@ -399,3 +399,14 @@ describe('spinner in a terminal', () => {
     assert.equal(screen(term.output()), '|\no  Done\n');
   });
 });
+
+describe('close', () => {
+  test('ends a turning spinner as failed and shows the cursor', () => {
+    const { ui, term } = setup({ color: false });
+    ui.spinner().start('Planning');
+    ui.close();
+    assert.equal(screen(term.output()), '│\n■  Planning\n');
+    assertCursorShown(term.output());
+    ui.close();
+  });
+});
