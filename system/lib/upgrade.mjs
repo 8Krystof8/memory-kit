@@ -469,6 +469,20 @@ function fileActions({ vaultRoot, source, force, golden, vaultManifest, vaultHis
  * the data (migrations), and why it cannot run: refusals (hard) and blockers (--force overrides).
  * `migrations` replaces the source's system/migrations list (for tests).
  */
+/**
+ * True when the vault's kit and the source are other builds of one version: both kit.json files
+ * are there, and they list other files or hashes (a draft published under the number of a release,
+ * or a development build). Such a source is an upgrade, not "up to date".
+ */
+export function otherBuild(vaultRoot, sourceRoot) {
+  const mine = loadManifest(vaultRoot);
+  const theirs = loadManifest(sourceRoot);
+  if (!mine?.files || !theirs?.files || mine.version !== theirs.version) return false;
+  const a = Object.entries(mine.files);
+  if (a.length !== Object.keys(theirs.files).length) return true;
+  return a.some(([rel, e]) => theirs.files[rel]?.sha256 !== e?.sha256);
+}
+
 export async function planUpgrade({ vault, source, force = false, nodeVersion = process.versions.node, migrations } = {}) {
   const vaultRoot = path.resolve(vault);
   const sourceRoot = path.resolve(source);
@@ -484,6 +498,7 @@ export async function planUpgrade({ vault, source, force = false, nodeVersion = 
     golden: conf.golden,
     force: Boolean(force),
     upToDate: false,
+    refresh: false,
     ok: false,
     refusals: [],
     blockers: [],
@@ -512,7 +527,11 @@ export async function planUpgrade({ vault, source, force = false, nodeVersion = 
   const man = src.manifest;
   plan.proposedDir = proposedDir(plan.to);
   const order = compareVersions(plan.to, plan.from);
-  if (order === 0) plan.upToDate = true;
+  // The same number: up to date, unless the source is another build of it (otherBuild).
+  if (order === 0) {
+    plan.refresh = otherBuild(vaultRoot, sourceRoot);
+    plan.upToDate = !plan.refresh;
+  }
   if (order < 0 && !force) refuse('downgrade', { from: plan.from, to: plan.to });
   if (compareVersions(plan.from, man.upgrade_from) < 0) refuse('too_old', { from: plan.from, min: man.upgrade_from });
   if (compareVersions(nodeVersion, man.node) < 0) refuse('node', { need: man.node, have: nodeVersion });
@@ -972,13 +991,86 @@ function markRestored(backupDir) {
   writeBackupJson(backupDir, data);
 }
 
+// The command the agents' project hooks run (`memory.mjs hook <agent> <event>`, from 0.1.2 on).
+const HOOK_COMMAND = 'system/lib/commands/hook.mjs';
+
+/** The user-level hook files of the agents: [{ agent, file }] ($CLAUDE_CONFIG_DIR, $CODEX_HOME). */
+function agentHookFiles({ env = process.env, home = os.homedir() } = {}) {
+  const dir = (name, fallback) => (typeof env[name] === 'string' && env[name].trim() ? path.resolve(env[name]) : path.join(home, fallback));
+  return [
+    { agent: 'claude-code', file: path.join(dir('CLAUDE_CONFIG_DIR', '.claude'), 'settings.json') },
+    { agent: 'codex', file: path.join(dir('CODEX_HOME', '.codex'), 'hooks.json') },
+  ];
+}
+
+/** A path for comparing: real when it exists, forward slashes, no case on Windows. */
+function comparable(p) {
+  let s = String(p);
+  try {
+    s = fs.realpathSync.native(s);
+  } catch {
+    /* as written */
+  }
+  s = s.replace(/\\/g, '/').replace(/\/+$/, '');
+  return process.platform === 'win32' ? s.toLowerCase() : s;
+}
+
+/**
+ * The agents whose user-level hooks run this vault's `system/memory.mjs hook` (connect --projects):
+ * [{ agent, file }]. A file that cannot be read or parsed counts when its text names the script.
+ */
+export function vaultHooks(root, { env = process.env, home = os.homedir() } = {}) {
+  const script = comparable(path.join(root, 'system', 'memory.mjs'));
+  const out = [];
+  for (const { agent, file } of agentHookFiles({ env, home })) {
+    let text;
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    // [text, [scripts]] per hook entry: the exec form names the script in args[0].
+    const quoted = (t) => [...t.matchAll(/"([^"]*memory\.mjs)"|'([^']*memory\.mjs)'|(\S*memory\.mjs)/g)].map((m) => m[1] ?? m[2] ?? m[3]);
+    const entries = [];
+    try {
+      const walk = (v) => {
+        if (Array.isArray(v)) v.forEach(walk);
+        else if (v && typeof v === 'object') {
+          if (typeof v.command === 'string') {
+            const args = Array.isArray(v.args) ? v.args.filter((a) => typeof a === 'string') : null;
+            entries.push(args ? [args.join(' '), args.slice(0, 1)] : [v.command, quoted(v.command)]);
+          }
+          for (const x of Object.values(v)) if (x && typeof x === 'object') walk(x);
+        }
+      };
+      walk(JSON.parse(text.replace(/^\uFEFF/, '')).hooks);
+    } catch {
+      entries.push([text, quoted(text)]);
+    }
+    const hookOf = new RegExp(`\\bhook\\s+${agent}\\b`);
+    if (entries.some(([t, scripts]) => hookOf.test(t) && scripts.some((x) => comparable(x) === script))) out.push({ agent, file });
+  }
+  return out;
+}
+
+/** True when restoring the backup takes the hook command away (the upgrade added it). */
+function removesHookCommand(backupDir) {
+  const data = readJson(path.join(backupDir, 'backup.json'));
+  return Array.isArray(data?.files) && data.files.some((f) => f?.rel === HOOK_COMMAND && f.existed === false);
+}
+
 /**
  * `upgrade --rollback [id]`: restores the named backup, else the one an interrupted upgrade's
  * lock names, else the newest. Refused while an upgrade is still at work (its lock's process
- * lives). → { id, from, to, state, restored, removed, same, conflicts, temp, applied, already,
- * lockRemoved, savedIn } (savedIn: the backup folder that keeps the conflicting files, if any).
+ * lives), and while the agents' project hooks run this vault but the kit being restored has no
+ * hook command (an older CLI answers `hook` with exit 2, which blocks every Stop of every session):
+ * the vault's own CLI takes them out first (commands/upgrade.mjs), the recovery tool says how.
+ * → { id, from, to, state, restored, removed, same, conflicts, temp, applied, already,
+ * lockRemoved, savedIn, hooks } (savedIn: the backup folder that keeps the conflicting files, if
+ * any; hooks: the hook files that still run this vault although the restored kit cannot serve
+ * them, only on a dry run).
  */
-export function rollbackUpgrade(root, { id, force = false, dryRun = false } = {}) {
+export function rollbackUpgrade(root, { id, force = false, dryRun = false, env = process.env, home = os.homedir() } = {}) {
   const lock = lockState(root);
   if (lock?.running) {
     throw new UpgradeError('rollback_running', { pid: lock.pid, from: lock.from ?? '–', to: lock.to ?? '–' },
@@ -989,7 +1081,7 @@ export function rollbackUpgrade(root, { id, force = false, dryRun = false } = {}
   const nothing = (b, extra) => ({
     id: b?.id ?? null, from: b?.from ?? null, to: b?.to ?? null, state: b?.state ?? null,
     restored: [], removed: [], same: 0, conflicts: [], skipped: [], temp: [], applied: false, already: false, lockRemoved: false,
-    savedIn: null, ...extra,
+    savedIn: null, hooks: [], ...extra,
   });
   let chosen;
   if (id) {
@@ -1011,6 +1103,14 @@ export function rollbackUpgrade(root, { id, force = false, dryRun = false } = {}
     if (!chosen) throw new UpgradeError('rollback_none', {}, 'there is no upgrade backup to restore');
     if (chosen.state === 'restored') return nothing(chosen, { already: true });
   }
+  const hooks = removesHookCommand(chosen.dir) ? vaultHooks(root, { env, home }).map((h) => h.file) : [];
+  if (hooks.length && !dryRun) {
+    const script = path.join(root, 'system', 'memory.mjs');
+    throw new UpgradeError('rollback_hooks', { files: hooks.join(', '), from: chosen.from ?? '–', script },
+      `the memory hooks in ${hooks.join(', ')} run this vault's hook command, which the kit of ${chosen.from ?? '–'} does not have `
+      + `(every session would get a hook error, and a Stop would be blocked); take them out first: node "${script}" connect claude-code --projects --remove `
+      + `(and connect codex --projects --remove), or delete the entries that run system/memory.mjs hook from those files; then roll back`);
+  }
   // Finished or interrupted, a file changed after the upgrade is never overwritten unasked.
   const res = restoreBackup(root, chosen.dir, { force, dryRun });
   let lockRemoved = false;
@@ -1022,7 +1122,7 @@ export function rollbackUpgrade(root, { id, force = false, dryRun = false } = {}
     }
   }
   const savedIn = res.applied && res.conflicts.length ? `${BACKUPS_DIR}/${chosen.id}` : null;
-  return { ...nothing(chosen), ...res, lockRemoved, savedIn };
+  return { ...nothing(chosen), ...res, lockRemoved, savedIn, hooks };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1363,6 +1463,7 @@ const ROLLBACK_TOOL = [
   '      : \'these files changed after the upgrade, so nothing was restored; --force restores them anyway (their current version is saved in the backup):\');',
   '    for (const name of res.conflicts) lines.push(\'  \' + name);',
   '  }',
+  '  if (res.hooks && res.hooks.length) lines.push(\'the memory hooks in \' + res.hooks.join(\', \') + \' must be taken out first: the kit of \' + res.from + \' has no hook command\');',
   '  if (res.lockRemoved) lines.push(\'the lock of the interrupted upgrade was removed\');',
   '  process.stdout.write(lines.join(\'\\n\') + \'\\n\');',
   '  return refused ? 1 : 0;',

@@ -97,7 +97,7 @@ shows at the top of the start file.
 | `FM_DATE_FUTURE` | a date later than the vault's as-of, usually a typo (2206 for 2026); fix the year |
 | `commit refused: … changed after git add` | the hook checks the files on disk; `git add` those files (or `git stash` the unstaged part), then commit again |
 | `NAME_FORMAT`, `NAME_GENERIC` | rename to lowercase ASCII with hyphens, a specific noun first (`invoice-numbering.md`, not `notes.md`); put the display name into the H1 and `aliases` |
-| `NAME_DUPLICATE` | names are unique across the vault, archive and private folder included; rename one |
+| `NAME_DUPLICATE` | names are unique across the vault, archive and private folder included (except the notes every project's dev sector has, such as `handoff` and `gotchas`); rename one |
 | `NAME_PORTABLE` | a file or folder name Windows cannot hold (`con`, `nul`, `com1`, …, a character such as `:` or `?`, a trailing dot or space); rename it, or git cannot check the vault out on Windows |
 | `CASE_MISMATCH` | a hub, manifest, export file, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` or top folder differs from its expected name only in letter case, so it counts as missing; rename it with `git mv -f <actual> <expected>` |
 | `DATED_NAME`, `DECISION_PLACE` | decisions are `<sector>/decisions/YYYY-MM-DD-name.md`, and nothing else lives there; `new decision` places them right |

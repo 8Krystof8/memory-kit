@@ -1,148 +1,479 @@
 // `hook <agent> <event>`: what Claude Code and Codex run through their hooks (connect --projects
-// installs them). Reads the hook's JSON from stdin, never fails a session (always exit 0) and never
-// writes into the code repository. Events:
-//   session-start  find the project of the folder, create its dev sector on first use, print the
-//                  project brief and the start view narrowed to the project and the core sector
-//   stop           once per session, when the code changed and the handoff did not: ask the agent
-//                  to record handoff, gotchas and dead ends (no extra model call, the agent runs anyway)
-//   tool-failure   (Claude Code) look the error up in the project's gotchas and dead ends
-//   session-end    commit and push the vault in the background when projects.autosync is on
-//   autosync       the background part of session-end
+// installs them). Reads the hook's JSON from stdin, never fails a session (always exit 0), never
+// writes into the code repository, and does nothing at all while memory.json projects.enabled is
+// not true. Every run is logged (lib/hooklog.mjs; a local-store repository only as a hash), except
+// the runs of doctor --probe (MEMORY_KIT_PROBE=1 or "probe": true in the input), which leave no
+// trace at all: no session record, no hint, no project, no log entry, nothing reported as read.
+// Events:
+//   session-start  first, news for the user: a failed sync or failed hook runs since the last
+//                  session start (Claude Code shows them as a systemMessage, which reaches the
+//                  user; Codex has none, so the agent is asked to pass them on). Inside the vault:
+//                  nothing more for Claude Code (the vault has its own start hook), the start
+//                  view for Codex. Outside any git repository: nothing more. In a known project:
+//                  the brief and the start view narrowed to the project and the core sector (its
+//                  commands and paths name the vault absolutely: the agent is in the code). In a
+//                  new repository: a one-time hint for the user naming `project add` and
+//                  `project ignore` (or the sector is made when projects.auto_add is on).
+//   stop           once per session in a known project, when the code changed and the handoff did
+//                  not: ask the agent to record handoff, gotchas and dead ends (JSON or nothing);
+//                  never in a Claude Code run without a person (claude -p, the Agent SDK)
+//   tool-failure   (Claude Code) a failed Bash or PowerShell command is looked up in the
+//                  project's gotchas and dead ends, after cheap filters, deduplicated, at most 5
+//                  lookups per session
+//   session-end    starts the autosync in the background when projects.autosync is on
+//   autosync       check, commit and sync the vault under a lock (never while a merge or rebase is
+//                  unfinished); each failing step is logged with the error and the fix, and the
+//                  next session start shows it
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { identify, ensureProject, sectorFor, projectBrief, projectSettings, gitState, lookupError, noteRel } from '../projects.mjs';
+import { createHash } from 'node:crypto';
+import {
+  identifyIn, insideVault, findProject, ensureProject, isIgnored, projectSettings, projectBrief, gitState, lookupError,
+  devLines, noteAbs, sectorExists, hintMarker, repoHash, readSession, writeSession, pruneSessions, sessionsDir, safeId,
+  takeAutosyncLock, autosyncLockFile, vaultCommand, keepWorkDirOut, baselineOf, codeChanged, otherSessions,
+} from '../projects.mjs';
+import { hookSummary, logHook } from '../hooklog.mjs';
+import { readHookInput, lookupCandidate, isProbe } from '../hookinput.mjs';
 import { writeAtomic } from '../fsafe.mjs';
-import { todayLocal } from '../util.mjs';
+import { WORK_DIR, ensureWorkDirIgnored, todayLocal, workDirGit } from '../util.mjs';
 
-export const usage = 'hook <claude-code|codex> <session-start|stop|tool-failure|session-end>';
+export const usage = 'hook claude-code|codex session-start|stop|tool-failure|session-end (run by the agent hooks; JSON on stdin)';
+
+const DEFAULTS = {
+  'hook.hint': 'memory-kit: this repository has no project memory. To keep notes for it, run: {cmd} project add',
+  'hook.hint_ignore': 'Not wanted here? Run: {cmd} project ignore (this hint is shown once per repository)',
+  'hook.hint_agent': 'memory-kit showed the user a one-time hint: this repository has no project memory. Run {cmd} project add or project ignore only when the user asks for it.',
+  'hook.hint_relay': 'memory-kit: this repository has no project memory. Tell the user once, in one sentence, that they can keep notes for it with {cmd} project add, or silence this hint with {cmd} project ignore; do not run either yourself.',
+  'hook.relay': 'memory-kit asks you to pass this on to the user: {text}',
+  'hook.sync_failed': 'Warning: the last memory sync failed ({when}, step {step}): {error}. Fix: {fix}',
+  'hook.errors': 'Warning: failed memory hook runs since the last warning: {n}; see: {cmd} doctor',
+  'hook.checkpoint': 'Project memory: the code changed in this session and the handoff did not. Before you finish, record briefly: 1) rewrite {handoff} (done, next steps, open questions, branch); 2) errors you fixed as gotchas: {cmd} remember --project {id} --type gotcha "symptom → cause → fix"; 3) what did not work: --type dead-end; 4) new decisions: --type decision. Only what really happened. Then finish.',
+  'hook.checkpoint_shared': 'Project memory: the code in this repository changed since this session started (another session works here too, so not all of it may be yours) and the handoff did not. Before you finish, record briefly what this session did: 1) rewrite {handoff} (done, next steps, open questions, branch); 2) errors you fixed as gotchas: {cmd} remember --project {id} --type gotcha "symptom → cause → fix"; 3) what did not work: --type dead-end; 4) new decisions: --type decision. Only what really happened. Then finish.',
+  'hook.lookup': 'Project memory: a similar error was met before:',
+  'hook.commit_message': 'Memory: session {day}',
+  'hook.merge_busy': 'a merge, rebase, cherry-pick or revert is not finished in the vault',
+  'hook.fix_merge': 'open the vault, finish or abort it (git status says how), then run: {cmd} sync',
+  'hook.fix_check': 'open the vault and run: {cmd} check',
+  'hook.fix_git': 'open the vault, run git status and fix what it reports, then run: {cmd} sync',
+  'hook.fix_identity': 'git does not know your name and e-mail yet: set user.name and user.email with git config --global, then run: {cmd} sync',
+  'hook.fix_lock': 'make sure {dir} is a folder you can write to, then run: {cmd} sync',
+  'hook.fix_node': 'the pre-commit hook of the vault found no Node.js 22 or newer: in the vault run git config memorykit.node "{node}", then: {cmd} sync',
+  'hook.fix_sync': 'open the vault and run: {cmd} sync',
+  'hook.timeout': 'timed out after {s} s',
+  'hook.workdir_tracked': 'git tracks {n} files of .memory-kit/ in the vault (per-computer logs, session records and backups, which can name code repositories), so nothing was committed',
+  'hook.fix_workdir_tracked': 'open the vault, run git rm -r --cached .memory-kit, add the line .memory-kit/ to .gitignore and commit, then run: {cmd} sync',
+  'hook.workdir_ignored': 'git does not ignore .memory-kit/ in the vault and it could not be added to .git/info/exclude, so nothing was committed',
+  'hook.fix_workdir_ignored': 'add the line .memory-kit/ to the vault\'s .gitignore and commit it, then run: {cmd} sync',
+};
 
 const AGENTS = new Set(['claude-code', 'codex']);
-const MAX_INPUT = 1024 * 1024;
+const EVENTS = new Set(['session-start', 'stop', 'tool-failure', 'session-end', 'autosync']);
+const MAX_LOOKUPS = 5;
+const MAX_CONTEXT_CHARS = 600;
+const MAX_CONTEXT_LINES = 3;
+// Conflict states of `git status --porcelain` (both sides changed, added or deleted a path).
+const UNMERGED = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
 
-async function readStdin() {
-  if (process.stdin.isTTY) return {};
-  const chunks = [];
-  let size = 0;
-  for await (const c of process.stdin) {
-    size += c.length;
-    if (size > MAX_INPUT) break;
-    chunks.push(c);
-  }
-  try {
-    const j = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-    return j && typeof j === 'object' ? j : {};
-  } catch {
-    return {};
-  }
+function say(cfg, key, vars = {}) {
+  const t = cfg?.t?.(key, vars);
+  if (typeof t === 'string' && t && t !== key) return t;
+  return DEFAULTS[key].replace(/\{(\w+)\}/g, (a, n) => (n in vars ? String(vars[n]) : a));
 }
 
-const quote = (p) => (/[\s"'&()]/.test(p) ? `"${p}"` : p);
-const stateDir = (cfg) => path.join(cfg.root, '.memory-kit', 'capture');
-const safeId = (s) => String(s ?? '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+const cwdOf = (input) => (typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd());
+const reportedFile = (cfg) => path.join(cfg.root, '.memory-kit', 'logs', 'reported');
 
 function coreSector(cfg) {
   const parts = String(cfg.raw?.profile ?? '').split('/');
   return parts.length >= 3 ? parts[1] : null;
 }
 
-async function sessionStart(cfg, input) {
-  const { renderStartView } = await import('../startview.mjs');
-  const cwd = input.cwd || process.cwd();
-  const ident = identify(cwd);
-  // Inside the vault itself (or outside any project): the ordinary start.
-  if (!ident || path.resolve(ident.top) === path.resolve(cfg.root)) {
-    const v = await renderStartView(cfg, {});
-    return v.text;
+/**
+ * Lines for the user about failures logged since the last session start that reported some: a
+ * failed last sync (when, step, error and fix) and failed hook runs (how many; see doctor). Each
+ * failure is reported once; `project status` and doctor keep showing the log.
+ */
+function freshWarnings(cfg) {
+  const s = hookSummary(cfg.root);
+  let since = '';
+  try {
+    since = fs.readFileSync(reportedFile(cfg), 'utf8').trim();
+  } catch {
+    /* nothing reported yet */
   }
-  const { id } = await ensureProject(cfg, ident);
-  if (!id) {
-    const v = await renderStartView(cfg, {});
-    return v.text;
+  const fresh = (e) => typeof e?.t === 'string' && e.t > since;
+  const cmd = vaultCommand(cfg);
+  const out = [];
+  let newest = since;
+  if (s.lastSync?.ok === false && fresh(s.lastSync)) {
+    out.push(say(cfg, 'hook.sync_failed', {
+      when: `${s.lastSync.t.slice(0, 16).replace('T', ' ')} UTC`, step: s.lastSync.step ?? '?', error: s.lastSync.error || '?',
+      fix: s.lastSync.fix || say(cfg, 'hook.fix_sync', { cmd }),
+    }));
+    newest = s.lastSync.t;
   }
-  const sid = safeId(input.session_id);
-  if (sid) {
-    const g = gitState(ident.top);
-    writeAtomic(path.join(stateDir(cfg), 'sessions', `${sid}.json`), JSON.stringify({ top: ident.top, sector: id, head: g.head, dirty: g.dirty, day: todayLocal() }));
-  }
-  const vaultCmd = `node ${quote(path.join(cfg.root, 'system', 'memory.mjs'))}`;
-  const core = coreSector(cfg);
-  const view = await renderStartView(cfg, { sectors: [id, ...(core && core !== id ? [core] : [])] });
-  return `${projectBrief(cfg, id, ident, vaultCmd)}\n${view.text}`;
+  const errors = s.failures.filter((e) => e.event !== 'autosync' && fresh(e));
+  if (errors.length) out.push(say(cfg, 'hook.errors', { n: errors.length, cmd }));
+  for (const e of errors) if (e.t > newest) newest = e.t;
+  if (newest !== since) writeAtomic(reportedFile(cfg), `${newest}\n`);
+  return out;
 }
+
+/**
+ * The session start output. Claude Code: lines for the user go into systemMessage (JSON), the
+ * rest into the agent's context (plain text when there is nothing for the user). Codex shows no
+ * systemMessage, so the agent is asked to pass those lines on.
+ */
+function emit(cfg, agent, { notices = [], context = '' }) {
+  if (agent === 'codex') return [...notices.map((text) => say(cfg, 'hook.relay', { text })), context].filter(Boolean).join('\n');
+  if (!notices.length) return context;
+  return JSON.stringify({
+    systemMessage: notices.join('\n'),
+    ...(context ? { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context } } : {}),
+  });
+}
+
+/** The one-time hint of a new repository: { notices, context } (empty once it was shown). */
+function hintOnce(cfg, agent, ident) {
+  const marker = hintMarker(cfg, ident.key);
+  if (fs.existsSync(marker)) return {};
+  writeAtomic(marker, `${todayLocal()}\n`);
+  const cmd = vaultCommand(cfg);
+  if (agent === 'codex') return { context: say(cfg, 'hook.hint_relay', { cmd }) };
+  return { notices: [say(cfg, 'hook.hint', { cmd }), say(cfg, 'hook.hint_ignore', { cmd })], context: say(cfg, 'hook.hint_agent', { cmd }) };
+}
+
+async function sessionStart(cfg, agent, input, entry) {
+  pruneSessions(cfg);
+  const notices = freshWarnings(cfg);
+  try {
+    return await sessionView(cfg, agent, input, entry, notices);
+  } catch (err) {
+    // The warnings are marked as reported: they must still reach the user.
+    entry.ok = false;
+    entry.error = err?.message ?? String(err);
+    if (process.env.MEMORY_DEBUG) process.stderr.write(`memory hook: ${err?.stack ?? err}\n`);
+    return emit(cfg, agent, { notices });
+  }
+}
+
+async function sessionView(cfg, agent, input, entry, notices) {
+  const cwd = cwdOf(input);
+  const sid = safeId(input.session_id);
+  const vault = insideVault(cfg, cwd);
+  const ident = vault ? null : identifyIn(cfg, cwd);
+  if (vault || !ident || insideVault(cfg, ident.top)) {
+    writeSession(cfg, sid, { top: ident?.top ?? null, sector: null });
+    // Claude Code runs the vault's own start hook there; Codex has none, so the view comes from here.
+    if (agent === 'codex' && (vault || ident)) {
+      const { renderStartView } = await import('../startview.mjs');
+      return emit(cfg, agent, { notices, context: (await renderStartView(cfg, {})).text });
+    }
+    return emit(cfg, agent, { notices });
+  }
+  entry.repo = repoHash(ident.key);
+  let found = findProject(cfg, ident);
+  if (!found) {
+    writeSession(cfg, sid, { top: ident.top, sector: null });
+    // No lasting key yet (no commit): nothing to offer until there is one.
+    if (ident.unsettled || isIgnored(cfg, ident)) return emit(cfg, agent, { notices });
+    if (!projectSettings(cfg).auto_add) {
+      const hint = hintOnce(cfg, agent, ident);
+      return emit(cfg, agent, { notices: [...(hint.notices ?? []), ...notices], context: hint.context });
+    }
+    const made = await ensureProject(cfg, ident, { force: false });
+    if (!made.id) return emit(cfg, agent, { notices });
+    found = { id: made.id, store: made.store, key: ident.key };
+  }
+  if (found.store === 'git') entry.repo = found.key;
+  const g = gitState(ident.top);
+  // A compaction, a resume or a fork of the same session keeps the baseline and the start: the
+  // changes made before it still count at Stop. Unknown git state: no baseline (Stop takes one).
+  const prev = readSession(cfg, sid);
+  const same = prev?.top && path.resolve(prev.top) === path.resolve(ident.top) && prev.sector === found.id && Object.hasOwn(prev, 'head');
+  const base = same ? { head: prev.head, dirty: prev.dirty, ...(Object.hasOwn(prev, 'fp') ? { fp: prev.fp } : {}), ...(prev.started ? { started: prev.started } : {}) }
+    : g.ok ? baselineOf(g) : {};
+  writeSession(cfg, sid, { top: ident.top, sector: found.id, store: found.store, ...base, day: todayLocal() });
+  const { renderStartView } = await import('../startview.mjs');
+  const core = coreSector(cfg);
+  // The agent works in the code repository: the view names the vault's command and paths absolutely.
+  const command = vaultCommand(cfg);
+  const view = await renderStartView(cfg, { sectors: [found.id, ...(core && core !== found.id ? [core] : [])], project: { command } });
+  const brief = projectBrief(cfg, found.id, ident, command, { git: g });
+  return emit(cfg, agent, { notices, context: `${brief}\n${view.text}` });
+}
+
+/**
+ * True for a Claude Code run without a person (claude -p, the Agent SDK): Claude Code sets
+ * CLAUDE_CODE_ENTRYPOINT to sdk-cli, sdk-ts or sdk-py there, and a Stop block would turn the
+ * checkpoint's reply into the run's result. Codex gives no such sign (codex exec gets the request;
+ * projects.checkpoint false turns it off).
+ */
+const headless = (agent, env = process.env) => agent === 'claude-code' && /^sdk-/.test(String(env.CLAUDE_CODE_ENTRYPOINT ?? ''));
 
 function stop(cfg, input, agent) {
-  const set = projectSettings(cfg);
-  if (!set.checkpoint || input.stop_hook_active !== false || input.agent_id || input.permission_mode === 'plan') return '';
+  if (!projectSettings(cfg).checkpoint || input.stop_hook_active === true || input.agent_id || input.permission_mode === 'plan') return '';
+  if (headless(agent)) return '';
   const sid = safeId(input.session_id);
-  if (!sid) return '';
-  const marker = path.join(stateDir(cfg), 'nudged', sid);
+  const s = readSession(cfg, sid);
+  if (!s?.sector || !s.top || !sectorExists(cfg, s.sector)) return '';
+  const marker = path.join(cfg.root, '.memory-kit', 'capture', 'nudged', sid);
   if (fs.existsSync(marker)) return '';
-  let s;
-  try { s = JSON.parse(fs.readFileSync(path.join(stateDir(cfg), 'sessions', `${sid}.json`), 'utf8')); } catch { return ''; }
-  const g = gitState(s.top);
-  const changed = (g.head && g.head !== s.head) || g.dirty !== s.dirty;
-  if (!changed) return '';
-  // The agent already updated the handoff today: nothing to ask.
+  const g = gitState(s.top, { log: false });
+  // git failed or timed out: nothing is known, the baseline stays and nothing is asked.
+  if (!g.ok) return '';
+  // A session linked without a baseline (by an older version, or git failed at the start): the
+  // state of now becomes it.
+  if (!Object.hasOwn(s, 'head')) {
+    writeSession(cfg, sid, { ...s, ...baselineOf(g) });
+    return '';
+  }
+  if (!codeChanged(s, g)) return '';
+  const handoff = noteAbs(cfg, s.sector, 'handoff');
+  // The agent already rewrote the handoff during this session: nothing to ask.
   try {
-    const handoff = fs.readFileSync(path.join(cfg.root, ...noteRel(cfg, s.sector, 'handoff').split('/')), 'utf8');
-    if (new RegExp(`^${cfg.keys.updated}: ${todayLocal()}$`, 'm').test(handoff) && fs.statSync(path.join(cfg.root, ...noteRel(cfg, s.sector, 'handoff').split('/'))).mtimeMs > fs.statSync(path.join(stateDir(cfg), 'sessions', `${sid}.json`)).mtimeMs) return '';
-  } catch { /* no handoff note */ }
-  writeAtomic(marker, todayLocal());
-  const vaultCmd = `node ${quote(path.join(cfg.root, 'system', 'memory.mjs'))}`;
-  const rel = (role) => path.join(cfg.root, ...noteRel(cfg, s.sector, role).split('/'));
-  const reason = cfg.lang === 'cs'
-    ? `Paměť projektu: v této session se změnil kód a předávka zatím ne. Než skončíš, stručně zapiš do paměti: 1) přepiš ${rel('handoff')} (hotovo, další kroky, otevřené otázky, větev); 2) opravené chyby jako pasti: ${vaultCmd} remember --type gotcha "příznak → příčina → oprava"; 3) co nefungovalo: --type dead-end; 4) nová rozhodnutí: --type decision. Nic nevymýšlej, jen co se opravdu stalo. Pak skonči.`
-    : `Project memory: the code changed in this session and the handoff did not. Before you finish, record briefly: 1) rewrite ${rel('handoff')} (done, next steps, open questions, branch); 2) errors you fixed as gotchas: ${vaultCmd} remember --type gotcha "symptom → cause → fix"; 3) what did not work: --type dead-end; 4) new decisions: --type decision. Only what really happened. Then finish.`;
-  return JSON.stringify({ decision: 'block', reason });
+    const started = Date.parse(s.started ?? '') || fs.statSync(path.join(sessionsDir(cfg), `${sid}.json`)).mtimeMs;
+    if (fs.statSync(handoff).mtimeMs > started) return '';
+  } catch {
+    /* no handoff note or no session file */
+  }
+  writeAtomic(marker, `${todayLocal()}\n`);
+  // Another session works in the same repository: the change may be its own, so say so.
+  const key = otherSessions(cfg, s.top, sid).length ? 'hook.checkpoint_shared' : 'hook.checkpoint';
+  return JSON.stringify({ decision: 'block', reason: say(cfg, key, { handoff, cmd: vaultCommand(cfg), id: s.sector }) });
 }
 
-function toolFailure(cfg, input) {
+/** The first line with some letters in it, digits folded, for deduplication. */
+function firstMeaningfulLine(text) {
+  const line = text.split('\n').map((l) => l.trim()).find((l) => /[A-Za-z]{3}/.test(l)) ?? '';
+  return line.replace(/\d+/g, '#').slice(0, 200);
+}
+
+/** True when this (tool, error) was not looked up yet in this session and the budget allows one more. */
+function firstLookup(cfg, sid, tool, text) {
+  if (!sid) return true;
+  const file = path.join(sessionsDir(cfg), `${sid}.seen`);
+  let seen = [];
+  try {
+    seen = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+  } catch {
+    /* first lookup of the session */
+  }
+  const sig = createHash('sha256').update(`${tool}\n${firstMeaningfulLine(text)}`).digest('hex').slice(0, 16);
+  if (seen.includes(sig) || seen.length >= MAX_LOOKUPS) return false;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, `${sig}\n`);
+  return true;
+}
+
+function toolFailure(cfg, input, entry) {
+  // Cheap filters first: most failures (grep without a match, failing tests) end here.
   if (!projectSettings(cfg).error_lookup) return '';
-  const ident = identify(input.cwd || process.cwd());
-  const sector = sectorFor(cfg, ident);
-  if (!sector) return '';
-  const raw = [input.error, input.tool_response, input.tool_output].map((x) => (typeof x === 'string' ? x : x ? JSON.stringify(x) : '')).join('\n');
-  const hits = lookupError(cfg, sector, raw);
+  const candidate = lookupCandidate(input);
+  if (!candidate) return '';
+  const { text } = candidate;
+  const sid = safeId(input.session_id);
+  const s = readSession(cfg, sid);
+  let sector = s ? s.sector : undefined;
+  if (sector === undefined) {
+    const ident = identifyIn(cfg, cwdOf(input));
+    const found = ident && !insideVault(cfg, ident.top) ? findProject(cfg, ident) : null;
+    sector = found?.id ?? null;
+  }
+  if (!sector || !sectorExists(cfg, sector)) return '';
+  const lines = devLines(cfg, sector);
+  if (!lines.length) return '';
+  if (!firstLookup(cfg, sid, input.tool_name, text)) return '';
+  entry.lookup = true;
+  const hits = lookupError(cfg, sector, text, { lines, max: MAX_CONTEXT_LINES - 1 });
   if (!hits.length) return '';
-  const head = cfg.lang === 'cs' ? 'Paměť projektu: podobná chyba tu už byla:' : 'Project memory: a similar error was met before:';
-  return JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUseFailure', additionalContext: [head, ...hits.map((h) => h.line)].join('\n') } });
+  const out = [say(cfg, 'hook.lookup')];
+  let size = out[0].length;
+  for (const h of hits) {
+    const room = MAX_CONTEXT_CHARS - size - 1;
+    if (room < 40) break;
+    const line = h.line.length > room ? `${h.line.slice(0, room - 1)}…` : h.line;
+    out.push(line);
+    size += line.length + 1;
+  }
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUseFailure', additionalContext: out.join('\n') } });
 }
 
-function sessionEnd(cfg) {
+function sessionEnd(cfg, agent) {
   if (!projectSettings(cfg).autosync) return;
-  const child = spawn(process.execPath, [path.join(cfg.root, 'system', 'memory.mjs'), 'hook', 'claude-code', 'autosync', '--root', cfg.root], {
-    detached: true, stdio: 'ignore', windowsHide: true,
+  const child = spawn(process.execPath, [path.join(cfg.root, 'system', 'memory.mjs'), 'hook', agent, 'autosync', '--root', cfg.root], {
+    cwd: cfg.root, detached: true, stdio: 'ignore', windowsHide: true,
   });
+  child.on('error', () => {});
   child.unref();
 }
 
-function autosync(cfg) {
-  const git = (args) => spawnSync('git', args, { cwd: cfg.root, encoding: 'utf8', windowsHide: true, timeout: 60000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
-  if (git(['rev-parse', '--show-cdup']).stdout?.trim() !== '') return;
-  if (!git(['status', '--porcelain']).stdout?.trim()) return;
-  spawnSync(process.execPath, [path.join(cfg.root, 'system', 'memory.mjs'), 'check', '--generate', '--lenient', '--root', cfg.root], { cwd: cfg.root, windowsHide: true, stdio: 'ignore', timeout: 60000 });
-  git(['add', '-A']);
-  const c = git(['commit', '-q', '-m', cfg.lang === 'cs' ? `Paměť: session ${todayLocal()}` : `Memory: session ${todayLocal()}`]);
-  if (c.status !== 0) return;
-  spawnSync(process.execPath, [path.join(cfg.root, 'system', 'memory.mjs'), 'sync', '--root', cfg.root], { cwd: cfg.root, windowsHide: true, stdio: 'ignore', timeout: 120000 });
+// ---------------------------------------------------------------------------------------------
+// autosync
+
+const GIT_TIMEOUT_MS = 60000;
+const CHECK_TIMEOUT_MS = 120000;
+const SYNC_TIMEOUT_MS = 180000;
+
+function lastLine(res) {
+  if (res.error?.code === 'ETIMEDOUT' || (res.signal && res.status === null)) return null;
+  const text = `${res.stderr ?? ''}\n${res.stdout ?? ''}`.split('\n').map((l) => l.trim()).filter(Boolean);
+  return text.find((l) => /error|fatal|failed|refused|conflict|selhal|chyb/i.test(l)) ?? text[0] ?? (res.error?.message || `exit ${res.status}`);
 }
 
-export async function run(argv, cfg) {
+/** True while git has a merge, rebase, cherry-pick or revert of the vault waiting to be finished. */
+function unfinished(cfg, git, porcelain) {
+  if (porcelain.split('\n').some((l) => UNMERGED.has(l.slice(0, 2)))) return true;
+  const names = ['MERGE_HEAD', 'rebase-merge', 'rebase-apply', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'];
+  const res = git(['rev-parse', ...names.flatMap((n) => ['--git-path', n])]);
+  if (res.status !== 0) return false;
+  return res.stdout.split('\n').map((l) => l.trim()).filter(Boolean).some((rel) => fs.existsSync(path.resolve(cfg.root, rel)));
+}
+
+/** env with the folder of the Node.js running now first on its PATH (PATH or Path on Windows). */
+function withNodeFirst(env) {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+  const dir = path.dirname(process.execPath);
+  return { ...env, [key]: env[key] ? `${dir}${path.delimiter}${env[key]}` : dir };
+}
+
+/**
+ * .memory-kit/ holds per-computer files that can name code repositories (session records, the
+ * hook log, the ignore list, copies of agent settings): it is never committed. A clone of a vault
+ * made by 0.1.0 has no .gitignore line for it, so this clone's .git/info/exclude gets one first.
+ * → null when git keeps it out, else { error, fix } (files under it tracked already, or no rule).
+ */
+function workDirProblem(cfg, cmd) {
   try {
-    const [agent, event] = argv.filter((a) => !a.startsWith('--'));
-    if (!cfg || !AGENTS.has(agent)) return 0;
-    const input = event === 'autosync' ? {} : await readStdin();
+    ensureWorkDirIgnored(cfg.root);
+  } catch {
+    /* checked below */
+  }
+  const state = workDirGit(cfg.root);
+  if (state?.tracked.length) return { error: say(cfg, 'hook.workdir_tracked', { n: state.tracked.length }), fix: say(cfg, 'hook.fix_workdir_tracked', { cmd }) };
+  if (!state?.ignored) return { error: say(cfg, 'hook.workdir_ignored'), fix: say(cfg, 'hook.fix_workdir_ignored', { cmd }) };
+  return null;
+}
+
+/**
+ * Check, commit and sync the vault. The steps logged are the contract's: lock, check, commit,
+ * pull, push, and done for success. Nothing throws out of here: any error is logged at the step
+ * it happened in, with a fix.
+ */
+function autosync(cfg, agent) {
+  const t0 = performance.now();
+  const cmd = vaultCommand(cfg);
+  const log = (e) => logHook(cfg.root, { agent, event: 'autosync', ms: Math.round(performance.now() - t0), ...e });
+  // The session's PATH may start with a node a repository pinned (nvm use, fnm, mise activate):
+  // git and the vault's pre-commit hook get this Node.js first, and the hook gets it pinned.
+  const node = process.execPath.replace(/\\/g, '/');
+  const env = withNodeFirst({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
+  const opts = (timeout) => ({ cwd: cfg.root, encoding: 'utf8', windowsHide: true, timeout, stdio: ['ignore', 'pipe', 'pipe'], env });
+  const git = (args) => spawnSync('git', args, opts(GIT_TIMEOUT_MS));
+  const memory = (args, timeout) => spawnSync(process.execPath, [path.join(cfg.root, 'system', 'memory.mjs'), ...args, '--root', cfg.root], opts(timeout));
+  const fail = (step, res, fix) => log({ step, ok: false, error: lastLine(res) ?? say(cfg, 'hook.timeout', { s: Math.round((res.timeout ?? 0) / 1000) }), fix });
+  let step = 'lock';
+  let release = null;
+  try {
+    release = takeAutosyncLock(cfg);
+    if (!release) {
+      log({ step: 'lock', ok: true, detail: 'another autosync is running; skipped' });
+      return;
+    }
+    step = 'check';
+    const top = git(['rev-parse', '--show-cdup']);
+    if (top.status !== 0 || top.stdout.trim() !== '') {
+      log({ step: 'done', ok: true, detail: 'the vault is not a git repository' });
+      return;
+    }
+    const work = workDirProblem(cfg, cmd);
+    if (work) return log({ step: 'check', ok: false, ...work });
+    const status = git(['status', '--porcelain']);
+    if (status.status !== 0) return fail('check', status, say(cfg, 'hook.fix_git', { cmd }));
+    // Never conclude a merge the user has not finished: add -A would commit its conflict markers.
+    if (unfinished(cfg, git, status.stdout)) return log({ step: 'check', ok: false, error: say(cfg, 'hook.merge_busy'), fix: say(cfg, 'hook.fix_merge', { cmd }) });
+    if (status.stdout.trim()) {
+      const check = memory(['check', '--generate', '--lenient'], CHECK_TIMEOUT_MS);
+      if (check.status !== 0) return fail('check', { ...check, timeout: CHECK_TIMEOUT_MS }, say(cfg, 'hook.fix_check', { cmd }));
+      step = 'commit';
+      const add = git(['add', '-A']);
+      if (add.status !== 0) return fail('commit', { ...add, timeout: GIT_TIMEOUT_MS }, say(cfg, 'hook.fix_git', { cmd }));
+      // The folder is ignored by now; should a rule change meanwhile, what got staged of it goes.
+      const out = git(['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', WORK_DIR]);
+      if (out.status !== 0) return fail('commit', { ...out, timeout: GIT_TIMEOUT_MS }, say(cfg, 'hook.fix_git', { cmd }));
+      const commit = git(['-c', `memorykit.node=${node}`, 'commit', '-q', '-m', say(cfg, 'hook.commit_message', { day: todayLocal() })]);
+      if (commit.status !== 0) {
+        const said = `${commit.stderr}${commit.stdout}`;
+        const identity = /user\.email|user\.name|tell me who you are|identity/i.test(said);
+        const oldNode = /is not Node\.js 22|Node\.js 22 or newer/i.test(said);
+        if (!/nothing (added )?to commit|nothing to commit/i.test(said)) {
+          const fix = identity ? 'hook.fix_identity' : oldNode ? 'hook.fix_node' : 'hook.fix_git';
+          return fail('commit', { ...commit, timeout: GIT_TIMEOUT_MS }, say(cfg, fix, { cmd, node }));
+        }
+      }
+    } else {
+      const ahead = git(['rev-list', '--count', '@{u}..HEAD']);
+      if (ahead.status === 0 && ahead.stdout.trim() === '0') {
+        log({ step: 'done', ok: true, detail: 'nothing to sync' });
+        return;
+      }
+    }
+    step = 'pull';
+    const sync = memory(['sync'], SYNC_TIMEOUT_MS);
+    if (sync.status !== 0) {
+      const pulled = String(sync.stdout ?? '').split('\n').includes(cfg.t('sync.pulled'));
+      return fail(pulled ? 'push' : 'pull', { ...sync, timeout: SYNC_TIMEOUT_MS }, say(cfg, 'hook.fix_sync', { cmd }));
+    }
+    log({ step: 'done', ok: true });
+  } catch (err) {
+    const fix = step === 'lock' ? say(cfg, 'hook.fix_lock', { dir: path.dirname(autosyncLockFile(cfg)), cmd }) : say(cfg, 'hook.fix_sync', { cmd });
+    log({ step, ok: false, error: err?.message ?? String(err), fix });
+  } finally {
+    release?.();
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+
+export async function run(argv, cfg, ctx = {}) {
+  const t0 = ctx.hookStarted ?? performance.now();
+  const [agent, event] = argv.filter((a) => !a.startsWith('--'));
+  if (!AGENTS.has(agent) || !EVENTS.has(event)) return 0;
+  // doctor --probe only needs to see the hook start and end cleanly: it must leave no trace.
+  if (isProbe(ctx.env ?? process.env)) return 0;
+  if (!cfg) {
+    // memory.json cannot be read: whether the hooks are on is unknown, but the failure is logged.
+    if (ctx.root && ctx.configError) logHook(ctx.root, { agent, event, ok: false, error: `memory.json: ${ctx.configError.message ?? ctx.configError}` });
+    return 0;
+  }
+  if (!projectSettings(cfg).enabled) return 0;
+  // The first run in this clone makes .memory-kit/: keep it out of git before anything is in it.
+  keepWorkDirOut(cfg);
+  if (event === 'autosync') {
+    try {
+      autosync(cfg, agent);
+    } catch {
+      /* autosync logs its own errors; a hook never fails */
+    }
+    return 0;
+  }
+  const entry = { agent, event, ok: true };
+  try {
+    const input = ctx.hookInput ?? await readHookInput();
+    if (isProbe(null, input)) return 0;
     let out = '';
-    if (event === 'session-start') out = await sessionStart(cfg, input);
+    if (event === 'session-start') out = await sessionStart(cfg, agent, input, entry);
     else if (event === 'stop') out = stop(cfg, input, agent);
-    else if (event === 'tool-failure') out = toolFailure(cfg, input);
-    else if (event === 'session-end') sessionEnd(cfg);
-    else if (event === 'autosync') autosync(cfg);
+    else if (event === 'tool-failure') out = toolFailure(cfg, input, entry);
+    else if (event === 'session-end') sessionEnd(cfg, agent);
     if (out) process.stdout.write(out.endsWith('\n') ? out : `${out}\n`);
   } catch (err) {
+    entry.ok = false;
+    entry.error = err?.message ?? String(err);
     if (process.env.MEMORY_DEBUG) process.stderr.write(`memory hook: ${err?.stack ?? err}\n`);
   }
+  logHook(cfg.root, { ...entry, ms: Math.round(performance.now() - t0) });
   return 0;
 }

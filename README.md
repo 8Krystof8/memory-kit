@@ -45,6 +45,24 @@ the kit depends on none of them.
 
 ## Start in 5 minutes
 
+**One command**, on macOS and Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/8Krystof8/memory-kit/main/install.sh | sh
+```
+
+and on Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/8Krystof8/memory-kit/main/install.ps1 | iex
+```
+
+It checks git and Node.js (it never installs them and never uses sudo), makes a new private
+GitHub repository from the template when the GitHub CLI is logged in (or a folder with no remote),
+and asks the setup questions. To pass the answers instead, see the options at the top of
+[install.sh](install.sh) (`| sh -s -- --yes --mode local --lang en --sectors core,work`) and
+[install.ps1](install.ps1). Or by hand:
+
 1. On GitHub click **Use this template** → **Create a new repository** and choose **Private**.
    A fork of a public repository cannot be private, but a repository made from a template can.
 2. Open the new repository in your agent: Claude Code (web or local), Codex, Gemini CLI or Cursor.
@@ -108,22 +126,31 @@ connected. Where each app keeps its settings, and what to do when it does not wo
 
 ## Memory for your code projects
 
-Working on code? One command gives every repository its own memory, kept in your vault and never
-in the code repository:
+Working on code? The memory can keep notes for the repositories you choose, outside the code
+repository and never in it. First switch the hooks on, once, in the vault:
 
 ```sh
 node system/memory.mjs connect claude-code --projects   # or: connect codex --projects
 ```
 
-From then on, in the terminal and in VS Code alike, on Windows, macOS and Linux:
+Nothing changes in a repository until you add it. The defaults are the private ones:
 
-- the first session in a repository creates a `dev` sector for it (overview, handoff, commands,
-  conventions, gotchas, dead ends, map, log), filled in from `package.json` and the README;
+- `auto_add` false: a session in a repository the memory does not know only shows a one-time
+  hint; run `node <vault>/system/memory.mjs project add` inside the repository to give it a `dev`
+  sector (overview, handoff, commands, conventions, gotchas, dead ends, map, log), filled in from
+  the project's files (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod` and more) and its
+  README;
+- `store` local: its notes stay on this computer, in the local root (`--store git` puts them in
+  the vault repository instead);
+- `autosync` false: nothing is committed or pushed by itself (`--autosync` commits and pushes the
+  vault when a session ends; a failed sync shows up at the next session start and in `doctor`).
+
+In an added project, in the terminal and in VS Code alike, on Windows, macOS and Linux:
+
 - every session starts with the branch, the last commits, the handoff and the known gotchas of
   *that* project;
 - when the code changed, the agent is asked once to write the handoff and what it learned;
-- a failed command is looked up in the gotchas it met before;
-- the vault commits and pushes itself when the session ends.
+- a failed command is looked up in the gotchas it met before.
 
 `remember --type gotcha "symptom → cause → fix"` records something by hand. Details:
 [docs/projects.md](docs/projects.md).
@@ -231,8 +258,10 @@ besides Node.
 | `doctor [--json] [--fix]` | checks the setup: Node, memory.json, kit files, git hooks, roots, connected apps; says how to fix each problem |
 | `upgrade [--yes] [--rollback]` | updates the kit to the newest version: shows the plan first, keeps a backup, verifies, rolls back on failure |
 | `connect <app>` · `connect --list` | adds the memory to an AI app's MCP settings (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI and more) |
-| `connect claude-code\|codex --projects [--remove]` | installs the hooks that give every code project its memory ([docs/projects.md](docs/projects.md)) |
-| `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision]` | records one line in the project's memory (inside a code repository) or in `inbox/` |
+| `connect claude-code\|codex --projects [--remove]` | installs the hooks for the code projects you add; nothing is added or pushed by itself ([docs/projects.md](docs/projects.md)) |
+| `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision\|fact]` | records one line in the project's memory (inside an added code repository), in the local root's inbox (inside another repository) or in `inbox/` |
+| `project add\|remove\|ignore\|unignore\|list\|status [--json]` | run inside a code repository: gives it a memory, unlinks it, silences the hint, lists the projects, shows its state |
+| `setup` | the setup wizard in a terminal: sets up a new memory, or connects AI apps, memory for coding projects and a health check |
 | `mcp [--read-only] [--local]` | the MCP server the apps start (stdio); you do not run it yourself |
 
 Every command also accepts the canonical English names. A language pack adds aliases: in Czech,
@@ -368,6 +397,7 @@ With `--lang cs`, `init` renames the folders and files to their Czech names: `se
 | how search works, Czech, golden questions | [docs/search.md](docs/search.md) |
 | routines, checks, budgets, troubleshooting, roadmap | [docs/maintenance.md](docs/maintenance.md) |
 | updating the kit, backups, rollback, releases | [docs/upgrading.md](docs/upgrading.md) |
+| installers, the setup wizard, uninstall | [docs/install.md](docs/install.md) |
 | memory for code projects: hooks, the dev sector, `remember` | [docs/projects.md](docs/projects.md) |
 | AI apps over MCP: every app, its settings file, troubleshooting | [docs/integrations/mcp.md](docs/integrations/mcp.md) |
 | Claude Code · Codex · Gemini CLI · Cursor · ChatGPT · Claude app | [docs/integrations/](docs/integrations/) |

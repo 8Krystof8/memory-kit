@@ -20,7 +20,7 @@ import {
   replaceKitBlock, restoreBackup, rollbackUpgrade, samePath,
 } from '../../lib/upgrade.mjs';
 import {
-  KIT_ROOT, TODAY, cloneDir, copyKit, describeFindings, overlay, readFile, removeTmpDirs, tmpDir, writeFile, writeJson,
+  KIT_ROOT, TODAY, agentHome, cloneDir, copyKit, describeFindings, overlay, readFile, removeTmpDirs, tmpDir, writeFile, writeJson,
 } from '../helpers.mjs';
 
 // The kit's own version and the synthetic ones around it, so a release does not break the tests.
@@ -70,6 +70,10 @@ const HAS_V010 = HAS_GIT && (() => {
   return !res.error && res.status === 0;
 })();
 const NO_V010 = !HAS_V010 && `commit ${V010} (memory-kit 0.1.0) is not in this clone`;
+// The first 0.1.2, merged into the public main before its review: the release is another build of it.
+const DRAFT012 = 'f2c6ac3';
+const NO_DRAFT012 = !(HAS_GIT && spawnSync('git', ['cat-file', '-e', `${DRAFT012}^{commit}`], { cwd: KIT_ROOT, stdio: 'ignore', windowsHide: true }).status === 0)
+  && `commit ${DRAFT012} (the 0.1.2 draft) is not in this clone`;
 
 /** Runs node <script> <args> without blocking, so independent tests run side by side. */
 function runNode(script, args, { cwd, env } = {}) {
@@ -259,10 +263,10 @@ before(async () => {
   [NEXT, VAULT] = await Promise.all([next, buildVault(SRC, 'en', 'upg-vault')]);
 });
 
-function archive010(label) {
+function archive010(label, commit = V010) {
   const dir = path.join(tmpDir(label), 'kit');
   fs.mkdirSync(dir, { recursive: true });
-  untar(git(KIT_ROOT, ['archive', '--format=tar', V010], { encoding: 'buffer' }), dir);
+  untar(git(KIT_ROOT, ['archive', '--format=tar', commit], { encoding: 'buffer' }), dir);
   return dir;
 }
 
@@ -309,6 +313,12 @@ describe('a 0.1.0 vault upgrades to this kit', { skip: NO_V010, concurrency: 4 }
     const manifest = loadManifest(SRC);
     for (const [rel, entry] of Object.entries(manifest.files)) {
       if (rel === '.github/workflows/ci.yml') continue;
+      if (entry.group === 'config' && keep[rel] === undefined) {
+        // A config file 0.1.0 did not ship (the installers) is reported, not added.
+        assert.ok(out.plan.files.some((f) => f.rel === rel && f.action === 'skip' && f.reason === 'missing'), `skipped: ${rel}`);
+        assert.ok(!fs.existsSync(path.join(v.root, ...rel.split('/'))), `not added: ${rel}`);
+        continue;
+      }
       assert.equal(hashFile(path.join(v.root, ...rel.split('/'))), entry.sha256, `replaced: ${rel}`);
     }
     assert.equal(readVersion(v.root), readVersion(SRC));
@@ -359,6 +369,34 @@ describe('a 0.1.0 vault upgrades to this kit', { skip: NO_V010, concurrency: 4 }
     assert.equal(jsonOf(shown).checks.find((ch) => ch.id === 'config.memory_json').status, 'fail');
   });
 
+  test('--rollback to a kit without the hook command takes the project hooks out first; the recovery tool refuses', async () => {
+    const v = cloneVault(V010_EN, 'upg-hooks010');
+    const h = agentHome('upg-hooks-home');
+    const up = await runKit(SRC, v.root, ['upgrade', '--yes', '--json']);
+    assert.equal(up.code, 0, `${up.stdout}\n${up.stderr}`);
+    const id = jsonOf(up).result.backup;
+    const connected = await runNode(path.join(v.root, 'system', 'memory.mjs'), ['connect', 'claude-code', '--projects', '--root', v.root], { cwd: v.root, env: h.env });
+    assert.equal(connected.code, 0, `${connected.stdout}\n${connected.stderr}`);
+    const ours = () => JSON.stringify(JSON.parse(fs.readFileSync(h.settings, 'utf8')).hooks ?? {}).includes('memory.mjs');
+    assert.ok(ours());
+    // The recovery tool of the backup: refused, nothing restored, the way out named.
+    const tool = await runNode(path.join(v.root, '.memory-kit', 'backups', id, 'tool', 'rollback.mjs'), [], { cwd: v.root, env: h.env });
+    assert.equal(tool.code, 1, `${tool.stdout}\n${tool.stderr}`);
+    assert.match(tool.stderr, /run this vault's hook command, which the kit of 0\.1\.0 does not have/);
+    assert.match(tool.stderr, /connect claude-code --projects --remove/);
+    assert.equal(readVersion(v.root), readVersion(SRC), 'nothing was restored');
+    const dry = await runNode(path.join(v.root, 'system', 'memory.mjs'), ['upgrade', '--rollback', '--dry-run', '--root', v.root], { cwd: v.root, env: h.env });
+    assert.match(dry.stdout, /the memory hooks in .*settings\.json would be taken out first/);
+    assert.ok(ours(), 'a dry run changes nothing');
+    // The vault's own CLI takes them out, then rolls back.
+    const back = await runNode(path.join(v.root, 'system', 'memory.mjs'), ['upgrade', '--rollback', '--root', v.root], { cwd: v.root, env: h.env });
+    assert.equal(back.code, 0, `${back.stdout}\n${back.stderr}`);
+    assert.match(back.stdout, /the memory hooks were taken out of .*settings\.json: the kit of 0\.1\.0 has no hook command/);
+    assert.match(back.stdout, /is undone/);
+    assert.ok(!ours(), 'no hook runs the vault any more');
+    assert.equal(readVersion(v.root), '0.1.0');
+  });
+
   test('(h) a Czech vault keeps its personal section and gets the Czech kit section', async () => {
     const v = cloneVault(V010_CS, 'upg-h010');
     writeFile(v.root, 'AGENTS.md', `${readFile(v.root, 'AGENTS.md')}- Ceny vždy s DPH.\n`);
@@ -370,6 +408,22 @@ describe('a 0.1.0 vault upgrades to this kit', { skip: NO_V010, concurrency: 4 }
     assert.ok(personal(agents).includes('- Ceny vždy s DPH.'));
     assert.equal(kitSection(agents), readFile(SRC, 'system/templates/cs/kit/agents-system.md'));
     assert.match(agents.split('\n')[0], new RegExp(`kit:start v${readVersion(SRC).replace(/\./g, '\\.')} · systémová část`));
+  });
+});
+
+describe('a vault of the 0.1.2 draft gets this kit', { skip: NO_DRAFT012 }, () => {
+  test('its kit files are replaced although the version number is the same', async () => {
+    const kit = archive010('upg-draft', DRAFT012);
+    assert.equal(readVersion(kit), '0.1.2');
+    const v = await buildVault(kit, 'en', 'upg-draft-en');
+    const res = await runKit(SRC, v.root, ['upgrade', '--yes', '--json']);
+    assert.equal(res.code, 0, `${res.stdout}\n${res.stderr}`);
+    const out = jsonOf(res);
+    if (CUR === '0.1.2') assert.equal(out.plan.refresh, true, 'another build of 0.1.2');
+    assert.equal(out.result.applied, true);
+    assert.equal(readFile(v.root, 'system/lib/commands/hook.mjs'), readFile(SRC, 'system/lib/commands/hook.mjs'));
+    assert.deepEqual(loadManifest(v.root), loadManifest(SRC));
+    assert.equal(jsonOf(await runKit(SRC, v.root, ['upgrade', '--json'])).result.up_to_date, true);
   });
 });
 
@@ -632,6 +686,27 @@ describe('upgrading this kit to a newer one', { concurrency: 4 }, () => {
     assert.ok(refusal, res.stdout);
     assert.match(refusal.message, /system\/lib\/text\.mjs/);
     assertSameTree(before, snapshot(v.root), 'nothing written');
+  });
+
+  test('another build of the same version (a draft published under the number) is an upgrade, not "up to date"', async () => {
+    const other = await releasedKit('upg-otherbuild', { from: SRC, mutate: (dir) => fs.appendFileSync(path.join(dir, 'system', 'lib', 'fingerprint.mjs'), '// the release build\n') });
+    assert.equal(readVersion(other), CUR);
+    const v = cloneVault(VAULT, 'upg-otherbuild-vault');
+    const plan = await planUpgrade({ vault: v.root, source: other });
+    assert.deepEqual([plan.upToDate, plan.refresh, plan.ok], [false, true, true]);
+    assert.ok(plan.files.some((f) => f.rel === 'system/lib/fingerprint.mjs' && f.action === 'replace'));
+    assert.deepEqual([(await planUpgrade({ vault: v.root, source: SRC })).upToDate, (await planUpgrade({ vault: v.root, source: SRC })).refresh], [true, false], 'the same build: up to date');
+    // The vault's own upgrade hands over to the other build's upgrader, which says what it does.
+    const shown = await runCli(v.root, ['upgrade', '--from', other]);
+    assert.equal(shown.code, 0, `${shown.stdout}\n${shown.stderr}`);
+    assert.match(shown.stdout, new RegExp(`this vault has another build of ${esc(CUR)}`));
+    const res = await runCli(v.root, ['upgrade', '--from', other, '--yes', '--json']);
+    assert.equal(res.code, 0, `${res.stdout}\n${res.stderr}`);
+    const out = jsonOf(res);
+    assert.equal(out.delegated_from, CUR);
+    assert.equal(out.result.applied, true);
+    assert.equal(readFile(v.root, 'system/lib/fingerprint.mjs'), readFile(other, 'system/lib/fingerprint.mjs'));
+    assert.equal(jsonOf(await runCli(v.root, ['upgrade', '--from', other, '--json'])).result.up_to_date, true, 'now it is');
   });
 
   test('a downgrade and an equal version', async () => {
@@ -1008,6 +1083,36 @@ describe('backups', () => {
     assert.equal(res2.lockRemoved, true);
     assert.equal(readFile(root, 'a.txt'), 'b\n', 'the state before the newer upgrade');
     assert.throws(() => rollbackUpgrade(root, { id: 'nope' }), (err) => err.code === 'rollback_not_found');
+  });
+
+  test('a rollback that takes the hook command away is refused while the agents\' hooks run this vault', async () => {
+    const root = path.join(tmpDir('upg-hookguard'), 'my vault');
+    writeFile(root, 'system/memory.mjs', '// the CLI\n');
+    const b = createBackup(root, { from: '0.1.1', to: '0.1.2', now: new Date(Date.UTC(2026, 8, 24, 9, 0, 0)) });
+    b.recordMany([{ rel: 'system/lib/commands/hook.mjs', next: sha('hook\n') }]);
+    writeFile(root, 'system/lib/commands/hook.mjs', 'hook\n');
+    b.finish();
+    const home = tmpDir('upg-hookguard-home');
+    const env = { CLAUDE_CONFIG_DIR: path.join(home, 'claude cfg') };
+    const script = path.join(root, 'system', 'memory.mjs');
+    const settings = (command) => writeJson(home, 'claude cfg/settings.json', { hooks: { Stop: [{ hooks: [{ type: 'command', ...command }] }] } });
+    // Another vault's hooks do not count.
+    settings({ command: `"/usr/bin/node" "${path.join(tmpDir('upg-other'), 'system', 'memory.mjs')}" hook claude-code stop` });
+    assert.deepEqual(rollbackUpgrade(root, { dryRun: true, env, home }).hooks, []);
+    // This vault's, in the shell form and in the exec form: refused, nothing restored.
+    for (const command of [{ command: `"/usr/bin/node" "${script}" hook claude-code stop` }, { command: '/usr/bin/node', args: [script, 'hook', 'claude-code', 'stop'] }]) {
+      settings(command);
+      assert.deepEqual(rollbackUpgrade(root, { dryRun: true, env, home }).hooks, [path.join(home, 'claude cfg', 'settings.json')]);
+      assert.throws(() => rollbackUpgrade(root, { env, home }), (err) => err.code === 'rollback_hooks' && /connect claude-code --projects --remove/.test(err.message));
+      assert.equal(readFile(root, 'system/lib/commands/hook.mjs'), 'hook\n');
+    }
+    // Codex hooks count the same; without any, the rollback runs.
+    writeJson(home, 'claude cfg/settings.json', {});
+    writeJson(home, 'codex/hooks.json', { hooks: { Stop: [{ hooks: [{ type: 'command', command: `node '${script}' hook codex stop` }] }] } });
+    assert.throws(() => rollbackUpgrade(root, { env: { ...env, CODEX_HOME: path.join(home, 'codex') }, home }), (err) => err.code === 'rollback_hooks');
+    const done = rollbackUpgrade(root, { env, home });
+    assert.equal(done.applied, true);
+    assert.ok(!fs.existsSync(path.join(root, 'system', 'lib', 'commands', 'hook.mjs')));
   });
 
   test('pruning keeps the five newest and never touches other folders', async () => {

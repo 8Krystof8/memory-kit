@@ -1,6 +1,8 @@
 // `doctor`: checks the installation (Node.js, memory.json, kit files, AGENTS.md and the agent
 // files, git and its pre-commit hook, the roots, the generated views, the platform, the MCP
-// clients) and prints one line per check with the fix under each problem. Runs also when
+// clients, the memory hooks for code projects) and prints one line per check with the fix under
+// each problem; --probe also runs the session start hook of the project hooks once, the way
+// Claude Code or Codex runs it, in an empty temporary folder. Runs also when
 // memory.json or a pack cannot be loaded (cfg is then null; messages come from the packs when
 // they load, else English). --fix repairs only what is mechanical and loses nothing: it sets
 // core.hooksPath when it is unset, and removes a BOM and CR bytes from .githooks/pre-commit and
@@ -13,7 +15,7 @@ import { HOOK_REL, diagnose, formatReport, hookFile, say } from '../doctor.mjs';
 import { writeAtomic } from '../fsafe.mjs';
 import { git, interpolate, parseCli, usageError } from '../util.mjs';
 
-export const usage = 'doctor [--json] [--fix]';
+export const usage = 'doctor [--json] [--fix] [--probe]';
 
 export const BACKUP_DIR = '.memory-kit/backups/doctor';
 
@@ -170,6 +172,7 @@ export async function run(argv, cfg, ctx = {}) {
   const parsed = parseCli(argv, {
     json: { type: 'boolean' },
     fix: { type: 'boolean' },
+    probe: { type: 'boolean' },
   }, usage);
   if (!parsed) return 2;
   const { values, positionals } = parsed;
@@ -179,7 +182,7 @@ export async function run(argv, cfg, ctx = {}) {
   }
   const root = path.resolve(ctx.root ?? cfg?.root ?? '.');
   const t = cfg?.t ?? await packTranslator(root);
-  const opts = { kitRoot: ctx.kitRoot, cfg, configError: ctx.configError ?? null, t };
+  const opts = { kitRoot: ctx.kitRoot, cfg, configError: ctx.configError ?? null, t, probe: values.probe === true };
   let result = await diagnose(root, opts);
 
   if (values.fix && result.repairs.length) {

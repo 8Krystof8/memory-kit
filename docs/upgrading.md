@@ -24,7 +24,9 @@ and how to undo it. The last part is for maintainers who publish a new version.
 - **Your data stays as it is.** Notes, hubs, the inbox, the journal, the archive, `memory.json`,
   your golden questions and your local sectors are never overwritten. The only exception is a data
   migration (see [Data migrations](#data-migrations)), and 0.1.1 has none.
-- **Nothing happens without `--yes`.** Without it, `upgrade` only prints the plan.
+- **Nothing happens until you agree.** In a terminal, `upgrade` shows the plan and asks before it
+  changes anything; an Enter pressed before the question is on the screen is not an answer.
+  Everywhere else (an AI agent, a script, CI) it only prints the plan unless you pass `--yes`.
 - **Your own changes are never lost silently.** A kit code file you changed stops the upgrade. A
   config or docs file you changed stays as it is, and the new version is saved next to it for you
   to compare. A file that you or another program change while the upgrade runs, or after it, is
@@ -50,6 +52,13 @@ git commit -m "memory-kit 0.1.1 → 0.1.2"
 1. The first command downloads the newest kit and prints the plan. It changes nothing.
 2. The second command applies the plan.
 3. The last two commit the result. `upgrade` prints the exact commit command for your versions.
+
+In a terminal, a vault on 0.1.2 or newer does the first two steps in one: `upgrade` shows the plan
+and what is new, then asks `Upgrade to 0.1.3 now?`. Answer `y` to apply it or `n` to leave
+everything as it is; the second command is then not needed. An Enter you press while the kit
+downloads or the plan is computed does not count as an answer. Without a terminal `upgrade` never
+asks: it prints the plan and changes nothing, and only `--yes` applies it. A vault on 0.1.1 hands
+over to the new upgrader without a terminal, so there the two commands above are the way.
 
 In the Czech pack the command is `aktualizuj`, and `--ano` means `--yes`.
 
@@ -80,7 +89,14 @@ to undo it: node system/memory.mjs upgrade --rollback 20260924-162948-0.1.1-to-0
 ```
 
 When your vault already has the newest version, `upgrade` says
-`memory-kit 0.1.1 is up to date (the source has 0.1.1).` and exits 0.
+`memory-kit 0.1.1 is up to date (the source has 0.1.1).` and exits 0. The same number is not
+enough, though: when the source's `system/kit.json` lists other files or hashes (another build of
+that version, such as a draft published under its number), it is an upgrade like any other, and
+the plan says so (`this vault has another build of …`). From 0.1.2 on, a vault's own `upgrade`
+hands over to that build. A vault that took the draft of 0.1.2 from `main` on 25 September 2026
+still says "up to date", since its own upgrader predates this: download the kit and run
+`node <kit>/system/memory.mjs upgrade --root <vault>` once, then `connect claude-code --projects`
+again (the draft's hooks do nothing until then) or `connect claude-code --projects --remove`.
 
 ## What happens, step by step
 
@@ -170,7 +186,7 @@ Every kit file belongs to one group. The group decides what happens to it.
 | code | `system/memory.mjs`, `system/init.mjs`, `system/api.mjs`, `system/VERSION`, `system/lib/`, `system/lang/`, `system/templates/`, `system/schema/`, `system/migrations/`, `system/tools/`, `system/kit.json`, `system/kit-history.json` | replaced | the upgrade stops; `--force` replaces it (the backup keeps yours) | added |
 | tests | `system/tests/**`, except `system/tests/golden.json` and the file `eval.golden` in `memory.json` names | replaced | as code | added, but only when your vault has `system/tests/helpers.mjs` |
 | docs | `docs/**` | replaced | kept; the new version goes to `.memory-kit/upgrade/<version>/proposed/` | added, but only when your vault has a `docs/` folder |
-| config | `.githooks/pre-commit`, `.github/workflows/ci.yml`, `.claude/settings.json`, `.agents/skills/memory/SKILL.md`, `.claude/skills/memory/SKILL.md`, `.claude/agents/memory-searcher.md`, `.gitattributes`, `GEMINI.md` | replaced | kept; the new version goes to `.memory-kit/upgrade/<version>/proposed/` | skipped and reported; the pre-commit hook is always installed |
+| config | `.githooks/pre-commit`, `.github/workflows/ci.yml`, `.claude/settings.json`, `.agents/skills/memory/SKILL.md`, `.claude/skills/memory/SKILL.md`, `.claude/agents/memory-searcher.md`, `.gitattributes`, `GEMINI.md`, `install.sh`, `install.ps1` | replaced | kept; the new version goes to `.memory-kit/upgrade/<version>/proposed/` | skipped and reported; the pre-commit hook is always installed |
 | block | `AGENTS.md`, from the line with `<!-- kit:start` to the line with `<!-- kit:end -->` | replaced by the kit section of the new kit, in your vault's language | replaced as well: the kit section belongs to the kit | missing or doubled markers, or a file saved as UTF-16: skipped and reported |
 | never | `README*`, `LICENSE`, `CHANGELOG.md`, `CONTRIBUTING.md`, `CLAUDE.md`, `memory.json`, `.gitignore`, all notes and hubs, the home page, `_ai/`, `.ignore`, `system/cleanup/`, `system/usage/`, golden files | untouched | untouched | untouched |
 
@@ -293,6 +309,15 @@ these files had changed after the upgrade; your version of each is saved under .
 A new file that the upgrade cannot prove it wrote counts as a conflict too, so a rollback never
 removes it without a copy.
 
+**The memory hooks for code projects go first.** They live in your user settings
+(`~/.claude/settings.json`, `~/.codex/hooks.json`), outside the vault, and run
+`system/memory.mjs hook …` in every repository you open. A kit older than 0.1.2 has no `hook`
+command: its answer would be a hook error in every session, and a blocked Stop. So when the
+rollback goes back to such a kit while those hooks run this vault, `upgrade --rollback` takes them
+out first (as `connect claude-code --projects --remove` does) and says so; `--dry-run` names them.
+The recovery tool cannot do that and refuses instead, naming the command to run first. After the
+next upgrade, `connect claude-code --projects` puts them back.
+
 ### An interrupted upgrade
 
 When the computer crashes or the terminal closes while an upgrade runs, the lock file stays. The
@@ -335,7 +360,8 @@ node .memory-kit/backups/20260924-162948-0.1.1-to-0.1.2/tool/rollback.mjs
 It restores its own backup by the same rules as `upgrade --rollback <id>`. `--dry-run` shows what
 would change, `--force` restores changed files too (after saving them under `conflicts/`), and
 `--json` prints `{ rollback: { ok, … } }`. Its messages are English only. Exit codes: 0 done, 1
-refused (conflicts, or an upgrade still runs), 2 an unknown option. The lock names the backup, so
+refused (conflicts, an upgrade still runs, or memory hooks that the restored kit cannot serve), 2
+an unknown option. The lock names the backup, so
 `.memory-kit/upgrade.lock` tells you which folder to use.
 
 When an upgrade stops before it finishes (the newer upgrader that took over was killed, or
@@ -373,7 +399,9 @@ node memory-kit-new/system/memory.mjs upgrade --root my-memory
 node memory-kit-new/system/memory.mjs upgrade --root my-memory --yes
 ```
 
-The second command shows the plan. The third applies it. Use the English name `upgrade` here, even
+The second command shows the plan and changes nothing. In a terminal it then asks whether to apply
+it; answer `y` and skip the third command. Without a terminal the third command applies it. Use the
+English name `upgrade` here, even
 in a Czech vault: the 0.1.0 language pack does not know `aktualizuj` yet, and for the same reason
 this one run prints its messages in English.
 
@@ -441,7 +469,7 @@ node system/memory.mjs upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--ye
 
 | option | Czech alias | what it does |
 |---|---|---|
-| `--yes` | `--ano` | apply the plan (without it, `upgrade` only prints the plan) |
+| `--yes` | `--ano` | apply the plan without asking (without it, `upgrade` asks in a terminal and only prints the plan elsewhere) |
 | `--dry-run` | `--nanecisto` | print the plan and change nothing, even with `--yes` |
 | `--from <dir\|git-url>` | `--odkud` | take the new kit from this folder or git URL |
 | `--ref <branch\|tag>` | | with a git URL, or a kit folder that is a git repository: clone this branch or tag |

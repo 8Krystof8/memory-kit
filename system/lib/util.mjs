@@ -491,6 +491,48 @@ export function isGitRepo(root) {
   return gitRepoState(root).state === 'top';
 }
 
+/**
+ * The kit's per-computer folder in a vault: logs, session records (with the paths of code
+ * repositories), upgrade and connect backups (copies of agent settings). It never belongs in git.
+ */
+export const WORK_DIR = '.memory-kit';
+
+/**
+ * Whether git keeps WORK_DIR out of the vault's repository: null outside a work tree (or when git
+ * fails), else { ignored, tracked: [paths under it that git tracks already] }.
+ */
+export function workDirGit(root) {
+  const probe = git(root, ['check-ignore', '-q', '--no-index', `${WORK_DIR}/probe`], { allowFail: true });
+  if (!probe.ok && probe.code !== 1) return null;
+  const tracked = git(root, ['ls-files', '-z', '--', WORK_DIR], { allowFail: true });
+  return { ignored: probe.ok, tracked: tracked.ok ? tracked.stdout.split('\0').filter(Boolean) : [] };
+}
+
+/**
+ * Keeps WORK_DIR out of git: when git does not ignore it yet (a vault made by 0.1.0 has no
+ * .gitignore line for it, and .git/info/exclude of one clone does not travel), the line is
+ * appended to this clone's .git/info/exclude; the owner's .gitignore is never changed. True when
+ * the line was written. Throws only when the exclude file cannot be written.
+ */
+export function ensureWorkDirIgnored(root) {
+  const state = workDirGit(root);
+  if (!state || state.ignored) return false;
+  const where = git(root, ['rev-parse', '--git-path', 'info/exclude'], { allowFail: true });
+  if (!where.ok || !where.stdout.trim()) return false;
+  const abs = path.resolve(root, where.stdout.trim());
+  let last = null;
+  try {
+    const buf = fs.readFileSync(abs);
+    last = buf.length ? buf[buf.length - 1] : null;
+  } catch {
+    /* no exclude file yet */
+  }
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  // Appended, so the lines already there keep their bytes.
+  fs.appendFileSync(abs, `${last !== null && last !== 0x0a ? '\n' : ''}${WORK_DIR}/\n`);
+  return true;
+}
+
 /** True when abs names a file system entry (a dangling link counts). */
 function entryExists(abs) {
   try {

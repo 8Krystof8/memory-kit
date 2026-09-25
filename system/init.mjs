@@ -7,10 +7,17 @@
 //                        [--private-root <path>] [--agents <list>] [--cleanup none]
 //                        [--allow-ephemeral] [--today YYYY-MM-DD] [--dry-run] [--yes] [--json]
 //                        [--root <path>]
+//   node system/init.mjs [--interactive | --no-interactive]
 //
-// Without --yes init only prints its plan. Every step is idempotent, so a run that stopped half
-// way can simply be repeated with the same answers. Exit codes: 0 ok, 1 refused or check errors,
-// 2 usage (missing or invalid answers), 3 internal error.
+// In an interactive terminal without answers, init opens the setup wizard (lib/wizard.mjs),
+// which asks the same questions one screen at a time and applies them with the functions
+// exported here; --interactive forces it, --no-interactive keeps the plain behaviour. Without a
+// terminal nothing changes: the output below stays byte for byte.
+// Without --yes init only prints its plan. The wizard asks instead; without a terminal to ask in
+// (--interactive in a pipe) it applies only with --yes, --dry-run ends it after the summary, and
+// --interactive with --json is a usage error. Every step is idempotent, so a run that stopped
+// half way can simply be repeated with the same answers. Exit codes: 0 ok, 1 refused or check
+// errors, 2 usage (missing or invalid answers), 3 internal error.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -46,6 +53,8 @@ const OPTIONS = {
   yes: { type: 'boolean' },
   json: { type: 'boolean' },
   root: { type: 'string' },
+  interactive: { type: 'boolean' },
+  'no-interactive': { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 };
 
@@ -55,6 +64,8 @@ const USAGE = [
   '  node system/init.mjs --mode github|local|combined --lang <code> --sectors <list>',
   '                       [--private-root <path>] [--agents <list>] [--cleanup none]',
   '                       [--allow-ephemeral] [--today YYYY-MM-DD] [--dry-run] [--yes] [--json] [--root <path>]',
+  '  node system/init.mjs [--interactive | --no-interactive] [--root <path>]',
+  '--interactive: the setup wizard (the default in a terminal when answers are missing); --no-interactive: never.',
   '--sectors: presets or ids, each optionally :github or :local (core,work,family:local).',
   '--private-root: relative to the vault root or absolute; must be outside the repository.',
   '--allow-ephemeral: set up local content in a cloud session anyway (it is lost when the session ends).',
@@ -437,6 +448,17 @@ function runGit(root, args) {
   return { ok: res.status === 0, stdout: res.stdout ?? '', stderr: (res.stderr || res.error?.message || '').trim() };
 }
 
+const remoteNames = (root) => runGit(root, ['remote']).stdout.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+
+/**
+ * The names of the vault's git remotes, when root is the top of its own git work tree (a folder
+ * inside another repository has none of its own); [] otherwise. Mode local is refused while
+ * there is one, and the wizard does not offer it then.
+ */
+function vaultRemotes(root) {
+  return isGitTopLevel(root) ? remoteNames(root) : [];
+}
+
 function buildPlan(root, raw, opts, packs, util) {
   if (!MODES.includes(opts.mode)) throw usageError(`--mode must be one of ${MODES.join(', ')}`);
   if (!packs.has(opts.lang)) throw usageError(`--lang must be one of ${[...packs.keys()].join(', ')}`);
@@ -457,7 +479,7 @@ function buildPlan(root, raw, opts, packs, util) {
   const moves = plannedMoves(root, renameMoves(fromPack, toPack));
   const git = isGitTopLevel(root);
   if (opts.mode === 'local' && git) {
-    const remotes = runGit(root, ['remote']).stdout.split('\n').map((r) => r.trim()).filter(Boolean);
+    const remotes = remoteNames(root);
     if (remotes.length) throw new InitError(1, t('init.refused_remote', { remotes: remotes.join(', ') }));
   }
   const cloud = cloudSignal();
@@ -730,17 +752,26 @@ async function apply(plan, packs, out) {
   return result;
 }
 
-function nextSteps(plan, t) {
-  const lines = [t('init.next.title'), `- ${t('init.next.profile', { rel: plan.profileRel })}`];
+/** The next steps after init as [{ text, commands? }] (the wizard renders them its own way). */
+function nextStepItems(plan, t) {
+  const items = [{ text: t('init.next.profile', { rel: plan.profileRel }) }];
   // One command per line: `a && b` is a parse error in Windows PowerShell 5.1.
-  if (plan.git) lines.push(`- ${t('init.next.commit_steps')}`, '    git add -A', `    git commit -m "${t('init.next.commit_message')}"`);
-  else lines.push(`- ${t('init.next.no_git')}`);
-  if (plan.mode === 'local') lines.push(`- ${t('init.next.local')}`);
-  else lines.push(`- ${t('init.next.github')}`);
-  if (plan.privateRoot) lines.push(`- ${t('init.next.combined', { path: plan.privateRoot.stored })}`);
+  if (plan.git) items.push({ text: t('init.next.commit_steps'), commands: ['git add -A', `git commit -m "${t('init.next.commit_message')}"`] });
+  else items.push({ text: t('init.next.no_git') });
+  items.push({ text: t(plan.mode === 'local' ? 'init.next.local' : 'init.next.github') });
+  if (plan.privateRoot) items.push({ text: t('init.next.combined', { path: plan.privateRoot.stored }) });
   for (const agent of plan.agents) {
     const key = agent === 'chatgpt' && plan.mode === 'local' ? 'init.next.chatgpt_local' : `init.next.${agent}`;
-    lines.push(`- ${t(key)}`);
+    items.push({ text: t(key) });
+  }
+  return items;
+}
+
+function nextSteps(plan, t) {
+  const lines = [t('init.next.title')];
+  for (const item of nextStepItems(plan, t)) {
+    lines.push(`- ${item.text}`);
+    for (const command of item.commands ?? []) lines.push(`    ${command}`);
   }
   return lines.join('\n') + '\n';
 }
@@ -812,6 +843,10 @@ export async function main(argv) {
       return 0;
     }
     const t = translator(packs, packs.has(opts.lang) ? opts.lang : 'en');
+    if (await wantsWizard(opts, raw)) {
+      const { runWizard } = await import(pathToFileURL(path.join(HERE, 'lib', 'wizard.mjs')).href);
+      return await runWizard({ root, opts });
+    }
     if (raw.initialized === true) {
       process.stderr.write(`init: ${t('init.refused_initialized')}\n`);
       return 1;
@@ -864,6 +899,25 @@ export async function main(argv) {
   }
 }
 
+/**
+ * Whether main hands over to the setup wizard: --interactive, or (unless --no-interactive, --yes,
+ * --json or --dry-run) a terminal where stdin and stdout are TTYs, not CI and not TERM=dumb, and
+ * answers are missing (a set-up vault: no answers at all, which opens the extras menu).
+ * --interactive with --json is a usage error (the JSON would be mixed with the questions); with
+ * --dry-run the wizard ends after its summary, and without a terminal it applies only with --yes.
+ */
+async function wantsWizard(opts, raw) {
+  if (opts.interactive && opts['no-interactive']) throw usageError('--interactive and --no-interactive exclude each other');
+  if (opts.interactive && opts.json) throw usageError('--interactive asks its questions on the screen and prints no JSON: leave out one of --interactive and --json');
+  if (opts.interactive) return true;
+  if (opts['no-interactive'] || opts.yes || opts.json || opts['dry-run']) return false;
+  const given = ['mode', 'lang', 'sectors'].filter((k) => opts[k] !== undefined && opts[k].trim() !== '');
+  if (raw.initialized === true ? given.length > 0 : given.length === 3) return false;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+  const { capabilities } = await import(pathToFileURL(path.join(HERE, 'lib', 'tui.mjs')).href);
+  return capabilities().interactive;
+}
+
 function planJson(plan, applied) {
   return {
     applied,
@@ -878,6 +932,12 @@ function planJson(plan, applied) {
     git: plan.gitInit ? 'init' : plan.git ? 'hooks' : 'none',
   };
 }
+
+// For the setup wizard (lib/wizard.mjs): the same questions, plan and steps as the CLI.
+export {
+  AGENTS, InitError, MODES, apply, buildPlan, canonPrivacy, defaultPrivateRoot, findPreset, formatPlan, kitUtil, loadPacks,
+  nextStepItems, parseAgents, parseSectors, planJson, presetEntries, readMemoryJson, translator, vaultRemotes,
+};
 
 /**
  * True when argv1 (the script node was started with) is selfFile. Node resolves links for the
