@@ -31,12 +31,15 @@ const CODE_DIRS = ['system/lib/', 'system/lang/', 'system/templates/', 'system/s
 export const CONFIG_FILES = Object.freeze([
   '.githooks/pre-commit',
   '.github/workflows/ci.yml',
+  '.github/workflows/release.yml',
   '.claude/settings.json',
   '.agents/skills/memory/SKILL.md',
   '.claude/skills/memory/SKILL.md',
   '.claude/agents/memory-searcher.md',
   '.gitattributes',
   'GEMINI.md',
+  'install.sh',
+  'install.ps1',
 ]);
 const CONFIG_SET = new Set(CONFIG_FILES);
 

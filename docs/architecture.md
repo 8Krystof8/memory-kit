@@ -126,6 +126,7 @@ renames to the chosen pack.
 memory-kit/
 ├── AGENTS.md  CLAUDE.md  GEMINI.md          rules (section 9)
 ├── README.md  README.cs.md  CONTRIBUTING.md  CHANGELOG.md  LICENSE
+├── install.sh  install.ps1                   one-line installers (macOS and Linux sh, Windows PowerShell)
 ├── memory.json                               "initialized": false, "lang": "en"
 ├── home.md                                   GENERATED home page for people (8.8)
 ├── state.md  waiting.md                      starter hubs (type hub)
@@ -146,10 +147,11 @@ memory-kit/
 │   ├── schema/ memory note kit search-result check-result doctor-result .schema.json
 │   ├── migrations/index.mjs                  data migrations (none in 0.1.1)
 │   ├── tools/release.mjs                     maintainers only: rebuilds kit.json and the history
+│   ├── tools/release-notes.mjs               maintainers only: a version's CHANGELOG section (release.yml)
 │   └── tests/ golden.json unit/ integration/ fixtures/ helpers.mjs
 ├── .agents/skills/memory/SKILL.md  .claude/skills/memory/SKILL.md (same file)
 ├── .claude/agents/memory-searcher.md  .claude/settings.json
-├── .githooks/pre-commit  .github/workflows/ci.yml
+├── .githooks/pre-commit  .github/workflows/ci.yml  .github/workflows/release.yml
 └── .gitignore  .gitattributes                no editor settings: any markdown editor works (9.8)
 ```
 

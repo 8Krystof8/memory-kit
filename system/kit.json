@@ -32,7 +32,11 @@
       "group": "config"
     },
     ".github/workflows/ci.yml": {
-      "sha256": "70486bcb7f23287b9441e427f7e97d06d179bc6a7a03e82d0aa92d8c0e50ac1b",
+      "sha256": "e0b69967bbee18ddcf5fb7cf666055c8ec975b86a5e65d6bac7affdf8f7817c3",
+      "group": "config"
+    },
+    ".github/workflows/release.yml": {
+      "sha256": "8377c4cca3d0b5aab40eda9016bbc0c156585bc2ef85de2b6592802110f56c9a",
       "group": "config"
     },
     "GEMINI.md": {
@@ -44,7 +48,7 @@
       "group": "docs"
     },
     "docs/architecture.md": {
-      "sha256": "a3e3b807101eeb0d1d94aef809c4f0ef01180d1ae0bd165f33a23f23e335154a",
+      "sha256": "000c812b51e8b9fb1f26eae454151eea45d3cee66c76487d1b9f4083d03109af",
       "group": "docs"
     },
     "docs/integrations/chatgpt.md": {
@@ -100,8 +104,16 @@
       "group": "docs"
     },
     "docs/upgrading.md": {
-      "sha256": "3f85e04c5db937c7389b2a09e6ea7b67a20937e6e240024ee886c84685079b54",
+      "sha256": "066f37e1c8a0664e71dd35e710051152cb94acc9642cfbd7f7afa074a402a4de",
       "group": "docs"
+    },
+    "install.ps1": {
+      "sha256": "621760bae0eebee6219b9ad53b4bbb38a00458dcae78dcc0ab0dcd0b04d6d461",
+      "group": "config"
+    },
+    "install.sh": {
+      "sha256": "04ed41a5918fbc143f5f92e16fefc2a21e91e4399b802295dd4f01a19f3fb3f0",
+      "group": "config"
     },
     "system/VERSION": {
       "sha256": "297b50f08386d3521f8fdaf2f78eb8d9d0acdf452d2e61596905fba37208c792",
@@ -240,7 +252,7 @@
       "group": "code"
     },
     "system/lib/kit.mjs": {
-      "sha256": "f438f05e3e1155730eea8bf7b56a1c7caf6709b6a8f7a6ccb09cbeb6d2d448c3",
+      "sha256": "c47fd7951b5ea1e9a31acd6f3739f7084e20057f74d331c72461870e9769d2b6",
       "group": "code"
     },
     "system/lib/lockcheck.mjs": {
@@ -871,6 +883,10 @@
       "sha256": "824b5b24552b9764f86e77ed5e3e40cb30d784f50419ac0b80fdc4007308cb1d",
       "group": "tests"
     },
+    "system/tests/integration/installers.test.mjs": {
+      "sha256": "620eb1ba2ba78257fdf2343f09580568378e9d57846bcf618a173b5fe9ca6dc6",
+      "group": "tests"
+    },
     "system/tests/integration/kit.test.mjs": {
       "sha256": "74017fdc3f71e2e3b60cdef074a4d602aa8603b01d9c085222957bacc033735a",
       "group": "tests"
@@ -892,7 +908,7 @@
       "group": "tests"
     },
     "system/tests/integration/upgrade.test.mjs": {
-      "sha256": "b808cbd5bf01c6fd193003da15377bde5c82836f6a625b37677c016a8fb5d006",
+      "sha256": "9d04424119fdc1a6b1c89f43c2368a16a57c29e65ea7c0a0e17f8751ac236fc3",
       "group": "tests"
     },
     "system/tests/unit/api.test.mjs": {
@@ -990,6 +1006,10 @@
     "system/tests/unit/util.test.mjs": {
       "sha256": "ab0a1e7f28a8d86c487653aed5ff3f1da80329d90a8305a788eeb683795aad34",
       "group": "tests"
+    },
+    "system/tools/release-notes.mjs": {
+      "sha256": "8afabad9c7fdc1278824b9c7ca2e6743e8473ae451833cc18f0354f6dbd94e4f",
+      "group": "code"
     },
     "system/tools/release.mjs": {
       "sha256": "d7ccdeb5195fa04e886905ea913771fb9b00c3569eb10370a45335ed8add91be",
