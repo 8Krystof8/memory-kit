@@ -15,6 +15,12 @@ Memory for code projects, kept outside the code repositories and off unless you 
 setup wizard and an upgrade screen in the terminal; one-line installers and release tags. Nothing
 changes for vaults that do not switch the project memory on; the data version stays 1.
 
+A vault that took the draft of 0.1.2 from `main` on 25 September 2026 (auto add and autosync on by
+default) is another build of the same number, which its own `upgrade` calls up to date. Download
+this kit and run `node <kit>/system/memory.mjs upgrade --root <vault>` once; then
+`connect claude-code --projects` again (the draft's hooks do nothing until then) or
+`connect claude-code --projects --remove`.
+
 ### Added
 
 - **`connect claude-code|codex --projects`** installs user-level hooks (`~/.claude/settings.json`,
@@ -117,6 +123,9 @@ changes for vaults that do not switch the project memory on; the data version st
 - `init` in an interactive terminal without answers opens the setup wizard (`--no-interactive`
   keeps the old behaviour); without a terminal its output is unchanged byte for byte.
 - `upgrade` in a terminal shows the upgrade screen; its plain output is unchanged.
+- `upgrade` treats a source of the same version whose `system/kit.json` lists other files or
+  hashes (another build of it) as an upgrade instead of "up to date", and the vault's own upgrade
+  hands over to it.
 - `doctor` has 18 checks (`projects.hooks` is new) and the option `--probe`.
 - On a Node.js older than 22, `hook` ends quietly with exit 0 and logs why (an agent hook must not
   fail a session); every other command still stops with exit 3.

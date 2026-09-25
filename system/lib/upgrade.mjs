@@ -469,6 +469,20 @@ function fileActions({ vaultRoot, source, force, golden, vaultManifest, vaultHis
  * the data (migrations), and why it cannot run: refusals (hard) and blockers (--force overrides).
  * `migrations` replaces the source's system/migrations list (for tests).
  */
+/**
+ * True when the vault's kit and the source are other builds of one version: both kit.json files
+ * are there, and they list other files or hashes (a draft published under the number of a release,
+ * or a development build). Such a source is an upgrade, not "up to date".
+ */
+export function otherBuild(vaultRoot, sourceRoot) {
+  const mine = loadManifest(vaultRoot);
+  const theirs = loadManifest(sourceRoot);
+  if (!mine?.files || !theirs?.files || mine.version !== theirs.version) return false;
+  const a = Object.entries(mine.files);
+  if (a.length !== Object.keys(theirs.files).length) return true;
+  return a.some(([rel, e]) => theirs.files[rel]?.sha256 !== e?.sha256);
+}
+
 export async function planUpgrade({ vault, source, force = false, nodeVersion = process.versions.node, migrations } = {}) {
   const vaultRoot = path.resolve(vault);
   const sourceRoot = path.resolve(source);
@@ -484,6 +498,7 @@ export async function planUpgrade({ vault, source, force = false, nodeVersion = 
     golden: conf.golden,
     force: Boolean(force),
     upToDate: false,
+    refresh: false,
     ok: false,
     refusals: [],
     blockers: [],
@@ -512,7 +527,11 @@ export async function planUpgrade({ vault, source, force = false, nodeVersion = 
   const man = src.manifest;
   plan.proposedDir = proposedDir(plan.to);
   const order = compareVersions(plan.to, plan.from);
-  if (order === 0) plan.upToDate = true;
+  // The same number: up to date, unless the source is another build of it (otherBuild).
+  if (order === 0) {
+    plan.refresh = otherBuild(vaultRoot, sourceRoot);
+    plan.upToDate = !plan.refresh;
+  }
   if (order < 0 && !force) refuse('downgrade', { from: plan.from, to: plan.to });
   if (compareVersions(plan.from, man.upgrade_from) < 0) refuse('too_old', { from: plan.from, min: man.upgrade_from });
   if (compareVersions(nodeVersion, man.node) < 0) refuse('node', { need: man.node, have: nodeVersion });

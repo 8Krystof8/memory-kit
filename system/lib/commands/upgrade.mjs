@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DEFAULT_SOURCE, absOf, compareVersions, loadManifest, parseVersion, readVersion } from '../kit.mjs';
 import {
-  UpgradeError, applyUpgrade, cloneKit, isGitUrl, lockState, planUpgrade, readVaultConfig, recoveryTool, rollbackUpgrade,
+  UpgradeError, applyUpgrade, cloneKit, isGitUrl, lockState, otherBuild, planUpgrade, readVaultConfig, recoveryTool, rollbackUpgrade,
   samePath, vaultHooks,
 } from '../upgrade.mjs';
 import { isDir, isFile, parseCli, usageError } from '../util.mjs';
@@ -30,6 +30,7 @@ const DEFAULTS = {
   'upgrade.title': 'memory-kit upgrade {from} → {to}',
   'upgrade.source': 'source: {source}',
   'upgrade.counts': 'kit files: {add} new, {replace} updated, {remove} removed, {unchanged} unchanged',
+  'upgrade.refresh': 'this vault has another build of {version} (a draft published under that number, or a development build): its kit files are brought to this one',
   'upgrade.agents.replace': 'AGENTS.md: the kit section is replaced with {template}; your text around it stays as it is',
   'upgrade.agents.unchanged': 'AGENTS.md: the kit section is current',
   'upgrade.agents.no_file': 'AGENTS.md is missing, so its kit section cannot be updated',
@@ -200,6 +201,7 @@ function printPlan(out, cfg, plan, hints = {}) {
   const t = (key, vars) => say(cfg, key, vars);
   out.line(t('upgrade.title', { from: plan.from, to: plan.to ?? '?' }));
   out.line(t('upgrade.source', { source: plan.source }));
+  if (plan.refresh) out.line(t('upgrade.refresh', { version: plan.to }));
   if (plan.files.length) {
     out.line(t('upgrade.counts', plan.counts));
     const a = plan.agents;
@@ -426,6 +428,17 @@ function handOver(sourceDir, context, values, info, cfg, { terminal = false } = 
   return { code, keep: !lock.recover };
 }
 
+/**
+ * True when the source's upgrader takes over: it is newer than the one running, or the vault's own
+ * upgrader runs and the source is another build of the same version (otherBuild: a draft that was
+ * published under a release number gets the release). Never inside a hand-over already.
+ */
+function takesOver(sourceDir, sourceVersion, { runner, runnerIsVault, parent, root }) {
+  if (parent) return false;
+  if (newerThan(sourceVersion, runner.version)) return true;
+  return runnerIsVault && compareVersions(sourceVersion, runner.version) === 0 && otherBuild(root, sourceDir);
+}
+
 function newerThan(a, b) {
   if (!parseVersion(a)) return false;
   if (!parseVersion(b)) return true;
@@ -549,7 +562,7 @@ export async function run(argv, cfg, ctx = {}) {
         else out.err(message);
         return 1;
       }
-      if (newerThan(sourceVersion, runner.version) && !parent) {
+      if (takesOver(sourceDir, sourceVersion, { runner, runnerIsVault, parent, root })) {
         if (!values.json) process.stderr.write(`${say(cfg, 'upgrade.delegate', { version: sourceVersion, source: src.label })}\n`);
         const res = handOver(sourceDir, context, values, { version: runner.version, vaultCli: runnerIsVault, apply: hints.apply() }, cfg);
         if (res.keep) cleanup = null;
@@ -657,6 +670,7 @@ function showPlan(ui, cfg, plan, hints, verbose) {
   };
   ui.step(t('upgrade.ui.plan'), plan.ok ? 'ok' : 'error');
   ui.message(t('upgrade.source', { source: plan.source }), 'dim');
+  if (plan.refresh) ui.message(t('upgrade.refresh', { version: plan.to }), 'dim');
   if (plan.files.length) {
     const c = plan.counts;
     const parts = [[sym.add, c.add, 'upgrade.ui.new', style.ok], [sym.change, c.replace, 'upgrade.ui.changed', style.warn],
@@ -801,7 +815,7 @@ async function runScreen(ui, { cfg, values, context, hints, parent, runner, src,
           ui.intro('memory-kit', readVersion(root) ?? '');
           return stop(t('upgrade.source_invalid', { source: sourceDir }));
         }
-        if (newerThan(sourceVersion, runner.version) && !parent) {
+        if (takesOver(sourceDir, sourceVersion, { runner, runnerIsVault, parent, root })) {
           // The newer upgrader draws its own screen on the same terminal.
           const res = handOver(sourceDir, context, values, { version: runner.version, vaultCli: runnerIsVault, apply: hints.apply() }, cfg, { terminal: true });
           if (res.keep) cleanup = null;

@@ -100,7 +100,7 @@
       "group": "docs"
     },
     "docs/upgrading.md": {
-      "sha256": "d365c5972ffe1572803f42751ee8f8ac41283ced6cf463d8f9387e58d6996613",
+      "sha256": "8f1dd0d9ab5f10651491ed7d748f376e4699c01b148cb9d56a3b65ef27e16e14",
       "group": "docs"
     },
     "install.ps1": {
@@ -128,7 +128,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "0483b791faed56bf2d4e8f9d583e7bd4157e6e7f844d8dc270832d570181e637",
+      "sha256": "f4e86bc37f404a8fdde1ebe93d188fbf5b53688811a9eed5b85cc6af6f27fd97",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -216,7 +216,7 @@
       "group": "code"
     },
     "system/lib/commands/upgrade.mjs": {
-      "sha256": "4c039eb26443bc9bcd8346aa988ea69b2f1444ceca0e9346e321d9644169ecab",
+      "sha256": "e55d0af8c192ff3e8af1c1ed4baec7b6616fd76489960d02af2821f3d1064c5c",
       "group": "code"
     },
     "system/lib/config.mjs": {
@@ -320,7 +320,7 @@
       "group": "code"
     },
     "system/lib/upgrade.mjs": {
-      "sha256": "107fbed88112c618f3b9c50af1b1b76ea29a569bb83987233a2960fe16963fc7",
+      "sha256": "a2a95c9e90a19cfba8360fa9bb0e3345f8673aab21dcb37bd109f22a17686c12",
       "group": "code"
     },
     "system/lib/util.mjs": {
@@ -952,7 +952,7 @@
       "group": "tests"
     },
     "system/tests/integration/upgrade.test.mjs": {
-      "sha256": "17cd58ea95d649840af4f57b46e7eecb097927fb508e3d0eed5d6f856273b273",
+      "sha256": "76cbe513dc1edfdd2f89092d907f6caf6b98b39d71cf48123cd2f0e00d334420",
       "group": "tests"
     },
     "system/tests/unit/api.test.mjs": {

@@ -89,7 +89,14 @@ to undo it: node system/memory.mjs upgrade --rollback 20260924-162948-0.1.1-to-0
 ```
 
 When your vault already has the newest version, `upgrade` says
-`memory-kit 0.1.1 is up to date (the source has 0.1.1).` and exits 0.
+`memory-kit 0.1.1 is up to date (the source has 0.1.1).` and exits 0. The same number is not
+enough, though: when the source's `system/kit.json` lists other files or hashes (another build of
+that version, such as a draft published under its number), it is an upgrade like any other, and
+the plan says so (`this vault has another build of …`). From 0.1.2 on, a vault's own `upgrade`
+hands over to that build. A vault that took the draft of 0.1.2 from `main` on 25 September 2026
+still says "up to date", since its own upgrader predates this: download the kit and run
+`node <kit>/system/memory.mjs upgrade --root <vault>` once, then `connect claude-code --projects`
+again (the draft's hooks do nothing until then) or `connect claude-code --projects --remove`.
 
 ## What happens, step by step
 

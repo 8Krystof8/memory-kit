@@ -651,6 +651,7 @@
     "upgrade.title": "aktualizace memory-kit {from} → {to}",
     "upgrade.source": "zdroj: {source}",
     "upgrade.counts": "soubory kitu: nové {add}, aktualizované {replace}, odstraněné {remove}, beze změny {unchanged}",
+    "upgrade.refresh": "tahle paměť má jiné sestavení verze {version} (návrh zveřejněný pod tímhle číslem, nebo vývojové sestavení): její soubory kitu se srovnají s tímhle",
     "upgrade.agents.replace": "AGENTS.md: systémová část se nahradí obsahem {template}; tvůj text okolo zůstane, jak je",
     "upgrade.agents.unchanged": "AGENTS.md: systémová část je aktuální",
     "upgrade.agents.no_file": "AGENTS.md chybí, takže jeho systémovou část nejde aktualizovat",
