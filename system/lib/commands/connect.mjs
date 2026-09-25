@@ -18,7 +18,7 @@ import {
   findExecutable, inspectClients, jsonEntries, jsonSnippet, locateClient, nodeCommand, pathModFor, planJsonEdit,
   planTomlEdit, portableArgs, projectConfigPath, resolveClient, serverArgs, spawnSpec, tomlBlock, vaultRefs,
 } from '../clients.mjs';
-import { git, parseCli, usageError } from '../util.mjs';
+import { ensureWorkDirIgnored, git, parseCli, usageError } from '../util.mjs';
 
 export const usage = 'connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json] | connect claude-code|codex --projects [--auto-add|--no-auto-add] [--store local|git] [--autosync|--no-autosync] [--form shell|exec] [--dry-run] [--remove] [--json] | connect --list [--json]';
 
@@ -218,21 +218,7 @@ function gitIgnores(root, rel) {
 
 /** Keeps .memory-kit/ out of git through .git/info/exclude (never the owner's .gitignore). */
 export function ensureIgnored(vault) {
-  const inside = git(vault, ['rev-parse', '--is-inside-work-tree'], { allowFail: true });
-  if (!inside.ok || inside.stdout.trim() !== 'true') return false;
-  const probe = git(vault, ['check-ignore', '-q', '--no-index', `${BACKUP_DIR}/probe.json`], { allowFail: true });
-  if (probe.ok || probe.code !== 1) return false;
-  const where = git(vault, ['rev-parse', '--git-path', 'info/exclude'], { allowFail: true });
-  if (!where.ok || !where.stdout.trim()) return false;
-  const abs = path.resolve(vault, where.stdout.trim());
-  let text = '';
-  try {
-    text = fs.readFileSync(abs, 'utf8');
-  } catch {
-    /* no exclude file yet */
-  }
-  writeAtomic(abs, `${text}${text && !text.endsWith('\n') ? '\n' : ''}.memory-kit/\n`);
-  return true;
+  return ensureWorkDirIgnored(vault);
 }
 
 /**

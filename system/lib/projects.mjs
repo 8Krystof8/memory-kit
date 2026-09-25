@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { writeAtomic } from './fsafe.mjs';
 import { readSessionFile, safeId, sessionsDir as sessionsIn } from './hookinput.mjs';
-import { NAME_RE, SECTOR_ID_MAX, insidePath, realpathLoose, todayLocal, toPosix } from './util.mjs';
+import { NAME_RE, SECTOR_ID_MAX, WORK_DIR, ensureWorkDirIgnored, insidePath, realpathLoose, todayLocal, toPosix } from './util.mjs';
 
 /** The notes of a dev sector: role → file name per language, canonical type, pinned. */
 export const DEV_NOTES = Object.freeze({
@@ -56,6 +56,19 @@ const runRaw = (cmd, args, cwd, timeout = 5000) => spawnSync(cmd, args, { cwd, e
 function run(cmd, args, cwd, timeout = 5000) {
   const res = runRaw(cmd, args, cwd, timeout);
   return res.status === 0 && typeof res.stdout === 'string' ? res.stdout.trim() : null;
+}
+
+/**
+ * Before the first file of .memory-kit/ in this clone (session records, the ignore list, the hook
+ * log): keeps the folder out of git (util.ensureWorkDirIgnored). Autosync and doctor check again.
+ */
+export function keepWorkDirOut(cfg) {
+  if (fs.existsSync(path.join(cfg.root, WORK_DIR))) return;
+  try {
+    ensureWorkDirIgnored(cfg.root);
+  } catch {
+    /* autosync refuses to commit and doctor warns while it is not ignored */
+  }
 }
 
 /** The first 12 hex digits of the SHA-256 of a text: how logs and marker files name a repository. */
@@ -146,13 +159,17 @@ export function keyPath(key) {
 
 const ROOTS_CACHE_MAX = 200;
 
+/** How roots.json names a top folder: a hash of its real path (the path itself names a client). */
+const folderKey = (real) => createHash('sha256').update(String(real)).digest('hex').slice(0, 16);
+
 /**
  * The root commit of a repository without remotes (the first by hash when there are several):
  * { sha } or { why: 'no_commit' | 'slow' }. Walking the history takes seconds in a big repository,
- * so the answer is kept per top folder in cacheFile and only confirmed (one cheap git call) later.
+ * so the answer is kept per top folder (folderKey) in cacheFile and only confirmed (one cheap git
+ * call) later.
  */
 function rootCommit(top, cacheFile) {
-  const real = realpathLoose(top);
+  const real = folderKey(realpathLoose(top));
   const cache = cacheFile ? readJsonFile(cacheFile) : null;
   const known = isObj(cache?.roots) ? cache.roots[real] : null;
   if (typeof known === 'string' && /^[0-9a-f]{40,64}$/.test(known) && run('git', ['cat-file', '-e', `${known}^{commit}`], top) !== null) return { sha: known };
@@ -162,7 +179,8 @@ function rootCommit(top, cacheFile) {
   if (!roots.length) return { why: 'no_commit' };
   if (cacheFile) {
     try {
-      const entries = Object.entries(isObj(cache?.roots) ? cache.roots : {}).filter(([k]) => k !== real);
+      // Entries of older versions were keyed by the path itself: they go.
+      const entries = Object.entries(isObj(cache?.roots) ? cache.roots : {}).filter(([k]) => k !== real && /^[0-9a-f]{16}$/.test(k));
       writeAtomic(cacheFile, `${JSON.stringify({ version: 1, roots: Object.fromEntries([...entries.slice(-(ROOTS_CACHE_MAX - 1)), [real, roots[0]]]) })}\n`);
     } catch {
       /* the cache is only a shortcut */
@@ -395,40 +413,49 @@ export function unsetMapping(cfg, key, store) {
 const projectsDir = (cfg) => path.join(cfg.root, '.memory-kit', 'projects');
 const ignoredFile = (cfg) => path.join(projectsDir(cfg), 'ignored.json');
 const keyList = (v) => (Array.isArray(v) ? v.filter((k) => typeof k === 'string') : []);
+const HASHED = /^[0-9a-f]{12}$/;
+/** The side list keeps repoHash(key) only (older versions kept the key itself). */
+const hashedList = (v) => [...new Set(keyList(v).map((k) => (HASHED.test(k) ? k : repoHash(k))))].sort();
 
 /**
- * Ignored repository keys, never committed: "ignored" of <localRoot>/projects.json, plus
- * .memory-kit/projects/ignored.json, where they go while the vault has no local root.
+ * Ignored repositories, never committed: the keys of "ignored" in <localRoot>/projects.json, plus
+ * the hashes (repoHash) of .memory-kit/projects/ignored.json, where they go while the vault has
+ * no local root: that folder is only compared against, so it holds no repository URL.
  */
 export function ignoredKeys(cfg) {
-  return [...new Set([...keyList(readLocalMap(cfg).ignored), ...keyList(readJsonFile(ignoredFile(cfg))?.ignored)])];
+  const local = keyList(readLocalMap(cfg).ignored);
+  const known = new Set(local.map((k) => repoHash(k)));
+  return [...new Set([...local, ...hashedList(readJsonFile(ignoredFile(cfg))?.ignored).filter((h) => !known.has(h))])];
 }
 
 /** True when the repository is ignored (the folder key of older versions counts without a remote). */
 export function isIgnored(cfg, ident) {
   if (!ident) return false;
   const keys = new Set(ignoredKeys(cfg));
-  return keys.has(ident.key) || (remoteless(ident.key) && keys.has(ident.legacy));
+  const has = (k) => keys.has(k) || keys.has(repoHash(k));
+  return has(ident.key) || (remoteless(ident.key) && has(ident.legacy));
 }
 
 /**
- * Adds (on) a key to the ignore list of the local root (or of .memory-kit/projects while there is
- * none), or removes it (off) from both lists; true when a list changed.
+ * Adds (on) a key to the ignore list of the local root (or, as a hash, of .memory-kit/projects
+ * while there is none), or removes it (off) from both lists; true when a list changed.
  */
 export function setIgnored(cfg, key, on) {
   const lr = localRoot(cfg);
   const local = lr ? readLocalMap(cfg) : null;
   const side = readJsonFile(ignoredFile(cfg));
+  const sideList = hashedList(side?.ignored);
   const inLocal = keyList(local?.ignored).includes(key);
-  const inSide = keyList(side?.ignored).includes(key);
+  const inSide = sideList.includes(repoHash(key));
+  const writeSide = (list) => writeAtomic(ignoredFile(cfg), `${JSON.stringify({ version: 1, ignored: list }, null, 2)}\n`);
   if (on) {
     if (inLocal || inSide) return false;
     if (local) writeLocalMap(cfg, { ...local, ignored: [...keyList(local.ignored), key].sort() });
-    else writeAtomic(ignoredFile(cfg), `${JSON.stringify({ version: 1, ignored: [...keyList(side?.ignored), key].sort() }, null, 2)}\n`);
+    else writeSide([...sideList, repoHash(key)].sort());
     return true;
   }
   if (inLocal) writeLocalMap(cfg, { ...local, ignored: keyList(local.ignored).filter((k) => k !== key) });
-  if (inSide) writeAtomic(ignoredFile(cfg), `${JSON.stringify({ version: 1, ignored: keyList(side.ignored).filter((k) => k !== key) }, null, 2)}\n`);
+  if (inSide) writeSide(sideList.filter((k) => k !== repoHash(key)));
   return inLocal || inSide;
 }
 

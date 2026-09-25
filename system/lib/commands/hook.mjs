@@ -30,12 +30,12 @@ import { createHash } from 'node:crypto';
 import {
   identifyIn, insideVault, findProject, ensureProject, isIgnored, projectSettings, projectBrief, gitState, lookupError,
   devLines, noteAbs, sectorExists, hintMarker, repoHash, readSession, writeSession, pruneSessions, sessionsDir, safeId,
-  takeAutosyncLock, autosyncLockFile, vaultCommand,
+  takeAutosyncLock, autosyncLockFile, vaultCommand, keepWorkDirOut,
 } from '../projects.mjs';
 import { hookSummary, logHook } from '../hooklog.mjs';
 import { readHookInput, lookupCandidate, isProbe } from '../hookinput.mjs';
 import { writeAtomic } from '../fsafe.mjs';
-import { todayLocal } from '../util.mjs';
+import { WORK_DIR, ensureWorkDirIgnored, todayLocal, workDirGit } from '../util.mjs';
 
 export const usage = 'hook claude-code|codex session-start|stop|tool-failure|session-end (run by the agent hooks; JSON on stdin)';
 
@@ -58,6 +58,10 @@ const DEFAULTS = {
   'hook.fix_lock': 'make sure {dir} is a folder you can write to, then run: {cmd} sync',
   'hook.fix_sync': 'open the vault and run: {cmd} sync',
   'hook.timeout': 'timed out after {s} s',
+  'hook.workdir_tracked': 'git tracks {n} files of .memory-kit/ in the vault (per-computer logs, session records and backups, which can name code repositories), so nothing was committed',
+  'hook.fix_workdir_tracked': 'open the vault, run git rm -r --cached .memory-kit, add the line .memory-kit/ to .gitignore and commit, then run: {cmd} sync',
+  'hook.workdir_ignored': 'git does not ignore .memory-kit/ in the vault and it could not be added to .git/info/exclude, so nothing was committed',
+  'hook.fix_workdir_ignored': 'add the line .memory-kit/ to the vault\'s .gitignore and commit it, then run: {cmd} sync',
 };
 
 const AGENTS = new Set(['claude-code', 'codex']);
@@ -304,6 +308,24 @@ function unfinished(cfg, git, porcelain) {
 }
 
 /**
+ * .memory-kit/ holds per-computer files that can name code repositories (session records, the
+ * hook log, the ignore list, copies of agent settings): it is never committed. A clone of a vault
+ * made by 0.1.0 has no .gitignore line for it, so this clone's .git/info/exclude gets one first.
+ * → null when git keeps it out, else { error, fix } (files under it tracked already, or no rule).
+ */
+function workDirProblem(cfg, cmd) {
+  try {
+    ensureWorkDirIgnored(cfg.root);
+  } catch {
+    /* checked below */
+  }
+  const state = workDirGit(cfg.root);
+  if (state?.tracked.length) return { error: say(cfg, 'hook.workdir_tracked', { n: state.tracked.length }), fix: say(cfg, 'hook.fix_workdir_tracked', { cmd }) };
+  if (!state?.ignored) return { error: say(cfg, 'hook.workdir_ignored'), fix: say(cfg, 'hook.fix_workdir_ignored', { cmd }) };
+  return null;
+}
+
+/**
  * Check, commit and sync the vault. The steps logged are the contract's: lock, check, commit,
  * pull, push, and done for success. Nothing throws out of here: any error is logged at the step
  * it happened in, with a fix.
@@ -330,6 +352,8 @@ function autosync(cfg, agent) {
       log({ step: 'done', ok: true, detail: 'the vault is not a git repository' });
       return;
     }
+    const work = workDirProblem(cfg, cmd);
+    if (work) return log({ step: 'check', ok: false, ...work });
     const status = git(['status', '--porcelain']);
     if (status.status !== 0) return fail('check', status, say(cfg, 'hook.fix_git', { cmd }));
     // Never conclude a merge the user has not finished: add -A would commit its conflict markers.
@@ -340,6 +364,9 @@ function autosync(cfg, agent) {
       step = 'commit';
       const add = git(['add', '-A']);
       if (add.status !== 0) return fail('commit', { ...add, timeout: GIT_TIMEOUT_MS }, say(cfg, 'hook.fix_git', { cmd }));
+      // The folder is ignored by now; should a rule change meanwhile, what got staged of it goes.
+      const out = git(['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', WORK_DIR]);
+      if (out.status !== 0) return fail('commit', { ...out, timeout: GIT_TIMEOUT_MS }, say(cfg, 'hook.fix_git', { cmd }));
       const commit = git(['commit', '-q', '-m', say(cfg, 'hook.commit_message', { day: todayLocal() })]);
       if (commit.status !== 0) {
         const identity = /user\.email|user\.name|tell me who you are|identity/i.test(`${commit.stderr}${commit.stdout}`);
@@ -383,6 +410,8 @@ export async function run(argv, cfg, ctx = {}) {
     return 0;
   }
   if (!projectSettings(cfg).enabled) return 0;
+  // The first run in this clone makes .memory-kit/: keep it out of git before anything is in it.
+  keepWorkDirOut(cfg);
   if (event === 'autosync') {
     try {
       autosync(cfg, agent);

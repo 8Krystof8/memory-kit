@@ -43,6 +43,12 @@ changes for vaults that do not switch the project memory on; the data version st
   pull, push) is logged in `.memory-kit/logs/hooks.jsonl` with the error and the fix (a
   local-store repository only as a hash); the next session start tells the user once, and
   `doctor` and `project status` list it.
+- **`.memory-kit/` stays out of git in every clone**: it holds session records with the paths of
+  code repositories, the hook log and copies of agent settings. A vault made by 0.1.0 has no
+  `.gitignore` line for it, so the hooks, `project` and `connect --projects` add it to the clone's
+  `.git/info/exclude` before the first file there; autosync commits nothing while git would take
+  the folder or tracks files in it, and `doctor` (`git.repo`) says so with the fix. The ignore
+  list and the root-commit cache kept there hold hashes, not repository URLs or paths.
 - **`project add|remove|ignore|unignore|list|status`** (Czech `projekt` with
   `pridat|odebrat|ignorovat|neignorovat|seznam|stav`), run inside the code repository, all with
   `--json`. A repository is

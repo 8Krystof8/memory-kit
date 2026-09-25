@@ -100,11 +100,15 @@ about a client never reaches git by itself; in the vault or outside any reposito
 
 ## The hook log
 
-Every hook run adds a line to `.memory-kit/logs/hooks.jsonl` in the vault (never committed; a
-local-store repository appears only as a hash): the event, whether it worked, how long it took and,
-for autosync, the failing step (`lock`, `check`, `commit`, `pull` or `push`), the error and the
-fix. `project status` and `doctor` show it, and the next session start tells you about a new
-failure.
+Every hook run adds a line to `.memory-kit/logs/hooks.jsonl` in the vault (a local-store
+repository appears only as a hash): the event, whether it worked, how long it took and, for
+autosync, the failing step (`lock`, `check`, `commit`, `pull` or `push`), the error and the fix.
+`project status` and `doctor` show it, and the next session start tells you about a new failure.
+
+`.memory-kit/` is never committed. A clone whose `.gitignore` lacks the line (a vault made by
+0.1.0 does) gets `.memory-kit/` in its `.git/info/exclude` before the first file there, autosync
+commits nothing while git would take the folder, and `doctor` (`git.repo`) warns about it. Adding
+the line `.memory-kit/` to `.gitignore` and committing it covers every clone.
 
 ## Settings
 

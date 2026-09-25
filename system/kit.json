@@ -44,7 +44,7 @@
       "group": "docs"
     },
     "docs/architecture.md": {
-      "sha256": "fa69f5c1d439aeced3a4262059bbdbb69b695b5a493b2ac964c73a9161fca219",
+      "sha256": "61644e49df1aeb4e34e4db1ab236153712debbf75694c2f354f29057f604d132",
       "group": "docs"
     },
     "docs/integrations/chatgpt.md": {
@@ -92,7 +92,7 @@
       "group": "docs"
     },
     "docs/projects.md": {
-      "sha256": "9d05f3816d935120a9a9a453660b314ab957e757a48b1df05b419f399406fc3f",
+      "sha256": "ef68b1b485eae2e002237ca7abfd58303596c8b5506f006b87b57dca238c45e0",
       "group": "docs"
     },
     "docs/search.md": {
@@ -128,7 +128,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "974299e584bf78269e84e3ce9dcaa6fc1c5bb4ef5e896518834f68e7ff4e8fa0",
+      "sha256": "bfe7ec15606a490615fd15d734264f2226befd182a9afd0ded9338121dcced53",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -164,7 +164,7 @@
       "group": "code"
     },
     "system/lib/commands/connect.mjs": {
-      "sha256": "5d461508573153e7d5896084d35a0a270d5965a9524e7e16cbc702358134aeef",
+      "sha256": "79073cb1d899d7f00bb78dc0799f822d42d55a1cc7c10579a835d57dee3cee64",
       "group": "code"
     },
     "system/lib/commands/doctor.mjs": {
@@ -176,7 +176,7 @@
       "group": "code"
     },
     "system/lib/commands/hook.mjs": {
-      "sha256": "305522bbda89554c36ca604290b50e753be1867b55adfbec1c890dbbb11e78cb",
+      "sha256": "aaa3f36167e55c6f38658ca6bad2d7f12a4983c76662ececd35d9ca173239b98",
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
@@ -188,7 +188,7 @@
       "group": "code"
     },
     "system/lib/commands/project.mjs": {
-      "sha256": "90bd9ea1b3daf1850283e5348e38a9cd8553772ad87dd606c858cf0287f41404",
+      "sha256": "1f85ac017e84c3f12ded76c4035dc5d364194c9afdbd8294ed8dfd6d582220c1",
       "group": "code"
     },
     "system/lib/commands/remember.mjs": {
@@ -224,7 +224,7 @@
       "group": "code"
     },
     "system/lib/doctor.mjs": {
-      "sha256": "0d2e7fa78039c155390967ba20960848d7a6a323ea0a9ea1867020824f691a5d",
+      "sha256": "9929989b59f0074121c3c9ef4e41d0882f583eeb5d4fb71c631e4a067ce57128",
       "group": "code"
     },
     "system/lib/eval.mjs": {
@@ -256,7 +256,7 @@
       "group": "code"
     },
     "system/lib/hooksetup.mjs": {
-      "sha256": "6d6995e711d5399e54b618efbcf2a8a20e9384cc6d752e834f0c745a27f37c8c",
+      "sha256": "5122c7c01a55e23749c41f63a77d792c509799101966d4f9f17a20d31fe54e99",
       "group": "code"
     },
     "system/lib/jsonc.mjs": {
@@ -284,7 +284,7 @@
       "group": "code"
     },
     "system/lib/projects.mjs": {
-      "sha256": "05a9b7f2ea08fa586f7a3fbca21f52ee564856ad872d9ca620595bb896a7dde8",
+      "sha256": "0747cc5f9fc11af86576fcc9bf4bc8fca4102eda7de81cb150786d15a77ce948",
       "group": "code"
     },
     "system/lib/repofacts.mjs": {
@@ -320,7 +320,7 @@
       "group": "code"
     },
     "system/lib/util.mjs": {
-      "sha256": "60c626e0ad14ae03d9f9c6a253c355fac9ef231f455fbdb97c45389986ca782e",
+      "sha256": "14d10a9540403ce54bc801308d7d8ccacb1fca427022d3d0bf21a042c118f8e9",
       "group": "code"
     },
     "system/lib/vault.mjs": {
@@ -932,7 +932,7 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "ac429527f4205c61015cb3e8a9193020de5123a9fcac113e9675e75398ed16ee",
+      "sha256": "da3ecb234b550f893f380116b89ee4dbbb8e5798f53cbd237a04e8e89666ed34",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {
@@ -1028,7 +1028,7 @@
       "group": "tests"
     },
     "system/tests/unit/projects.test.mjs": {
-      "sha256": "485b0a9a82df689cfcd3841cac47718f7705643819aa4a12698ea77a36af4314",
+      "sha256": "74b0b8f247413dfedc70085ffeac9d08a0e0bc084aae2816acd525251d3f1207",
       "group": "tests"
     },
     "system/tests/unit/recovery.test.mjs": {

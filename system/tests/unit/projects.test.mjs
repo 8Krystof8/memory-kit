@@ -13,7 +13,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
   AUTOSYNC_STALE_MS, ProjectError, autosyncLockFile, autosyncLockState, ensureLocalRoot, findProject, identify, ignoredKeys,
-  isIgnored, keyPath, lookupError, mappings, projectSettings, remoteKey, sameServer, setIgnored, takeAutosyncLock, vaultCommand,
+  isIgnored, keyPath, lookupError, mappings, projectSettings, remoteKey, repoHash, sameServer, setIgnored, takeAutosyncLock, vaultCommand,
 } from '../../lib/projects.mjs';
 import { justRecipes, makeTargets, readBounded, repoFacts, tomlSections, yamlChildren } from '../../lib/repofacts.mjs';
 import { errorBody, lookupCandidate, rawProjects } from '../../lib/hookinput.mjs';
@@ -147,7 +147,8 @@ describe('identify', { skip: !HAS_GIT && 'git is missing' }, () => {
     const key = identify(dir, { cacheFile }).key;
     const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
     const [[top, sha]] = Object.entries(cache.roots);
-    assert.equal(fs.realpathSync(top), fs.realpathSync(dir));
+    assert.match(top, /^[0-9a-f]{16}$/, 'a hash of the folder, never its path (it can name a client)');
+    assert.ok(!fs.readFileSync(cacheFile, 'utf8').includes('big'), 'no path in the cache');
     assert.equal(`root:${sha.slice(0, 12)}`, key);
     // A cached answer is used as it is while its commit exists in the repository.
     const other = repo('other');
@@ -157,9 +158,9 @@ describe('identify', { skip: !HAS_GIT && 'git is missing' }, () => {
     fs.writeFileSync(cacheFile, JSON.stringify({ version: 1, roots: { [top]: otherSha } }));
     assert.equal(identify(dir, { cacheFile }).key, `root:${otherSha.slice(0, 12)}`, 'the cache answered, no history walk');
     // A commit that is not in the repository: walked again and the cache fixed.
-    fs.writeFileSync(cacheFile, JSON.stringify({ version: 1, roots: { [top]: 'f'.repeat(40) } }));
+    fs.writeFileSync(cacheFile, JSON.stringify({ version: 1, roots: { [top]: 'f'.repeat(40), [fs.realpathSync(other)]: otherSha } }));
     assert.equal(identify(dir, { cacheFile }).key, key);
-    assert.equal(JSON.parse(fs.readFileSync(cacheFile, 'utf8')).roots[top], sha);
+    assert.deepEqual(JSON.parse(fs.readFileSync(cacheFile, 'utf8')).roots, { [top]: sha }, 'fixed, and the path-keyed entry of an older version dropped');
   });
 
   test('outside a repository, or a folder that does not exist: null', () => {
@@ -225,10 +226,13 @@ describe('settings and lookup', () => {
     assert.deepEqual(JSON.parse(fs.readFileSync(localFile, 'utf8')), { version: 1, repos: {}, ignored: ['github.com/linden/tools'] });
     assert.equal(setIgnored(cfg, 'github.com/linden/tools', true), false);
     fs.mkdirSync(path.dirname(sideFile), { recursive: true });
+    // A side list of an older version holds the keys themselves: read as their hashes.
     fs.writeFileSync(sideFile, json({ version: 1, ignored: ['github.com/linden/tools', 'gitlab.com/linden/old'] }));
-    assert.deepEqual(ignoredKeys(cfg), ['github.com/linden/tools', 'gitlab.com/linden/old']);
+    assert.deepEqual(ignoredKeys(cfg), ['github.com/linden/tools', repoHash('gitlab.com/linden/old')]);
+    assert.equal(isIgnored(cfg, { key: 'gitlab.com/linden/old', legacy: 'path:old' }), true);
     assert.equal(setIgnored(cfg, 'github.com/linden/tools', false), true);
-    assert.deepEqual(ignoredKeys(cfg), ['gitlab.com/linden/old'], 'removed from both lists');
+    assert.deepEqual(ignoredKeys(cfg), [repoHash('gitlab.com/linden/old')], 'removed from both lists');
+    assert.deepEqual(JSON.parse(fs.readFileSync(sideFile, 'utf8')).ignored, [repoHash('gitlab.com/linden/old')], 'rewritten as hashes');
     assert.equal(setIgnored(cfg, 'gitlab.com/linden/old', false), true);
     assert.equal(setIgnored(cfg, 'gitlab.com/linden/old', false), false);
     // The folder key of older versions counts only for a repository without a remote.
@@ -239,7 +243,10 @@ describe('settings and lookup', () => {
     const plain = bareRoot('en');
     const { cfg: bare } = await loadFixture(plain);
     assert.equal(setIgnored(bare, 'github.com/linden/tools', true), true);
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(plain, '.memory-kit', 'projects', 'ignored.json'), 'utf8')).ignored, ['github.com/linden/tools']);
+    const side = fs.readFileSync(path.join(plain, '.memory-kit', 'projects', 'ignored.json'), 'utf8');
+    assert.deepEqual(JSON.parse(side).ignored, [repoHash('github.com/linden/tools')], 'only a hash: .memory-kit holds no repository URL');
+    assert.equal(isIgnored(bare, { key: 'github.com/linden/tools', legacy: 'path:tools' }), true);
+    assert.equal(setIgnored(bare, 'github.com/linden/tools', true), false);
   });
 
   test('vaultCommand: node and the script in double quotes with forward slashes; single quotes when a shell would expand the path', () => {

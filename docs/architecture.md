@@ -157,9 +157,14 @@ memory-kit/
 ```
 
 `.memory-kit/` (backups of `upgrade`, `connect` and `doctor --fix`, the proposed files of `upgrade`,
-the upgrade lock) is local state of one computer: never committed, ignored by `.gitignore` in new vaults and through
-`.git/info/exclude` in upgraded ones. No walk enters it; only a file forced into git there is
-scanned for secrets.
+the upgrade lock, the hook log, session records and the ignore list of the project hooks) is local
+state of one computer: never committed, ignored by `.gitignore` in new vaults and through
+`.git/info/exclude` in upgraded ones. A vault made by 0.1.0 has no `.gitignore` line for it and
+the exclude file of one clone does not travel, so every kit command that creates the folder in a
+clone (`upgrade`, `connect`, `doctor --fix`, the project hooks, `project`) adds the line to that
+clone's `.git/info/exclude` first; autosync refuses to commit while git does not ignore it or
+tracks files in it, and `doctor` (`git.repo`) says so. No walk enters it; only a file forced into
+git there is scanned for secrets.
 
 ### 2.3 Where notes are (the note set)
 A note is a `*.md` file in exactly one of these places; nothing else is ever a note
@@ -1654,7 +1659,7 @@ null), in this order:
 | `kit.upgrade_lock` | `.memory-kit/upgrade.lock` (`lib/upgrade.mjs` `lockState`): an upgrade still at work (`running`) is a warning with no fix; one that did not finish fails, and its fix is the recovery tool of its backup, `node .memory-kit/backups/<id>/tool/rollback.mjs` (absolute when another kit checks the vault with `--root`), else `upgrade --rollback`, or `--rollback --force` when the backup is gone |
 | `agents.block` | kit markers present once and in order, marker version = VERSION, block equals the language's template (the setup block and CRLF ignored) |
 | `adapters` | CLAUDE.md and GEMINI.md import AGENTS.md (for the agents in memory.json `agents`); `.claude/settings.json` has a SessionStart hook that runs `system/memory.mjs start` (a shell command, or `args` in exec form); a warning when no such hook would run here: a bare `$CLAUDE_PROJECT_DIR` on Windows without Git Bash (`IO.gitBash`), `args` below Claude Code 2.1.139, the braced shell form under PowerShell below 2.1.198 (`claude --version` is asked only when the answer matters; the fix is the braced shell form, or updating Claude Code), or when the matchers leave out startup, resume, clear or compact |
-| `git.repo` | git installed; the vault is the top of its own repository; no rebase or merge in progress; a remote unless mode local |
+| `git.repo` | git installed; the vault is the top of its own repository; no rebase or merge in progress; a remote unless mode local; once `.memory-kit/` exists, git ignores it (warn) and tracks no file in it (fail) |
 | `git.hooks_path` | `core.hooksPath` is `.githooks` |
 | `git.pre_commit` | the hook exists, starts with `#!/bin/sh`, has no BOM or CRLF, is executable (POSIX) and stored with mode 100755, runs `check --pre-commit`; on POSIX also which Node.js a git app started outside a terminal would use: a `memorykit.node` pin that is missing or too old warns; without a pin, as the hook picks it, the first Node.js 22 or newer on the app's `PATH` or in the usual places counts, a too old one on the app's `PATH` warns that commits fail, and none, or a too old one only in a usual place, warns that commits go unchecked |
 | `git.attributes` | `.gitattributes` has `* text=auto eol=lf`; `core.autocrlf` |

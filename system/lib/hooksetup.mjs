@@ -23,7 +23,7 @@ import { spawnSync } from 'node:child_process';
 import { writeAtomic } from './fsafe.mjs';
 import { detectStyle, formatJson } from './jsonc.mjs';
 import { envGet, nodeCommand, scanToml } from './clients.mjs';
-import { git, interpolate, isDir, resolvePath } from './util.mjs';
+import { ensureWorkDirIgnored, git, interpolate, isDir, resolvePath } from './util.mjs';
 import { PROBE_ENV } from './hookinput.mjs';
 
 /** The agents with project hooks and the names people know them by. */
@@ -1103,6 +1103,12 @@ export async function installProjects(root, opts = {}) {
       refuse('connect.projects.refused.changed', { path: file, agent: AGENTS[agent] }, 'connect.projects.refused.write_fix');
     }
     try {
+      // The copy of the settings (other tools' keys among them) must never reach git.
+      try {
+        ensureWorkDirIgnored(vault);
+      } catch {
+        /* doctor warns when .memory-kit/ is not ignored */
+      }
       if (read.exists) res.backup = backupFile(vault, `${agent}-hooks`, file, now);
       const mode = modeOf(dest);
       writeAtomic(dest, text, mode === undefined ? {} : { mode });

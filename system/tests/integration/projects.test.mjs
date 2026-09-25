@@ -575,6 +575,81 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     for (const e of logOf(v).filter((x) => x.event === 'autosync')) assert.ok(['lock', 'check', 'commit', 'pull', 'push', 'done'].includes(e.step), e.step);
   });
 
+  test('a clone of a vault made by 0.1.0 (no .gitignore line for .memory-kit/): nothing of that folder reaches the remote', () => {
+    // The .gitignore of the 0.1.0 template: the kit's own without its .memory-kit/ block.
+    const v = vault('en', { projects: { enabled: true, autosync: true } });
+    const ignore = fs.readFileSync(path.join(KIT_ROOT, '.gitignore'), 'utf8').replace(/\n# Upgrade backups[^\n]*\n\.memory-kit\/\n/, '\n');
+    assert.ok(!ignore.includes('.memory-kit'));
+    fs.writeFileSync(path.join(v.root, '.gitignore'), ignore);
+    git(v.root, ['init', '-q']);
+    git(v.root, [...ID, 'add', '-A']);
+    git(v.root, [...ID, 'commit', '-qm', 'vault']);
+    const remote = path.join(tmpDir('remote'), 'vault.git');
+    git(path.dirname(remote), ['init', '-q', '--bare', remote]);
+    git(v.root, ['remote', 'add', 'origin', remote]);
+    git(v.root, ['push', '-q', '-u', 'origin', 'HEAD']);
+    const cloneOf = (label) => {
+      const dir = path.join(tmpDir(label), 'vault');
+      git(path.dirname(dir), ['clone', '-q', remote, dir]);
+      for (const [k, val] of [['user.name', 't'], ['user.email', 't@t'], ['commit.gpgsign', 'false']]) git(dir, ['config', k, val]);
+      return { ...v, root: dir, home: tmpDir('home') };
+    };
+    const onRemote = () => git(v.root, ['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'HEAD']).split('\n').filter((l) => l.startsWith('.memory-kit'));
+    const excluded = (c) => fs.readFileSync(path.join(c.root, '.git', 'info', 'exclude'), 'utf8').split('\n').includes('.memory-kit/');
+    const lastSync = (c) => logOf(c).filter((e) => e.event === 'autosync').at(-1);
+    // The client's name is made here, so no file of the kit (these tests included) holds it.
+    const org = `zq${process.pid.toString(36)}bank`;
+
+    // A second computer: connect (the settings file of the agent gets backed up), a session in a
+    // client repository, an ignored one, then the autosync of the session end.
+    const a = cloneOf('clone-a');
+    fs.mkdirSync(path.join(a.home, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(a.home, '.claude', 'settings.json'), JSON.stringify({ env: { ACME_REGION: 'acme-eu' } }));
+    const connected = cli(a, ['connect', 'claude-code', '--projects', '--autosync']);
+    assert.equal(connected.code, 0, connected.stdout + connected.stderr);
+    assert.ok(fs.readdirSync(path.join(a.root, '.memory-kit', 'backups', 'connect')).length, 'the settings were backed up');
+    assert.ok(excluded(a), 'connect kept .memory-kit/ out of git in this clone');
+    const client = codeRepo({ remote: `git@github.com:${org}/secret-merger-portal.git`, name: 'portal' });
+    start(a, client, 'c1');
+    const other = codeRepo({ remote: `git@github.com:${org}/payroll.git`, name: 'payroll' });
+    assert.equal(project(a, 'ignore', other).code, 0);
+    assert.equal(cli(a, ['remember', 'order new labels'], { cwd: a.root }).code, 0);
+    assert.equal(cli(a, ['hook', 'claude-code', 'autosync']).code, 0);
+    assert.deepEqual([lastSync(a).step, lastSync(a).ok], ['done', true], JSON.stringify(lastSync(a)));
+    assert.deepEqual(onRemote(), [], 'nothing of .memory-kit/ was pushed');
+    const named = spawnSync('git', ['--git-dir', remote, 'grep', '-i', '-l', org, 'HEAD'], { encoding: 'utf8', windowsHide: true });
+    assert.equal(named.stdout, '', 'no pushed file names the client');
+
+    // A clone whose .memory-kit/ was filled by an older version (no exclude line): autosync adds it first.
+    const b = cloneOf('clone-b');
+    fs.mkdirSync(path.join(b.root, '.memory-kit', 'capture', 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(b.root, '.memory-kit', 'capture', 'sessions', 'old.json'), JSON.stringify({ top: client, sector: null }));
+    assert.equal(cli(b, ['remember', 'call the baker'], { cwd: b.root }).code, 0);
+    const warned = JSON.parse(cli(b, ['doctor', '--json']).stdout).checks.find((c) => c.id === 'git.repo');
+    assert.equal(warned.status, 'warn', JSON.stringify(warned));
+    assert.match(warned.message, /does not ignore \.memory-kit\//);
+    assert.match(warned.fix, /\.gitignore/);
+    cli(b, ['hook', 'claude-code', 'autosync']);
+    assert.deepEqual([lastSync(b).step, lastSync(b).ok], ['done', true], JSON.stringify(lastSync(b)));
+    assert.ok(excluded(b));
+    assert.deepEqual(onRemote(), []);
+
+    // Files of .memory-kit/ tracked already: autosync commits nothing and says how to untrack them.
+    git(b.root, ['add', '-f', '.memory-kit/capture/sessions/old.json']);
+    git(b.root, ['commit', '-qm', 'by hand']);
+    const head = git(b.root, ['rev-parse', 'HEAD']);
+    assert.equal(cli(b, ['remember', 'one more note'], { cwd: b.root }).code, 0);
+    cli(b, ['hook', 'claude-code', 'autosync']);
+    const refused = lastSync(b);
+    assert.deepEqual([refused.step, refused.ok], ['check', false], JSON.stringify(refused));
+    assert.match(refused.error, /tracks 1 files of \.memory-kit\//);
+    assert.match(refused.fix, /git rm -r --cached \.memory-kit/);
+    assert.equal(git(b.root, ['rev-parse', 'HEAD']), head, 'nothing committed');
+    const tracked = JSON.parse(cli(b, ['doctor', '--json']).stdout).checks.find((c) => c.id === 'git.repo');
+    assert.equal(tracked.status, 'fail', JSON.stringify(tracked));
+    assert.match(tracked.fix, /git rm -r --cached \.memory-kit/);
+  });
+
   test("two clients' look-alike repositories stay apart", () => {
     const v = vault('en', { withGit: true });
     const a = codeRepo({ remote: 'git@github.com:team/website.git', name: 'website' });

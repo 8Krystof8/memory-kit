@@ -16,7 +16,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  git, gitRepoState, insidePath, interpolate, isDir, isForeignAbsolute, realpathLoose, resolvePath, uniq,
+  WORK_DIR, git, gitRepoState, insidePath, interpolate, isDir, isForeignAbsolute, realpathLoose, resolvePath, uniq, workDirGit,
 } from './util.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -175,6 +175,10 @@ export const DEFAULTS = Object.freeze({
   'doctor.git.remote_fix': 'create a private repository, then git remote add origin <its URL> and node system/memory.mjs sync',
   'doctor.git.busy': 'a git {op} is in progress',
   'doctor.git.busy_fix': 'git status shows how to finish it (git {op} --continue) or undo it (git {op} --abort)',
+  'doctor.git.workdir': 'git does not ignore .memory-kit/ (logs, session records and backups of this computer, which can name code repositories), so git add -A would commit it',
+  'doctor.git.workdir_fix': 'add the line .memory-kit/ to .gitignore and commit it, so every clone keeps the folder out of git',
+  'doctor.git.workdir_tracked': 'git tracks {n} files of .memory-kit/ (logs, session records and backups of this computer, which can name code repositories): {list}',
+  'doctor.git.workdir_tracked_fix': 'git rm -r --cached .memory-kit, add the line .memory-kit/ to .gitignore, then commit',
 
   'doctor.hooks.ok': 'core.hooksPath is .githooks',
   'doctor.hooks.unset': 'core.hooksPath is not set, so git never runs .githooks/pre-commit',
@@ -895,6 +899,14 @@ async function checkGitRepo(c) {
   const busy = paths.findIndex((p) => p && fs.existsSync(path.resolve(c.root, p)));
   if (busy >= 0) problems.push(problem('warn', say(c.t, 'doctor.git.busy', { op: ops[busy] }), say(c.t, 'doctor.git.busy_fix', { op: ops[busy] })));
   if (!remotes.length && mode !== 'local') problems.push(problem('warn', say(c.t, 'doctor.git.no_remote'), say(c.t, 'doctor.git.remote_fix')));
+  // The kit's per-computer folder: warned about once it exists (a vault made by 0.1.0 has no
+  // .gitignore line for it, and .git/info/exclude of another clone does not travel).
+  const work = fs.existsSync(path.join(c.root, WORK_DIR)) ? workDirGit(c.root) : null;
+  if (work?.tracked.length) {
+    problems.push(problem('fail', say(c.t, 'doctor.git.workdir_tracked', { n: work.tracked.length, list: listed(c, work.tracked) }), say(c.t, 'doctor.git.workdir_tracked_fix')));
+  } else if (work && !work.ignored) {
+    problems.push(problem('warn', say(c.t, 'doctor.git.workdir'), say(c.t, 'doctor.git.workdir_fix')));
+  }
   const message = mode === 'local'
     ? say(c.t, 'doctor.git.ok_local', { branch })
     : say(c.t, 'doctor.git.ok', { branch, remote: remotes.join(', ') || '–' });

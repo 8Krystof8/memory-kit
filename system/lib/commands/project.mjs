@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import {
   STORES, ProjectError, identifyIn, insideVault, findProject, ensureProject, projectSettings, mappings, noteAbs, shownPath,
   isIgnored, setIgnored, ignoredKeys, unsetMapping, hintMarker, lastSessions, linkSessions, autosyncLockState, sectorExists,
-  vaultCommand,
+  vaultCommand, keepWorkDirOut,
 } from '../projects.mjs';
 import { parseCli, usageError } from '../util.mjs';
 
@@ -231,6 +231,7 @@ export async function run(argv, cfg) {
     usageError(say(cfg, 'project.subcommand', { sub: extra ?? sub ?? '' }), usage);
     return 2;
   }
+  keepWorkDirOut(cfg);
   if (sub === 'add') return add(cfg, values);
   if (sub === 'remove') return remove(cfg, values);
   if (sub === 'ignore' || sub === 'unignore') return ignore(cfg, values, sub === 'ignore');
