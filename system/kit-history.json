@@ -499,6 +499,7 @@
     "system/lib/frontmatter.mjs": "c70b7d7b6fd4bddd34538a1bf918150618a4c7534702a60d664ca2e85ca47b55",
     "system/lib/fsafe.mjs": "d0b81834176aa4ccac6e11f92eef31d625acbdea7a7c3e8dc96f420678b1a97d",
     "system/lib/generate.mjs": "e2c7cb9fae4be306495073450153843a814d76af1771e82c72c63e9408c85247",
+    "system/lib/hooklog.mjs": "7c486b59afd4b1eecd04c0001a0c8d2dd780934c8809d43a6677a264eccdb960",
     "system/lib/hooksetup.mjs": "c41cc420e43e2ef64263b4e7496b7e9bda643fa0af8fec5c818fe7ee7001c8e9",
     "system/lib/jsonc.mjs": "82fe0f3f177c79520ba22a9fab9076e4675c10e405a7d0a4b583dea117851a5b",
     "system/lib/kit.mjs": "f438f05e3e1155730eea8bf7b56a1c7caf6709b6a8f7a6ccb09cbeb6d2d448c3",

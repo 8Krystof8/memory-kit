@@ -227,6 +227,10 @@
       "sha256": "e2c7cb9fae4be306495073450153843a814d76af1771e82c72c63e9408c85247",
       "group": "code"
     },
+    "system/lib/hooklog.mjs": {
+      "sha256": "7c486b59afd4b1eecd04c0001a0c8d2dd780934c8809d43a6677a264eccdb960",
+      "group": "code"
+    },
     "system/lib/hooksetup.mjs": {
       "sha256": "c41cc420e43e2ef64263b4e7496b7e9bda643fa0af8fec5c818fe7ee7001c8e9",
       "group": "code"
