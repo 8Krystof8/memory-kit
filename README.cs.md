@@ -44,6 +44,24 @@ Obyčejné poznámky s YAML hlavičkou a `[[odkazy]]` jsou nápady převzaté z 
 
 ## Start za 5 minut
 
+**Jedním příkazem**, na macOS a Linuxu:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/8Krystof8/memory-kit/main/install.sh | sh
+```
+
+a na Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/8Krystof8/memory-kit/main/install.ps1 | iex
+```
+
+Instalátor zkontroluje git a Node.js (nikdy je neinstaluje a nikdy nepoužije sudo), s přihlášeným
+GitHub CLI založí ze šablony nové soukromé repo na GitHubu (jinak složku bez remote) a položí
+otázky nastavení. Odpovědi mu předáš i rovnou, viz volby na začátku [install.sh](install.sh)
+(`| sh -s -- --yes --mode local --lang cs --sectors core,work`) a [install.ps1](install.ps1). Nebo
+ručně:
+
 1. Na GitHubu klikni na **Use this template** → **Create a new repository** a zvol **Private**.
    Fork veřejného repa soukromý být nemůže, repo vytvořené ze šablony ano.
 2. Otevři nové repo ve svém agentovi: Claude Code (na webu i lokálně), Codex, Gemini CLI nebo Cursor.
@@ -130,21 +148,29 @@ v [docs/integrations/mcp.md](docs/integrations/mcp.md) (anglicky).
 
 ## Paměť pro projekty s kódem
 
-Programuješ? Jeden příkaz dá každému repozitáři vlastní paměť. Ta žije v tvé paměti, nikdy ne
-v repu s kódem:
+Programuješ? Paměť si umí vést poznámky k repozitářům, které si vybereš, mimo repo s kódem a nikdy
+v něm. Nejdřív jednou v paměti zapni hooky:
 
 ```sh
 node system/memory.mjs connect claude-code --projects   # nebo: connect codex --projects
 ```
 
-Od té chvíle v terminálu i ve VS Code, na Windows, macOS i Linuxu:
+Dokud repozitář nepřidáš, nic se v něm nezmění. Výchozí nastavení je to soukromé:
 
-- první session v repozitáři pro něj založí sektor `dev` (přehled, předávka, příkazy, konvence,
-  pasti, slepé uličky, mapa, zápisník), vyplněný z `package.json` a README;
+- `auto_add` false: session v repozitáři, který paměť nezná, jen jednou ukáže nápovědu; přidáš ho
+  příkazem `node <paměť>/system/memory.mjs projekt pridat` spuštěným v repozitáři. Dostane sektor
+  `dev` (přehled, předávka, příkazy, konvence, pasti, slepé uličky, mapa, zápisník), vyplněný ze
+  souborů projektu (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod` a dalších) a z README;
+- `store` local: jeho poznámky zůstanou na tomto počítači, v lokálním kořeni (`--store git` je
+  místo toho uloží do repozitáře paměti);
+- `autosync` false: nic se samo necommitne ani nepushne (`--autosync` na konci session paměť
+  commitne a pushne; neúspěšnou synchronizaci ukáže další start session i `doctor`).
+
+V přidaném projektu, v terminálu i ve VS Code, na Windows, macOS i Linuxu:
+
 - každá session začne větví, posledními commity, předávkou a známými pastmi *toho* projektu;
 - když se změnil kód, agent je jednou požádán, ať zapíše předávku a co se naučil;
-- chyba z příkazu se vyhledá v pastech, které už tu byly;
-- na konci session se paměť sama commitne a pushne.
+- chyba z příkazu se vyhledá v pastech, které už tu byly.
 
 Ručně zapíšeš `zapamatuj --type gotcha "příznak → příčina → oprava"`. Podrobnosti:
 [docs/projects.md](docs/projects.md) (anglicky).
@@ -254,8 +280,8 @@ Kanonické anglické názvy fungují vždy, český balíček k nim přidává a
 | `doctor [--json] [--fix]` | `doktor [--oprav]` | zkontroluje nastavení: Node, memory.json, soubory kitu, git hooky, kořeny, připojené aplikace; ke každému problému řekne, jak ho opravit |
 | `upgrade [--yes] [--dry-run] [--from zdroj] [--rollback]` | `aktualizuj --ano --nanecisto --odkud --vratit` | aktualizuje kit na nejnovější verzi: nejdřív ukáže plán, udělá zálohu, ověří výsledek a při chybě vrátí vše zpět; `--rollback` aktualizaci vrátí |
 | `connect <aplikace> [--name n] [--read-only] [--remove]` · `connect --list` | `pripoj --jmeno --jen-cteni --odebrat` · `pripoj --seznam` | přidá paměť do nastavení MCP v AI aplikaci (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI a další) |
-| `connect claude-code\|codex --projects [--remove]` | `pripoj claude-code --projects` | nainstaluje hooky, které dají každému projektu s kódem paměť ([docs/projects.md](docs/projects.md)) |
-| `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision\|fact]` | `zapamatuj "text" --typ gotcha` | zapíše řádek do paměti projektu (v repu s kódem) nebo do `inbox/` |
+| `connect claude-code\|codex --projects [--remove]` | `pripoj claude-code --projects` | nainstaluje hooky pro projekty s kódem, které přidáš; nic se samo nepřidá ani nepushne ([docs/projects.md](docs/projects.md)) |
+| `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision\|fact]` | `zapamatuj "text" --typ gotcha` | zapíše řádek do paměti projektu (v přidaném repu s kódem), do inboxu lokálního kořene (v jiném repozitáři) nebo do `inbox/` |
 | `project add\|remove\|ignore\|unignore\|list\|status [--json]` | `projekt pridat\|odebrat\|ignorovat\|neignorovat\|seznam\|stav` | v repu s kódem: dá mu paměť, odpojí ho, umlčí nápovědu, vypíše projekty, ukáže stav |
 | `setup` | `nastaveni` | průvodce nastavením v terminálu: nastaví novou paměť, nebo připojí AI aplikace, paměť pro programátorské projekty a kontrolu instalace |
 | `mcp [--read-only] [--local]` | `mcp --jen-cteni --lokalni` | MCP server, který si aplikace spouštějí samy (stdio); ručně ho nespouštíš |
