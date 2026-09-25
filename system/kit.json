@@ -92,7 +92,7 @@
       "group": "docs"
     },
     "docs/projects.md": {
-      "sha256": "ea1fd806e8ffd9b5a7a888004071ccb926ed41270b6186d66689660627e79cd8",
+      "sha256": "4f5af7d839a615c9a85802119d08825a99b74cab0bbfebf2dafc4c3a31546034",
       "group": "docs"
     },
     "docs/search.md": {
@@ -176,7 +176,7 @@
       "group": "code"
     },
     "system/lib/commands/hook.mjs": {
-      "sha256": "087262376fb3005f893dbaff0e72cc76d6aafb7f5a3d94427669e1a8baaad0bc",
+      "sha256": "a86c5956b1853c3bb4ff30b86b7f8ec6c8cb1f3dd445457f325df5ad84a0cc15",
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
@@ -916,7 +916,7 @@
       "group": "tests"
     },
     "system/tests/helpers.mjs": {
-      "sha256": "49ad00d7e26a9dfb2cf1926b2f2fc2c2f7d13bd4077ea5b885ffa5cdc840edf6",
+      "sha256": "1fe6e08342e20eb55c18df7661f0d757ec7eb696f0551a9d797bd362604f5c35",
       "group": "tests"
     },
     "system/tests/integration/installers.test.mjs": {
@@ -936,7 +936,7 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "ef2a94a333dfb8ab076b52ad512d678737862b121a74490478f19316fe2228d1",
+      "sha256": "6e1fc60db73cf930fc8425b5205a29344158d9f7de2581423de04066f6832f73",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {

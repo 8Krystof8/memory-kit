@@ -14,7 +14,8 @@
 //                  new repository: a one-time hint for the user naming `project add` and
 //                  `project ignore` (or the sector is made when projects.auto_add is on).
 //   stop           once per session in a known project, when the code changed and the handoff did
-//                  not: ask the agent to record handoff, gotchas and dead ends (JSON or nothing)
+//                  not: ask the agent to record handoff, gotchas and dead ends (JSON or nothing);
+//                  never in a Claude Code run without a person (claude -p, the Agent SDK)
 //   tool-failure   (Claude Code) a failed Bash or PowerShell command is looked up in the
 //                  project's gotchas and dead ends, after cheap filters, deduplicated, at most 5
 //                  lookups per session
@@ -201,8 +202,17 @@ async function sessionView(cfg, agent, input, entry, notices) {
   return emit(cfg, agent, { notices, context: `${brief}\n${view.text}` });
 }
 
-function stop(cfg, input) {
+/**
+ * True for a Claude Code run without a person (claude -p, the Agent SDK): Claude Code sets
+ * CLAUDE_CODE_ENTRYPOINT to sdk-cli, sdk-ts or sdk-py there, and a Stop block would turn the
+ * checkpoint's reply into the run's result. Codex gives no such sign (codex exec gets the request;
+ * projects.checkpoint false turns it off).
+ */
+const headless = (agent, env = process.env) => agent === 'claude-code' && /^sdk-/.test(String(env.CLAUDE_CODE_ENTRYPOINT ?? ''));
+
+function stop(cfg, input, agent) {
   if (!projectSettings(cfg).checkpoint || input.stop_hook_active === true || input.agent_id || input.permission_mode === 'plan') return '';
+  if (headless(agent)) return '';
   const sid = safeId(input.session_id);
   const s = readSession(cfg, sid);
   if (!s?.sector || !s.top || !sectorExists(cfg, s.sector)) return '';
@@ -452,7 +462,7 @@ export async function run(argv, cfg, ctx = {}) {
     if (isProbe(null, input)) return 0;
     let out = '';
     if (event === 'session-start') out = await sessionStart(cfg, agent, input, entry);
-    else if (event === 'stop') out = stop(cfg, input);
+    else if (event === 'stop') out = stop(cfg, input, agent);
     else if (event === 'tool-failure') out = toolFailure(cfg, input, entry);
     else if (event === 'session-end') sessionEnd(cfg, agent);
     if (out) process.stdout.write(out.endsWith('\n') ? out : `${out}\n`);

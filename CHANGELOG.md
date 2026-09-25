@@ -38,7 +38,7 @@ changes for vaults that do not switch the project memory on; the data version st
   outside git. Stop: one request per session to write the handoff when the code changed (a new
   commit, or uncommitted files that differ in their list, size or time from the session's start,
   which a compaction or resume keeps; worded neutrally when another session works in the same
-  repository). The hooks read the code repository without git's optional locks, so they never
+  repository; never in `claude -p` or an Agent SDK run, whose result it would replace). The hooks read the code repository without git's optional locks, so they never
   take its `index.lock` or rewrite its index, and a git status that fails asks nothing. A failed
   Bash or PowerShell command (Claude Code) with at least 20 characters of error text, not an
   interrupt: a lookup in gotchas and dead ends, once per error and at most five per session; every

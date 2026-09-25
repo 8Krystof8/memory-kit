@@ -197,7 +197,7 @@ export async function loadFixture(root, { roots = 'all' } = {}) {
  * process.env with HOME, USERPROFILE, CLAUDE_CONFIG_DIR (home/.claude) and CODEX_HOME (home/.codex)
  * pointing into it, and bin first on the PATH. bin holds a `claude` that answers --version with
  * claudeVersion (a POSIX script, plus claude.cmd on Windows), so the versions the hook install
- * sees are the same on every machine. MEMORY_KIT_PROBE is removed.
+ * sees are the same on every machine. MEMORY_KIT_PROBE and CLAUDE_CODE_ENTRYPOINT are removed.
  */
 export function agentHome(label = 'agent-home', { claudeVersion = '2.1.282' } = {}) {
   const home = tmpDir(label);
@@ -213,6 +213,7 @@ export function agentHome(label = 'agent-home', { claudeVersion = '2.1.282' } = 
     delete env[key];
   }
   delete env.MEMORY_KIT_PROBE;
+  delete env.CLAUDE_CODE_ENTRYPOINT; // a test run from `claude -p` must not look headless to the hooks
   const claudeDir = path.join(home, '.claude');
   Object.assign(env, {
     PATH: `${bin}${path.delimiter}${pathValue}`, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: path.join(home, '.codex'),
@@ -224,7 +225,7 @@ export function agentHome(label = 'agent-home', { claudeVersion = '2.1.282' } = 
 // Running the CLI
 
 // Variables that would change what a command does; tests set them explicitly when needed.
-const SCRUBBED_ENV = ['MEMORY_SECTORS', 'MEMORY_SEARCH_ENGINE', 'NODE_TEST_CONTEXT', 'NODE_OPTIONS', 'CLAUDE_CODE_REMOTE', 'CODESPACES', 'GITPOD_WORKSPACE_ID'];
+const SCRUBBED_ENV = ['MEMORY_SECTORS', 'MEMORY_SEARCH_ENGINE', 'NODE_TEST_CONTEXT', 'NODE_OPTIONS', 'CLAUDE_CODE_REMOTE', 'CLAUDE_CODE_ENTRYPOINT', 'CODESPACES', 'GITPOD_WORKSPACE_ID'];
 
 function childEnv(extra = {}) {
   const env = { ...process.env };

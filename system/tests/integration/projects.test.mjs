@@ -37,7 +37,7 @@ function git(cwd, args) {
 function cli(v, args, { cwd, input = '', env: extra = {} } = {}) {
   const home = v.home;
   const env = { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: path.join(home, '.claude'), CODEX_HOME: path.join(home, '.codex') };
-  for (const k of ['MEMORY_SECTORS', 'NODE_OPTIONS', 'NODE_TEST_CONTEXT', 'MEMORY_DEBUG', 'MEMORY_KIT_PROBE']) delete env[k];
+  for (const k of ['MEMORY_SECTORS', 'NODE_OPTIONS', 'NODE_TEST_CONTEXT', 'MEMORY_DEBUG', 'MEMORY_KIT_PROBE', 'CLAUDE_CODE_ENTRYPOINT']) delete env[k];
   Object.assign(env, extra);
   const res = spawnSync(process.execPath, [path.join(v.root, 'system', 'memory.mjs'), ...args, '--root', v.root], {
     cwd: cwd ?? v.root, env, input, encoding: 'utf8', windowsHide: true, timeout: 120000,
@@ -901,6 +901,20 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     const shared = JSON.parse(stopOf('c4'));
     assert.match(shared.reason, /^Project memory: the code in this repository changed since this session started \(another session works here too/);
     fs.rmSync(path.join(repo, 'b.js'));
+  });
+
+  test('stop asks nothing in a run without a person (claude -p, the Agent SDK), whose result it would replace', () => {
+    const v = vault('en');
+    const repo = codeRepo();
+    assert.equal(projectJson(v, 'add', repo).code, 0);
+    start(v, repo, 'h1');
+    fs.writeFileSync(path.join(repo, 'fix.js'), 'export {};\n');
+    const stopIn = { cwd: repo, session_id: 'h1', stop_hook_active: false };
+    for (const entrypoint of ['sdk-cli', 'sdk-ts', 'sdk-py']) {
+      assert.equal(hook(v, 'stop', stopIn, { env: { CLAUDE_CODE_ENTRYPOINT: entrypoint } }).stdout, '', entrypoint);
+    }
+    assert.equal(JSON.parse(hook(v, 'stop', stopIn, { env: { CLAUDE_CODE_ENTRYPOINT: 'cli' } }).stdout).decision, 'block', 'an interactive run is asked');
+    fs.rmSync(path.join(repo, 'fix.js'));
   });
 
   test('stop and session start read the code repository without taking its index lock; a failed git status asks nothing', { skip: process.platform === 'win32' && 'index mtimes' }, () => {
