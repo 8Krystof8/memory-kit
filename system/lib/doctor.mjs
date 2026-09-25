@@ -1,10 +1,14 @@
 // `doctor` checks: is this installation of memory-kit in order? Node.js, memory.json, the kit
 // files, AGENTS.md and the agent adapters, git and its pre-commit hook, the roots, the generated
-// views, the platform and the MCP clients. Every check returns { id, status: 'ok'|'warn'|'fail',
-// message, fix }; diagnose() puts them into the shape of system/schema/doctor-result.schema.json.
-// Read-only: nothing here writes a file, changes git config or prints (commands/doctor.mjs
-// applies the --fix repairs). The other kit modules are loaded per check, so a damaged module
-// fails only its own check and doctor still reports everything else.
+// views, the platform, the MCP clients and the memory hooks for code projects. Every check returns
+// { id, status: 'ok'|'warn'|'fail', message, fix }; diagnose() puts them into the shape of
+// system/schema/doctor-result.schema.json. Read-only: nothing here writes a file, changes git
+// config or prints (commands/doctor.mjs applies the --fix repairs). Only --probe does more: it runs
+// the session start hook of the project hooks once, in an empty temporary folder that git sees as
+// no repository, marked as a probe (MEMORY_KIT_PROBE=1 and "probe": true in its input), and notes
+// that run in the hook log, so it never counts as a session there. The other kit modules are
+// loaded per check, so a damaged module fails only its own check and doctor still reports
+// everything else.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,7 +25,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const CHECK_IDS = Object.freeze([
   'node.version', 'node.fts5', 'config.memory_json', 'config.data_version', 'kit.version', 'kit.integrity',
   'kit.upgrade_lock', 'agents.block', 'adapters', 'git.repo', 'git.hooks_path', 'git.pre_commit', 'git.attributes',
-  'roots', 'generated.fresh', 'platform', 'mcp.clients',
+  'roots', 'generated.fresh', 'platform', 'mcp.clients', 'projects.hooks',
 ]);
 
 /** Repairs `doctor --fix` may apply: git config core.hooksPath, and the hook file's bytes and mode. */
@@ -240,6 +244,46 @@ export const DEFAULTS = Object.freeze({
   'doctor.mcp.stale_command_fix': 'node system/memory.mjs connect {id}',
   'doctor.mcp.gone_vault': '{client}: entry "{name}" serves a memory that no longer exists ({root})',
   'doctor.mcp.gone_vault_fix': 'node system/memory.mjs connect {id} --remove --name {name} --force',
+
+  'doctor.projects.off': 'memory for code projects is not set up (optional: node system/memory.mjs connect claude-code --projects)',
+  'doctor.projects.off_plain': 'memory for code projects is not set up',
+  'doctor.projects.ok': 'memory hooks for {agents} · store {store} · auto_add {auto_add} · autosync {autosync}',
+  'doctor.projects.none': 'memory.json turns on the memory for code projects, but this computer has no memory hooks',
+  'doctor.projects.connect_fix': 'node system/memory.mjs connect claude-code --projects (or connect codex --projects)',
+  'doctor.projects.reconnect_fix': 'node system/memory.mjs connect {id} --projects',
+  'doctor.projects.unreadable': '{agent}: {path} cannot be read ({error})',
+  'doctor.projects.unreadable_fix': 'fix the syntax of {path}',
+  'doctor.projects.incomplete': '{agent}: the memory hooks for {events} are missing',
+  'doctor.projects.moved': '{agent}: the hooks run {script}, which does not exist (was the memory moved?)',
+  'doctor.projects.other': '{agent}: the hooks serve another memory ({script})',
+  'doctor.projects.node_missing': '{agent}: the hooks start node, which is not on the PATH here',
+  'doctor.projects.node_gone': '{agent}: the hooks start {node}, which does not exist',
+  'doctor.projects.node_old': '{agent}: the hooks start {node}, which is Node.js {have} (the kit needs {need})',
+  'doctor.projects.node_fix': 'install Node.js {need} or newer so that node is on the PATH, then node system/memory.mjs connect {id} --projects',
+  'doctor.projects.exec_old': 'Claude Code: the hooks use the exec form, which Claude Code {version} does not run (it needs 2.1.139 or newer)',
+  'doctor.projects.exec_fix': 'node system/memory.mjs connect claude-code --projects --form shell, or update Claude Code (claude update)',
+  'doctor.projects.failure_old': 'Claude Code: the hooks include PostToolUseFailure, and Claude Code {version} (older than 2.1.101) then ignores the whole settings file',
+  'doctor.projects.failure_fix': 'update Claude Code (claude update), or run node system/memory.mjs connect claude-code --projects, which leaves that event out',
+  'doctor.projects.disabled_all': 'Claude Code: {path} has "disableAllHooks": true, so no hook runs',
+  'doctor.projects.disabled_all_fix': 'delete "disableAllHooks" from {path}',
+  'doctor.projects.codex_off': 'Codex: {path} turns hooks off ([features] {key} = false)',
+  'doctor.projects.codex_off_fix': 'delete that line from {path} or set it to true',
+  'doctor.projects.codex_old': 'Codex {version} runs hooks only with [features] hooks = true (on by default from 0.124)',
+  'doctor.projects.codex_old_fix': 'update Codex',
+  'doctor.projects.not_running': '{agent}: the hooks are in place, but none has run since {since}, though sessions started after that',
+  'doctor.projects.not_running_claude_fix': 'accept the folder trust dialog in new sessions (hooks wait for it), update Claude Code (claude update), then node system/memory.mjs doctor --probe',
+  'doctor.projects.not_running_codex_fix': 'open /hooks in Codex and trust the memory hooks, update Codex to 0.124 or newer, then node system/memory.mjs doctor --probe',
+  'doctor.projects.failures': 'hook failures in the last {days} days: {list}',
+  'doctor.projects.failures_fix': 'the details are in {log}',
+  'doctor.projects.sync_failed': 'the last automatic sync failed ({step}, {when}): {error}',
+  'doctor.projects.sync_fix': 'node system/memory.mjs sync',
+  'doctor.projects.probe_ok': '{agent}: the session start hook ran in {ms} ms with clean output',
+  'doctor.projects.probe_failed': '{agent}: the session start hook failed when run as {agent} runs it ({detail})',
+  'doctor.projects.probe_fix': 'run it yourself to see the error: {command}',
+  'doctor.projects.probe_noise': '{agent}: the session start hook printed text outside a project: {text}',
+  'doctor.projects.noise_fix': 'a shell profile that prints text (~/.bashrc, ~/.zshenv, ~/.profile) corrupts hook output: let it print only in interactive shells',
+  'doctor.projects.probe_slow': '{agent}: the session start hook took {ms} ms outside a project (more than {max} ms)',
+  'doctor.projects.slow_fix': 'check what the shell profile runs; on Windows an antivirus scan often slows Node.js down',
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -1178,6 +1222,201 @@ async function checkClients(c) {
   return combine(problems, base, { prefix: problems.length ? base : undefined });
 }
 
+// Memory hooks for code projects (connect claude-code|codex --projects, lib/hooksetup.mjs).
+const PROBE_MAX_MS = 1500; // Claude Code gives all SessionEnd hooks together 1.5 s
+const FAILURE_DAYS = 7;
+const PROBE_EVENT = 'doctor-probe'; // the hook log entry of a probe run: {agent, event, ok, from, t}
+
+/** The events the hooks need: SessionEnd only starts the autosync, so only with autosync on. */
+const neededEvents = (autosync) => ['SessionStart', 'Stop', ...(autosync ? ['SessionEnd'] : [])];
+
+/** A test of hook log entries: true for the runs of doctor --probe (inside a probe entry's from…t). */
+function probeRuns(entries) {
+  const spans = entries.filter((e) => e.event === PROBE_EVENT && typeof e.from === 'string')
+    .map((e) => ({ agent: e.agent, from: Date.parse(e.from), to: Date.parse(e.t) }));
+  return (e) => {
+    if (e.event === PROBE_EVENT) return true;
+    const at = Date.parse(e.t);
+    return spans.some((s) => s.agent === e.agent && at >= s.from && at <= s.to);
+  };
+}
+
+/** An agent's hook file: null when there is none (or it is empty), else { file, settings } or { file, error }. */
+async function agentSettings(c, hs, agent) {
+  const file = hs.settingsPath(agent, { env: c.env, home: c.home, platform: c.platform });
+  const text = readTextOrNull(file);
+  if (text === null || !text.trim()) return null;
+  try {
+    return { file, settings: JSON.parse(text.replace(/^\uFEFF/, '')) };
+  } catch (err) {
+    try {
+      return { file, settings: (await need(c, 'jsonc.mjs')).parseJsonc(text).value };
+    } catch {
+      return { file, error: oneLine(err.message).slice(0, 200) };
+    }
+  }
+}
+
+/** Problems of the programs the hooks start as Node.js: 'node' on the PATH, or an absolute path. */
+function hookNodeProblems(c, agent, name, words) {
+  const need = neededNode(c);
+  const fix = say(c.t, 'doctor.projects.node_fix', { need, id: agent });
+  const out = [];
+  for (const node of words) {
+    if (node !== 'node' && !c.io.isExecutable(node)) {
+      out.push(problem('fail', say(c.t, 'doctor.projects.node_gone', { agent: name, node }), say(c.t, 'doctor.projects.reconnect_fix', { id: agent })));
+      continue;
+    }
+    const have = once(c, `node-version:${node}`, () => c.io.nodeVersion(node));
+    if (have === null && node === 'node') out.push(problem('fail', say(c.t, 'doctor.projects.node_missing', { agent: name }), fix));
+    else if (have !== null && cmpVersion(have, need) === -1) out.push(problem('fail', say(c.t, 'doctor.projects.node_old', { agent: name, node, have, need }), fix));
+  }
+  return out;
+}
+
+/**
+ * doctor --probe: runs the SessionStart hook as the agent does (hooksetup.probeSpec) in an empty
+ * temporary folder, with the input of a session start there marked as a probe (hooksetup.probeEnv
+ * keeps git from finding a repository above it), and logs the run's span (PROBE_EVENT), so its
+ * own log entries never pass for a session. { problem } or { note }.
+ */
+function probeHook(c, hs, log, agent, name, handler) {
+  const tmp = fs.mkdtempSync(path.join(c.io.tmpDir?.() ?? os.tmpdir(), 'memory-kit-probe-'));
+  const from = new Date();
+  try {
+    const bash = c.platform === 'win32' && agent === 'claude-code' ? (c.io.gitBashPath ?? hs.gitBashPath)({ env: c.env }) : null;
+    const spec = hs.probeSpec(agent, handler, { platform: c.platform, env: c.env, bash });
+    const r = (c.io.probeHook ?? hs.runProbe)(spec, { input: hs.probePayload(tmp), cwd: tmp, env: hs.probeEnv(c.env, tmp) });
+    log.logHook(c.root, { agent, event: PROBE_EVENT, ok: true, from: from.toISOString(), ms: r.ms });
+    const command = Array.isArray(handler.args) ? [handler.command, ...handler.args].map(shellArg).join(' ') : handler.command;
+    if (r.error || r.code !== 0) {
+      const why = oneLine(String(r.stderr ?? '').split(/\r?\n/).find((l) => l.trim()) ?? '').slice(0, 160);
+      const detail = r.error ?? `exit ${r.code}${why ? `: ${why}` : ''}`;
+      return { problem: problem('fail', say(c.t, 'doctor.projects.probe_failed', { agent: name, detail }), say(c.t, 'doctor.projects.probe_fix', { command })) };
+    }
+    if (String(r.stdout).trim()) {
+      const text = oneLine(r.stdout).slice(0, 80);
+      return { problem: problem('fail', say(c.t, 'doctor.projects.probe_noise', { agent: name, text }), say(c.t, 'doctor.projects.noise_fix')) };
+    }
+    if (r.ms > PROBE_MAX_MS) {
+      return { problem: problem('warn', say(c.t, 'doctor.projects.probe_slow', { agent: name, ms: r.ms, max: PROBE_MAX_MS }), say(c.t, 'doctor.projects.slow_fix')) };
+    }
+    return { note: say(c.t, 'doctor.projects.probe_ok', { agent: name, ms: r.ms }) };
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+/** The problems of one agent's memory hooks (ours: hooksetup.ourHooks of its settings). */
+function agentHookProblems(c, hs, { agent, name, file, settings, ours, entries, autosync }) {
+  const opts = { env: c.env, home: c.home, platform: c.platform };
+  const problems = [];
+  const reconnect = say(c.t, 'doctor.projects.reconnect_fix', { id: agent });
+  const names = new Set(ours.map((o) => o.name));
+  const missing = neededEvents(autosync).filter((e) => !names.has(e));
+  if (missing.length) problems.push(problem('warn', say(c.t, 'doctor.projects.incomplete', { agent: name, events: missing.join(', ') }), reconnect));
+  const parsed = ours.map((o) => o.parsed).filter(Boolean);
+  const script = path.join(c.root, 'system', 'memory.mjs');
+  for (const other of uniq(parsed.map((x) => x.script))) {
+    if (hs.sameScript(other, script, c.platform)) continue;
+    const exists = c.io.isFile(other);
+    problems.push(problem(exists ? 'warn' : 'fail', say(c.t, exists ? 'doctor.projects.other' : 'doctor.projects.moved', { agent: name, script: other }), reconnect));
+  }
+  problems.push(...hookNodeProblems(c, agent, name, uniq(parsed.map((x) => x.node))));
+  if (agent === 'claude-code') {
+    const min = (c.io.claudeVersions ?? hs.claudeVersions)(opts).min;
+    if (min && parsed.some((x) => x.form === 'exec') && cmpVersion(min, hs.CLAUDE_EXEC_MIN) === -1) {
+      problems.push(problem('fail', say(c.t, 'doctor.projects.exec_old', { version: min }), say(c.t, 'doctor.projects.exec_fix')));
+    }
+    if (min && names.has('PostToolUseFailure') && cmpVersion(min, hs.CLAUDE_FAILURE_MIN) === -1) {
+      problems.push(problem('fail', say(c.t, 'doctor.projects.failure_old', { version: min }), say(c.t, 'doctor.projects.failure_fix')));
+    }
+    if (settings.disableAllHooks === true) {
+      problems.push(problem('warn', say(c.t, 'doctor.projects.disabled_all', { path: file }), say(c.t, 'doctor.projects.disabled_all_fix', { path: file })));
+    }
+  } else {
+    const info = (c.io.codexInfo ?? hs.codexInfo)(opts);
+    if (info.off) problems.push(problem('warn', say(c.t, 'doctor.projects.codex_off', info.off), say(c.t, 'doctor.projects.codex_off_fix', info.off)));
+    if (info.min && cmpVersion(info.min, hs.CODEX_HOOKS_MIN) === -1) {
+      problems.push(problem('warn', say(c.t, 'doctor.projects.codex_old', { version: info.min }), say(c.t, 'doctor.projects.codex_old_fix')));
+    }
+  }
+  // Installed, sessions started since, and not one hook run in the log (doctor --probe runs do not
+  // count): the agent does not run them.
+  let since = 0;
+  try {
+    since = fs.statSync(file).mtimeMs;
+  } catch {
+    /* gone meanwhile */
+  }
+  const started = (c.io.newestSessionStart ?? hs.newestSessionStart)(agent, opts);
+  const probed = probeRuns(entries);
+  const ran = entries.some((e) => e.agent === agent && Date.parse(e.t) >= since - 1000 && !probed(e));
+  if (since && started > since + 60000 && !ran) {
+    problems.push(problem('warn', say(c.t, 'doctor.projects.not_running', { agent: name, since: new Date(since).toISOString().slice(0, 16).replace('T', ' ') }),
+      say(c.t, agent === 'codex' ? 'doctor.projects.not_running_codex_fix' : 'doctor.projects.not_running_claude_fix')));
+  }
+  return problems;
+}
+
+async function checkProjectHooks(c) {
+  const conf = rawConfig(c);
+  if (conf.error) return skipped(c, 'doctor.reason.config');
+  const p = conf.value.projects;
+  if (!isObj(p) || p.enabled !== true) {
+    // A vault whose kit has no project hooks (before 0.1.2) gets no hint to connect them.
+    const can = sameDir(c.root, c.kitRoot) || fs.existsSync(inVault(c, 'system/lib/hooksetup.mjs'));
+    return ok(say(c.t, can ? 'doctor.projects.off' : 'doctor.projects.off_plain'));
+  }
+  const hs = await need(c, 'hooksetup.mjs');
+  const log = await need(c, 'hooklog.mjs');
+  const entries = log.readHookLog(c.root);
+  const problems = [];
+  const agents = [];
+  const notes = [];
+  for (const agent of Object.keys(hs.AGENTS)) {
+    const name = hs.AGENTS[agent];
+    const got = await agentSettings(c, hs, agent);
+    if (!got) continue;
+    if (got.error) {
+      problems.push(problem('warn', say(c.t, 'doctor.projects.unreadable', { agent: name, path: got.file, error: got.error }), say(c.t, 'doctor.projects.unreadable_fix', { path: got.file })));
+      continue;
+    }
+    const ours = hs.ourHooks(got.settings, agent);
+    if (!ours.length) continue;
+    agents.push(name);
+    problems.push(...agentHookProblems(c, hs, { agent, name, file: got.file, settings: got.settings, ours, entries, autosync: p.autosync === true }));
+    const start = ours.find((o) => o.name === 'SessionStart')?.handler;
+    if (c.probe && start) {
+      const r = probeHook(c, hs, log, agent, name, start);
+      if (r.problem) problems.push(r.problem);
+      else notes.push(r.note);
+    }
+  }
+  if (!agents.length) return combine([...problems, problem('warn', say(c.t, 'doctor.projects.none'), say(c.t, 'doctor.projects.connect_fix'))], '');
+
+  // What the hook log shows: failures of the last days, and a failed sync.
+  const summary = log.hookSummary(c.root, { now: c.now, days: FAILURE_DAYS });
+  const cutoff = c.now.getTime() - FAILURE_DAYS * 86400000;
+  const sync = summary.lastSync?.ok === false && Date.parse(summary.lastSync.t) >= cutoff ? summary.lastSync : null;
+  const probed = probeRuns(log.readHookLog(c.root));
+  const failures = summary.failures.filter((e) => e !== sync && !probed(e)).reverse();
+  if (failures.length) {
+    const items = failures.map((e) => `${e.event}${e.step ? `/${e.step}` : ''} ${String(e.t).slice(0, 10)}: ${oneLine(e.error ?? '?').slice(0, 120)}`);
+    const fixes = uniq(failures.slice(0, MAX_LISTED).map((e) => e.fix).filter((f) => typeof f === 'string' && f));
+    problems.push(problem('warn', say(c.t, 'doctor.projects.failures', { days: FAILURE_DAYS, list: listed(c, items) }),
+      [...fixes, say(c.t, 'doctor.projects.failures_fix', { log: log.LOG_REL })].join('; ')));
+  }
+  if (sync) {
+    problems.push(problem('warn', say(c.t, 'doctor.projects.sync_failed', { step: sync.step ?? '?', when: String(sync.t).slice(0, 16).replace('T', ' '), error: oneLine(sync.error ?? '?').slice(0, 160) }),
+      typeof sync.fix === 'string' && sync.fix ? sync.fix : say(c.t, 'doctor.projects.sync_fix')));
+  }
+  const base = [say(c.t, 'doctor.projects.ok', {
+    agents: agents.join(', '), store: p.store === 'git' ? 'git' : 'local', auto_add: p.auto_add === true, autosync: p.autosync === true,
+  }), ...notes].join('; ');
+  return combine(problems, base, { prefix: problems.length ? base : undefined });
+}
+
 const CHECKS = {
   'node.version': checkNodeVersion,
   'node.fts5': checkFts5,
@@ -1196,6 +1435,7 @@ const CHECKS = {
   'generated.fresh': checkGenerated,
   platform: checkPlatform,
   'mcp.clients': checkClients,
+  'projects.hooks': checkProjectHooks,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -1203,9 +1443,12 @@ const CHECKS = {
 
 /**
  * Runs every check on the vault at root. opts: { kitRoot, cfg (null when memory.json or a pack
- * cannot be loaded), configError, t, and for tests: platform, env, home, execPath, nodeVersion,
- * osRelease, arch, fts5 (async () => boolean), io (see IO), clients (options for inspectClients:
- * platform, pathMod, io, findCli) }.
+ * cannot be loaded), configError, t, probe (run the session start hook of the project hooks), and
+ * for tests: platform, env, home, execPath, nodeVersion, osRelease, arch, now, fts5 (async () =>
+ * boolean), io (see IO; for projects.hooks also claudeVersions, codexInfo, newestSessionStart,
+ * gitBashPath and probeHook, which default to lib/hooksetup.mjs, and tmpDir, the folder the probe
+ * makes its temporary folder in), clients (options for inspectClients: platform, pathMod, io,
+ * findCli) }.
  * Returns { report, skipped: [id], repairs: [name] }: report has the doctor-result shape
  * { kit, root, checks: [{ id, status, message, fix }], summary: { ok, warn, fail } }; skipped
  * names the checks that could not run (their status is ok); repairs lists what --fix can do.
@@ -1225,6 +1468,8 @@ export async function diagnose(root, opts = {}) {
     osRelease: opts.osRelease ?? os.release(),
     arch: opts.arch ?? process.arch,
     fts5: opts.fts5,
+    probe: opts.probe === true,
+    now: opts.now ?? new Date(),
     io: { ...IO, ...opts.io },
     clients: opts.clients ?? {},
     modules: new Map(),

@@ -13,6 +13,9 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 if (Number(process.versions.node.split('.')[0]) < 22) {
+  // An agent hook must not fail a session: it logs the problem and ends quietly (lib/oldnode.mjs).
+  const { quietHook } = await import('./lib/oldnode.mjs');
+  if (quietHook(process.argv.slice(2), { kitRoot: fileURLToPath(new URL('..', import.meta.url)) })) process.exit(0);
   process.stderr.write(`memory: Node.js 22 or newer is required (this is ${process.version})\n`);
   process.exit(3);
 }

@@ -985,7 +985,7 @@ describe('doctor-result.schema.json', () => {
   const schema = schemas['doctor-result'];
   const IDS = ['node.version', 'node.fts5', 'config.memory_json', 'config.data_version', 'kit.version', 'kit.integrity',
     'kit.upgrade_lock', 'agents.block', 'adapters', 'git.repo', 'git.hooks_path', 'git.pre_commit', 'git.attributes', 'roots',
-    'generated.fresh', 'platform', 'mcp.clients'];
+    'generated.fresh', 'platform', 'mcp.clients', 'projects.hooks'];
   const report = () => ({
     kit: '0.1.1',
     root: '/home/owner/memory',
@@ -995,7 +995,7 @@ describe('doctor-result.schema.json', () => {
       message: `${id} checked`,
       ...(i % 3 === 0 ? {} : { fix: i % 3 === 1 ? 'node system/memory.mjs check --generate' : null }),
     })),
-    summary: { ok: 6, warn: 6, fail: 5 },
+    summary: { ok: 6, warn: 6, fail: 6 },
   });
 
   test('a report with every check the doctor runs passes', () => {

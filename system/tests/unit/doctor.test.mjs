@@ -14,10 +14,12 @@ import {
   uncoveredSources,
 } from '../../lib/doctor.mjs';
 import { applyRepairs, hookBytes } from '../../lib/commands/doctor.mjs';
+import { EVENTS, hookGroups, installProjects, planHooks } from '../../lib/hooksetup.mjs';
+import { LOG_REL, logHook, readHookLog } from '../../lib/hooklog.mjs';
 import { buildManifest, hashText } from '../../lib/kit.mjs';
 import { loadSchema, validate } from '../../lib/schema.mjs';
 import {
-  FIXTURES_DIR, KIT_ROOT, TODAY, cloneDir, copyKit, fixtureVault, overlay, readFile, removeTmpDirs, runCli, runInit,
+  FIXTURES_DIR, KIT_ROOT, TODAY, bareRoot, cloneDir, copyKit, fixtureVault, overlay, readFile, removeTmpDirs, runCli, runInit,
   tmpDir, writeFile, writeJson,
 } from '../helpers.mjs';
 
@@ -1333,3 +1335,271 @@ describe('the library probes', () => {
 function healthyRoot() {
   return path.join(healthy, 'vault');
 }
+
+// ---------------------------------------------------------------------------------------------
+// Memory hooks for code projects (connect --projects)
+
+describe('project hooks (projects.hooks)', () => {
+  const NOW = new Date('2026-09-25T12:00:00.000Z');
+  const ENABLED = { enabled: true, auto_add: false, store: 'local', autosync: false };
+
+  /** A vault with a system/memory.mjs and memory.json "projects", and an empty home. */
+  function vaultWith(projects = ENABLED) {
+    const root = bareRoot('en', projects === null ? {} : { projects });
+    fs.writeFileSync(path.join(root, 'system', 'memory.mjs'), '// the vault CLI\n');
+    const home = tmpDir('proj-home');
+    return { root, home, settings: path.join(home, '.claude', 'settings.json'), codex: path.join(home, '.codex', 'hooks.json') };
+  }
+
+  /** Probes that make the machine running the tests irrelevant. */
+  const quiet = (over = {}) => ({
+    nodeVersion: () => '22.22.0',
+    isExecutable: () => true,
+    claudeVersions: () => ({ observed: [{ source: 'cli', version: '2.1.200' }], min: '2.1.200' }),
+    codexInfo: () => ({ observed: [{ source: 'cli', version: '0.140.0' }], min: '0.140.0', off: null }),
+    newestSessionStart: () => 0,
+    ...over,
+  });
+
+  async function connect(v, opts = {}) {
+    const res = await installProjects(v.root, {
+      agent: 'claude-code', env: {}, home: v.home, t: null, ...opts,
+      io: { nodeOnPath: () => '22.22.0', shortPath: () => null, claudeVersions: () => ({ observed: [], min: '2.1.200' }), codexInfo: () => ({ observed: [], min: '0.140.0', off: null }), hasRemote: () => false, ...opts.io },
+    });
+    assert.equal(res.exit, 0, res.error);
+    return res;
+  }
+
+  async function hooksOf(v, opts = {}) {
+    const { io, ...rest } = opts;
+    const d = await doctorOf(v.root, { home: v.home, env: {}, now: NOW, io: quiet(io), ...rest });
+    return d.byId['projects.hooks'];
+  }
+
+  /** Our hooks for script written straight into the settings file (with extra settings keys). */
+  function writeHooks(v, script, { form = 'shell', events = EVENTS['claude-code'], extra = {} } = {}) {
+    const plan = form === 'exec' ? { form, exe: 'node' } : { form, nodeWord: 'node' };
+    const groups = hookGroups('claude-code', events, plan, { script, platform: process.platform });
+    fs.mkdirSync(path.dirname(v.settings), { recursive: true });
+    fs.writeFileSync(v.settings, JSON.stringify(planHooks(extra, 'claude-code', { groups }), null, 2));
+  }
+
+  test('not set up: ok, with the command only where the kit has it', async () => {
+    const v = vaultWith(null);
+    const ch = await hooksOf(v);
+    assert.equal(ch.status, 'ok');
+    assert.equal(ch.message, 'memory for code projects is not set up (optional: node system/memory.mjs connect claude-code --projects)');
+    const plain = await hooksOf(v, { kitRoot: KIT_ROOT });
+    assert.equal(plain.message, 'memory for code projects is not set up');
+    assert.equal((await hooksOf(vaultWith({ enabled: false, auto_add: true }))).status, 'ok');
+  });
+
+  test('turned on but no hooks on this computer: a warning with the command', async () => {
+    const ch = await hooksOf(vaultWith());
+    assert.equal(ch.status, 'warn');
+    assert.equal(ch.message, 'memory.json turns on the memory for code projects, but this computer has no memory hooks');
+    assert.equal(ch.fix, 'node system/memory.mjs connect claude-code --projects (or connect codex --projects)');
+  });
+
+  test('connected: ok with the settings', async () => {
+    const v = vaultWith(null);
+    await connect(v, { autoAdd: true });
+    const ch = await hooksOf(v);
+    assert.equal(ch.status, 'ok', ch.message);
+    assert.equal(ch.message, 'memory hooks for Claude Code · store local · auto_add true · autosync false');
+    await connect(v, { agent: 'codex' });
+    assert.equal((await hooksOf(v)).message, 'memory hooks for Claude Code, Codex · store local · auto_add true · autosync false');
+  });
+
+  test('a moved vault fails; hooks of another memory warn', async () => {
+    const v = vaultWith();
+    writeHooks(v, path.join(tmpDir('gone'), 'old', 'system', 'memory.mjs'));
+    const moved = await hooksOf(v, { io: { isFile: () => false } });
+    assert.equal(moved.status, 'fail');
+    assert.match(moved.message, /Claude Code: the hooks run .*old[\\/]system[\\/]memory\.mjs, which does not exist \(was the memory moved\?\)/);
+    assert.equal(moved.fix, 'node system/memory.mjs connect claude-code --projects');
+    const other = vaultWith();
+    writeHooks(v, path.join(other.root, 'system', 'memory.mjs'));
+    const ch = await hooksOf(v);
+    assert.equal(ch.status, 'warn');
+    assert.match(ch.message, /Claude Code: the hooks serve another memory/);
+  });
+
+  test('a missing event, the exec form and PostToolUseFailure on old versions', async () => {
+    const v = vaultWith();
+    const script = path.join(v.root, 'system', 'memory.mjs');
+    writeHooks(v, script, { events: EVENTS['claude-code'].filter(([n]) => n !== 'Stop') });
+    const missing = await hooksOf(v);
+    assert.equal(missing.status, 'warn');
+    assert.match(missing.message, /Claude Code: the memory hooks for Stop are missing/);
+    // SessionEnd only starts the autosync: needed only with autosync on.
+    writeHooks(v, script, { events: EVENTS['claude-code'].filter(([n]) => n !== 'SessionEnd') });
+    assert.equal((await hooksOf(v)).status, 'ok');
+    const synced = vaultWith({ ...ENABLED, autosync: true });
+    writeHooks(synced, path.join(synced.root, 'system', 'memory.mjs'), { events: EVENTS['claude-code'].filter(([n]) => n !== 'SessionEnd') });
+    assert.match((await hooksOf(synced)).message, /Claude Code: the memory hooks for SessionEnd are missing/);
+    writeHooks(v, script, { form: 'exec' });
+    const old = await hooksOf(v, { io: { claudeVersions: () => ({ observed: [], min: '2.1.100' }) } });
+    assert.equal(old.status, 'fail');
+    assert.match(old.message, /the hooks use the exec form, which Claude Code 2\.1\.100 does not run/);
+    assert.match(old.message, /include PostToolUseFailure, and Claude Code 2\.1\.100 \(older than 2\.1\.101\)/);
+    assert.match(old.fix, /--form shell/);
+    const unknown = await hooksOf(v, { io: { claudeVersions: () => ({ observed: [], min: null }) } });
+    assert.equal(unknown.status, 'ok', 'an unknown version is no finding');
+    const fine = await hooksOf(v, { io: { claudeVersions: () => ({ observed: [], min: '2.1.139' }) } });
+    assert.equal(fine.status, 'ok', fine.message);
+  });
+
+  test('node: missing, too old, or a path that is gone', async () => {
+    const v = vaultWith();
+    writeHooks(v, path.join(v.root, 'system', 'memory.mjs'));
+    const missing = await hooksOf(v, { io: { nodeVersion: () => null } });
+    assert.equal(missing.status, 'fail');
+    assert.match(missing.message, /the hooks start node, which is not on the PATH here/);
+    assert.match(missing.fix, /install Node\.js 22\.5\.0 or newer so that node is on the PATH/);
+    const old = await hooksOf(v, { io: { nodeVersion: () => '20.11.0' } });
+    assert.match(old.message, /the hooks start node, which is Node\.js 20\.11\.0 \(the kit needs 22\.5\.0\)/);
+    const groups = hookGroups('claude-code', EVENTS['claude-code'], { form: 'shell', nodeWord: '"/opt/old node/bin/node"' }, { script: path.join(v.root, 'system', 'memory.mjs') });
+    fs.writeFileSync(v.settings, JSON.stringify(planHooks({}, 'claude-code', { groups })));
+    const gone = await hooksOf(v, { io: { isExecutable: () => false } });
+    assert.equal(gone.status, 'fail');
+    assert.match(gone.message, /the hooks start \/opt\/old node\/bin\/node, which does not exist/);
+  });
+
+  test('disableAllHooks, an unreadable settings file, Codex switched off or old', async () => {
+    const v = vaultWith();
+    writeHooks(v, path.join(v.root, 'system', 'memory.mjs'), { extra: { disableAllHooks: true } });
+    const off = await hooksOf(v);
+    assert.equal(off.status, 'warn');
+    assert.match(off.message, /"disableAllHooks": true, so no hook runs/);
+    fs.writeFileSync(v.settings, '{ "hooks": ');
+    const broken = await hooksOf(v);
+    assert.equal(broken.status, 'warn');
+    assert.match(broken.message, /Claude Code: .*settings\.json cannot be read/);
+    fs.rmSync(v.settings);
+    await connect(v, { agent: 'codex' });
+    const codex = await hooksOf(v, { io: { codexInfo: () => ({ observed: [], min: '0.120.0', off: { path: '/h/.codex/config.toml', key: 'codex_hooks' } }) } });
+    assert.equal(codex.status, 'warn');
+    assert.match(codex.message, /Codex: \/h\/\.codex\/config\.toml turns hooks off \(\[features\] codex_hooks = false\)/);
+    assert.match(codex.message, /Codex 0\.120\.0 runs hooks only with \[features\] hooks = true/);
+  });
+
+  test('installed but not running: sessions after the change and no run in the log', async () => {
+    const v = vaultWith();
+    await connect(v);
+    const changed = fs.statSync(v.settings).mtimeMs;
+    const later = () => changed + 3600000;
+    const ch = await hooksOf(v, { io: { newestSessionStart: later } });
+    assert.equal(ch.status, 'warn');
+    assert.match(ch.message, /Claude Code: the hooks are in place, but none has run since \d{4}-\d\d-\d\d \d\d:\d\d, though sessions started after that/);
+    assert.match(ch.fix, /accept the folder trust dialog/);
+    logHook(v.root, { agent: 'claude-code', event: 'session-start', ok: true, ms: 40 }, { now: new Date(changed + 60000) });
+    assert.equal((await hooksOf(v, { io: { newestSessionStart: later } })).status, 'ok');
+    assert.equal((await hooksOf(v, { io: { newestSessionStart: () => changed + 30000 } })).status, 'ok', 'the session that ran connect');
+  });
+
+  test('failures of the last 7 days and a failed sync, with their fixes', async () => {
+    const v = vaultWith();
+    await connect(v);
+    const at = (days) => new Date(NOW.getTime() - days * 86400000);
+    logHook(v.root, { agent: 'claude-code', event: 'stop', ok: false, error: 'old failure' }, { now: at(10) });
+    for (const [i, err] of ['EACCES one', 'EACCES two', 'EACCES three', 'EACCES four'].entries()) {
+      logHook(v.root, { agent: 'claude-code', event: 'session-start', ok: false, error: err, fix: i === 3 ? 'fix the permissions' : undefined }, { now: at(4 - i) });
+    }
+    logHook(v.root, { agent: 'claude-code', event: 'autosync', step: 'push', ok: false, error: 'rejected (fetch first)', fix: 'node system/memory.mjs sync' }, { now: at(0.5) });
+    const ch = await hooksOf(v);
+    assert.equal(ch.status, 'warn');
+    assert.match(ch.message, /hook failures in the last 7 days: session-start 2026-09-24: EACCES four, session-start 2026-09-23: EACCES three, session-start 2026-09-22: EACCES two and 1 more/);
+    assert.doesNotMatch(ch.message, /old failure/);
+    assert.match(ch.message, /the last automatic sync failed \(push, 2026-09-25 00:00\): rejected \(fetch first\)/);
+    assert.equal(ch.fix, `fix the permissions; the details are in ${LOG_REL}; node system/memory.mjs sync`);
+    logHook(v.root, { agent: 'claude-code', event: 'autosync', step: 'done', ok: true }, { now: at(0.1) });
+    assert.doesNotMatch((await hooksOf(v)).message, /automatic sync failed/);
+  });
+
+  test('--probe runs the session start hook as Claude Code does', async () => {
+    const v = vaultWith();
+    const res = await connect(v);
+    const seen = [];
+    const probe = (result) => (spec, opts) => {
+      seen.push({ spec, opts, cwdExists: fs.existsSync(opts.cwd) });
+      return { code: 0, stdout: '', stderr: '', ms: 120, error: null, ...result };
+    };
+    const ok = await hooksOf(v, { probe: true, io: { probeHook: probe({}) } });
+    assert.equal(ok.status, 'ok', ok.message);
+    assert.match(ok.message, /; Claude Code: the session start hook ran in 120 ms with clean output$/);
+    const { spec, opts } = seen[0];
+    if (POSIX) assert.deepEqual([spec.command, spec.args], ['/bin/sh', ['-c', res.command]]);
+    const input = JSON.parse(opts.input);
+    assert.deepEqual([input.session_id, input.hook_event_name, input.source, input.cwd, input.probe], ['doctor-probe', 'SessionStart', 'startup', opts.cwd, true]);
+    assert.ok(seen[0].cwdExists && !fs.existsSync(opts.cwd), 'an empty temporary folder, removed afterwards');
+    assert.deepEqual([opts.env.MEMORY_KIT_PROBE, opts.env.CLAUDE_PROJECT_DIR], ['1', opts.cwd], 'marked as a probe');
+    assert.equal(opts.env.GIT_CEILING_DIRECTORIES, fs.realpathSync.native(path.dirname(opts.cwd)));
+
+    const noise = await hooksOf(v, { probe: true, io: { probeHook: probe({ stdout: 'Welcome to zsh!\n' }) } });
+    assert.equal(noise.status, 'fail');
+    assert.match(noise.message, /the session start hook printed text outside a project: Welcome to zsh!/);
+    assert.match(noise.fix, /shell profile/);
+    const failed = await hooksOf(v, { probe: true, io: { probeHook: probe({ code: 127, stderr: 'sh: node: not found\n' }) } });
+    assert.equal(failed.status, 'fail');
+    assert.match(failed.message, /failed when run as Claude Code runs it \(exit 127: sh: node: not found\)/);
+    assert.equal(failed.fix, `run it yourself to see the error: ${res.command}`);
+    const slow = await hooksOf(v, { probe: true, io: { probeHook: probe({ ms: 2400 }) } });
+    assert.equal(slow.status, 'warn');
+    assert.match(slow.message, /took 2400 ms outside a project \(more than 1500 ms\)/);
+    assert.equal((await hooksOf(v, { io: { probeHook: () => assert.fail('no probe without --probe') } })).status, 'ok');
+  });
+
+  test('a probe run never passes for a session: the not-running warning stays, its failures are not listed', async () => {
+    const v = vaultWith();
+    await connect(v);
+    const later = () => fs.statSync(v.settings).mtimeMs + 3600000;
+    // The hook logs its run, as commands/hook.mjs does, also when doctor --probe starts it.
+    const hookThatLogs = (entry) => (spec, opts) => {
+      logHook(v.root, { agent: 'claude-code', event: 'session-start', ...entry });
+      return { code: 0, stdout: '', stderr: '', ms: 80, error: null };
+    };
+    const first = await hooksOf(v, { io: { newestSessionStart: later } });
+    assert.match(first.message, /the hooks are in place, but none has run since/);
+    const probed = await hooksOf(v, { probe: true, io: { newestSessionStart: later, probeHook: hookThatLogs({ ok: true, ms: 8 }) } });
+    assert.match(probed.message, /the session start hook ran in 80 ms with clean output/);
+    const after = await hooksOf(v, { io: { newestSessionStart: later } });
+    assert.equal(after.status, 'warn');
+    assert.match(after.message, /the hooks are in place, but none has run since/, 'still: no real session ran a hook');
+    await hooksOf(v, { probe: true, io: { newestSessionStart: later, probeHook: hookThatLogs({ ok: false, error: 'EACCES in the probe' }) } });
+    assert.doesNotMatch((await hooksOf(v, { io: { newestSessionStart: later } })).message, /EACCES in the probe/);
+    const marks = readHookLog(v.root).filter((e) => e.event === 'doctor-probe');
+    assert.equal(marks.length, 2);
+    assert.ok(marks.every((e) => e.agent === 'claude-code' && e.ok === true && e.from <= e.t));
+    // A real run afterwards counts.
+    logHook(v.root, { agent: 'claude-code', event: 'stop', ok: true, ms: 30 });
+    assert.equal((await hooksOf(v, { io: { newestSessionStart: later } })).status, 'ok');
+  });
+
+  test('the probe folder is no repository, even inside one', { skip: NO_GIT }, async () => {
+    const v = vaultWith();
+    await connect(v);
+    const home = tmpDir('home-repo');
+    assert.equal(spawnSync('git', ['init', '-q', home], { windowsHide: true }).status, 0);
+    const temp = path.join(home, 'AppData', 'Local', 'Temp');
+    fs.mkdirSync(temp, { recursive: true });
+    let top = null;
+    const probeHook = (spec, opts) => {
+      top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: opts.cwd, env: opts.env, encoding: 'utf8', windowsHide: true });
+      return { code: 0, stdout: '', stderr: '', ms: 50, error: null };
+    };
+    const ch = await hooksOf(v, { probe: true, env: { ...process.env }, io: { tmpDir: () => temp, probeHook } });
+    assert.equal(ch.status, 'ok', ch.message);
+    assert.notEqual(top.status, 0, `git found ${top.stdout.trim()}`);
+  });
+
+  test('doctor --probe is a flag of the command', () => {
+    const { root } = fixtureVault('en');
+    const res = runCli(root, ['doctor', '--probe', '--json'], { env: homeEnv(emptyHome) });
+    const report = jsonOf(res);
+    assertValid(report);
+    assert.equal(report.checks.at(-1).id, 'projects.hooks');
+    assert.equal(report.checks.at(-1).status, 'ok');
+  });
+});
+
