@@ -24,6 +24,7 @@ import { writeAtomic } from './fsafe.mjs';
 import { detectStyle, formatJson } from './jsonc.mjs';
 import { envGet, nodeCommand, scanToml } from './clients.mjs';
 import { git, interpolate, isDir, resolvePath } from './util.mjs';
+import { PROBE_ENV } from './hookinput.mjs';
 
 /** The agents with project hooks and the names people know them by. */
 export const AGENTS = Object.freeze({ 'claude-code': 'Claude Code', codex: 'Codex' });
@@ -68,7 +69,7 @@ export const EVENTS = Object.freeze({
 });
 
 /** The environment variable doctor --probe sets for the hook it runs (probePayload marks the input too). */
-export const PROBE_ENV = 'MEMORY_KIT_PROBE';
+export { PROBE_ENV };
 
 // English defaults; packs may translate the same keys (section 4.10).
 const HOOKSETUP_DEFAULTS = {
@@ -1069,7 +1070,8 @@ export async function installProjects(root, opts = {}) {
     }
     if (parsed.error || !layoutFits(parsed.value, Object.keys(groups))) {
       // Never rewritten. memory.json is still set, so hooks added by hand work (or on remove stop).
-      if (!remove) res.snippet = JSON.stringify({ hooks: groups }, null, 2);
+      // What a file with only these hooks holds: each event a list of groups, as the agents read it.
+      if (!remove) res.snippet = JSON.stringify(planHooks({}, agent, { groups }), null, 2);
       let memoryWritten = false;
       try {
         writeMemory();

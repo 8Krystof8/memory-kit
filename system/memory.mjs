@@ -152,6 +152,11 @@ async function printHelp(cfg, stream = process.stdout) {
     const aliases = Object.entries(cfg.commands).map(([a, c]) => `${a}=${c}`).join(', ');
     lines.push(`aliases (${cfg.lang}): ${aliases}`);
   }
+  const subs = cfg ? Object.entries(cfg.subcommands ?? {}).filter(([, table]) => table && Object.keys(table).length) : [];
+  if (subs.length) {
+    const text = subs.map(([name, table]) => `${name} ${Object.entries(table).map(([a, c]) => `${a}=${c}`).join(', ')}`).join('; ');
+    lines.push(`subcommand aliases (${cfg.lang}): ${text}`);
+  }
   stream.write(lines.join('\n') + '\n');
 }
 
@@ -225,7 +230,7 @@ async function main(argv) {
 
   const rest = mapFlags(cfg, args.slice(1));
   if ((command === 'sector' || command === 'project') && rest.length && !rest[0].startsWith('-')) {
-    const table = cfg.subcommands[command] ?? cfg.pack?.subcommands?.[command];
+    const table = cfg.subcommands?.[command];
     if (table && typeof table === 'object' && Object.hasOwn(table, rest[0]) && typeof table[rest[0]] === 'string') rest[0] = table[rest[0]];
   }
   return runCommand(command, rest, cfg, { root, kitRoot, configError: null, ...hookCtx });
@@ -240,10 +245,13 @@ async function main(argv) {
 async function earlyToolFailure(root, agent) {
   const started = performance.now();
   const hi = await import('./lib/hookinput.mjs');
+  // A run of doctor --probe leaves no trace, not even a log entry.
+  if (hi.isProbe(process.env)) return { done: true };
   const projects = hi.rawProjects(root);
   if (projects === null) return { done: false, ctx: {} };
   if (projects.enabled !== true) return { done: true };
   const input = await hi.readHookInput();
+  if (hi.isProbe(null, input)) return { done: true };
   // A session the session start saw outside any known project has nothing to look up in.
   const outside = hi.readSessionFile(root, input.session_id)?.sector === null;
   if (projects.error_lookup !== false && !outside && hi.lookupCandidate(input)) return { done: false, ctx: { hookInput: input, hookStarted: started } };

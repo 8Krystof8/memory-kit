@@ -12,6 +12,7 @@ import { logHook } from './hooklog.mjs';
 
 const NEED = '22.5.0';
 const AGENTS = ['claude-code', 'codex'];
+const PROBE_ENV = 'MEMORY_KIT_PROBE'; // hookinput.PROBE_ENV: a run of doctor --probe logs nothing
 
 // English defaults; packs may translate the same keys (section 4.10).
 const OLDNODE_DEFAULTS = {
@@ -51,11 +52,12 @@ function say(root, lang, key, vars) {
 /**
  * On a Node.js too old for the kit: true for a hook run, which memory.mjs then ends with exit 0,
  * after logging it (only when the vault's memory.json turns the project hooks on, as the hook
- * itself would); false for every other command.
+ * itself would, and never for a run of doctor --probe); false for every other command.
  */
-export function quietHook(argv, { kitRoot, version = process.versions.node } = {}) {
+export function quietHook(argv, { kitRoot, version = process.versions.node, env = process.env } = {}) {
   const call = hookCall(argv, kitRoot);
   if (!call) return false;
+  if (env[PROBE_ENV] === '1') return true;
   const config = readJson(path.join(call.root, 'memory.json'));
   if (config?.projects?.enabled !== true || !AGENTS.includes(call.agent)) return true;
   const vars = { version, need: NEED, agent: call.agent };

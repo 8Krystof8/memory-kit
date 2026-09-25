@@ -148,7 +148,14 @@ keeps everything else in `~/.claude/settings.json` (a backup goes to
 `.memory-kit/backups/connect/`). A settings file with comments is never rewritten: the command
 prints the hooks to paste instead. `node system/memory.mjs doctor` checks the hooks (line
 `projects.hooks`), and `doctor --probe` also runs the session start hook once, the way the agent
-does, in an empty temporary folder, marked as a probe so that it never counts as a session.
+does, in an empty temporary folder, marked as a probe: the hook then only starts and ends, and
+leaves no session record, hint or log entry behind.
+
+`node system/memory.mjs setup` offers the same in a terminal (menu item *Memory for coding
+projects*): it asks about `auto_add`, `store` and `autosync` with the safe answers preselected
+(`autosync` only when the vault has a remote), and shows what really happened: where the hooks
+are, the settings, where the project notes stay and the next steps, or, when the install is
+refused, why and the fix (never "installed").
 
 Claude Code on the web does not read your user settings; there the vault's own `CLAUDE.md` and
 `AGENTS.md` still work.

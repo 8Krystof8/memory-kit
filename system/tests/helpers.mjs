@@ -190,6 +190,37 @@ export async function loadFixture(root, { roots = 'all' } = {}) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// A home of the agents that is never the real one
+
+/**
+ * A temporary home for Claude Code and Codex: { home, bin, env, claudeDir, settings }. env is
+ * process.env with HOME, USERPROFILE, CLAUDE_CONFIG_DIR (home/.claude) and CODEX_HOME (home/.codex)
+ * pointing into it, and bin first on the PATH. bin holds a `claude` that answers --version with
+ * claudeVersion (a POSIX script, plus claude.cmd on Windows), so the versions the hook install
+ * sees are the same on every machine. MEMORY_KIT_PROBE is removed.
+ */
+export function agentHome(label = 'agent-home', { claudeVersion = '2.1.282' } = {}) {
+  const home = tmpDir(label);
+  const bin = path.join(home, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\necho '${claudeVersion} (Claude Code)'\n`, { mode: 0o755 });
+  if (process.platform === 'win32') fs.writeFileSync(path.join(bin, 'claude.cmd'), `@echo ${claudeVersion} (Claude Code)\r\n`);
+  const env = { ...process.env };
+  let pathValue = '';
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() !== 'PATH') continue;
+    pathValue ||= env[key];
+    delete env[key];
+  }
+  delete env.MEMORY_KIT_PROBE;
+  const claudeDir = path.join(home, '.claude');
+  Object.assign(env, {
+    PATH: `${bin}${path.delimiter}${pathValue}`, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: path.join(home, '.codex'),
+  });
+  return { home, bin, env, claudeDir, settings: path.join(claudeDir, 'settings.json') };
+}
+
+// ---------------------------------------------------------------------------------------------
 // Running the CLI
 
 // Variables that would change what a command does; tests set them explicitly when needed.

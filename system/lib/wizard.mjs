@@ -7,20 +7,24 @@
 // The extras menu is also what `setup` opens in a vault that is set up already: connect AI apps
 // (commands/connect.mjs), memory for coding projects (installProjects of lib/hooksetup.mjs, used
 // only when that version of the kit exports it) and a compact health check (doctor --json).
-// Flags given to init become the preselected answers: presets and custom sectors of --sectors
-// (a :github or :local suffix settles that sector's privacy, so it is not asked again), --agents
-// (all: every tool), --private-root. Invalid flags stop the wizard before its first question
-// (exit 2). --dry-run ends it after the summary; without a terminal to ask in, the confirmation
-// is No unless --yes was given. Commands to copy are printed outside boxes and never wrapped.
+// A flag given to init is the answer: its question is not asked (the installers ask the mode
+// themselves and pass --mode). --sectors takes presets and custom ids (a :github or :local suffix
+// settles that sector's privacy); --agents all is every tool. Only a sector kept off git in mode
+// github still needs a decision. Mode local is not offered while the vault has a git remote, and
+// --mode local is refused then, as init refuses it. Invalid flags stop the wizard before its first
+// question (exit 2; the refused --mode local exit 1). --dry-run ends it after the summary; without
+// a terminal to ask in, the confirmation is No unless --yes was given. Commands to copy are
+// printed outside boxes and never wrapped.
 // Everything is printed through lib/tui.mjs; tests inject the UI, the client detection, the hook
 // installer and the doctor runner. Ctrl+C or Esc ends the wizard with exit code 130.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Cancelled, NonInteractive, TUI_DEFAULTS, createUI } from './tui.mjs';
 import { findClient, findExecutable, inspectClient } from './clients.mjs';
+import { vaultCommand } from './projects.mjs';
 import * as init from '../init.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -35,9 +39,9 @@ export const WIZARD_DEFAULTS = {
   'wizard.mode.github': 'a private GitHub repository; phone and cloud agents reach it',
   'wizard.mode.local': 'only this computer; git without a remote',
   'wizard.mode.combined': 'a private GitHub repository plus a private folder here',
+  'wizard.mode.local_remote': 'not here: this folder has a git remote ({remotes})',
   'wizard.sectors.question': 'Which sectors (areas of life)?',
   'wizard.sectors.local': 'only on this computer',
-  'wizard.sectors.custom': 'your own sector',
   'wizard.local.question': '{sectors}: sectors usually kept off GitHub, but mode github has no private folder',
   'wizard.local.combined': 'switch to combined: keep them on this computer',
   'wizard.local.github': 'keep them in the private GitHub repository',
@@ -95,8 +99,14 @@ export const WIZARD_DEFAULTS = {
   'setup.projects.removing': 'Taking the hooks for Claude Code out',
   'setup.projects.installed': 'Hooks are in {file}',
   'setup.projects.unchanged': 'The hooks in {file} are current',
+  'setup.projects.saved': 'Settings saved; the hooks in {file} are current',
   'setup.projects.removed': 'Memory for coding projects is off; the hooks are out of {file}',
   'setup.projects.absent': 'Memory for coding projects is off; {file} had no hooks of it',
+  'setup.projects.kept': 'The hooks are out of {file}, but {agent} still has memory hooks for this memory, so memory for coding projects stays on',
+  'setup.projects.local_root': 'Project notes stay on this computer, in {path}',
+  'setup.projects.local_root_new': 'Project notes will stay on this computer, in {path} (made with the first project)',
+  'setup.projects.next_session': 'Start a new Claude Code session in a code repository (in VS Code reload the window) and accept the folder trust dialog when it asks.',
+  'setup.projects.next_add': 'A repository gets its memory only when you add it. Run this inside it:',
   'setup.projects.backup': 'backup of the old file: {path}',
   'setup.projects.settings': 'add repositories automatically: {auto_add} · project notes: {store} · push at session end: {autosync}',
   'setup.projects.store.local': 'this computer only',
@@ -171,15 +181,8 @@ export function detectAgents(root) {
   return found;
 }
 
-/** Does the vault have a git remote? */
-function hasRemote(root) {
-  try {
-    const res = spawnSync('git', ['remote'], { cwd: root, encoding: 'utf8', windowsHide: true });
-    return res.status === 0 && res.stdout.trim() !== '';
-  } catch {
-    return false;
-  }
-}
+/** Does the vault (the top of its own git repository) have a git remote? */
+const hasRemote = (root) => init.vaultRemotes(root).length > 0;
 
 /** doctor --json of the vault's own CLI, without blocking (the spinner keeps turning). */
 export function runDoctorJson(root) {
@@ -216,9 +219,12 @@ async function askLanguage(ui, t, packs, initial) {
   return ui.select({ message: t('wizard.lang.question'), options, initialValue: initial });
 }
 
-async function askMode(ui, t, initial) {
-  const options = init.MODES.map((m) => ({ value: m, label: m, hint: t(`wizard.mode.${m}`) }));
-  return ui.select({ message: t('wizard.mode.question'), options, initialValue: init.MODES.includes(initial) ? initial : 'github' });
+/** Where the memory lives. With a git remote, local is shown but cannot be chosen (init refuses it). */
+async function askMode(ui, t, remotes) {
+  const options = init.MODES.map((m) => (m === 'local' && remotes.length
+    ? { value: m, label: m, hint: t('wizard.mode.local_remote', { remotes: remotes.join(', ') }), disabled: true }
+    : { value: m, label: m, hint: t(`wizard.mode.${m}`) }));
+  return ui.select({ message: t('wizard.mode.question'), options, initialValue: 'github' });
 }
 
 /**
@@ -237,28 +243,20 @@ function flagSectors(value, packs) {
   return items;
 }
 
-const customValue = (id) => `custom:${id}`;
-
-/** The chosen sectors as [{ key, id, privacy }]: the presets, plus the custom ones of the flag. */
-async function askSectors(ui, t, packs, lang, flag) {
+/** The chosen presets as [{ key, id: null, privacy: null }] (without --sectors; with it nothing is asked). */
+async function askSectors(ui, t, packs, lang) {
   const dot = ` ${ui.sym.dot} `;
   const en = packs.get('en');
   const pack = packs.get(lang);
   const options = init.presetEntries(en).map(([key]) => {
     const p = pack.sector_presets?.[key] ?? en.sector_presets[key];
-    const privacy = flag.find((x) => x.key === key)?.privacy ?? p.privacy;
     const tags = [p.id];
     if (key === 'core') tags.push(t('tui.locked'));
-    else if (privacy === 'local') tags.push(t('wizard.sectors.local'));
+    else if (p.privacy === 'local') tags.push(t('wizard.sectors.local'));
     return { value: key, label: p.title ?? key, hint: tags.join(dot), locked: key === 'core' };
   });
-  for (const c of flag.filter((x) => !x.key)) {
-    const tags = [t('wizard.sectors.custom'), ...(c.privacy === 'local' ? [t('wizard.sectors.local')] : [])];
-    options.push({ value: customValue(c.id), label: c.id, hint: tags.join(dot) });
-  }
-  const initial = flag.length ? flag.map((x) => x.key ?? customValue(x.id)) : ['core', 'work'];
-  const picked = await ui.multiselect({ message: t('wizard.sectors.question'), options, initialValues: initial, required: true });
-  return picked.map((v) => flag.find((x) => (x.key ?? customValue(x.id)) === v) ?? { key: v, id: null, privacy: null });
+  const picked = await ui.multiselect({ message: t('wizard.sectors.question'), options, initialValues: ['core', 'work'], required: true });
+  return picked.map((v) => ({ key: v, id: null, privacy: null }));
 }
 
 /** Does the sector keep its notes outside git (its suffix, else its preset's default)? */
@@ -288,10 +286,10 @@ async function settleLocalSectors(ui, t, packs, lang, mode, sectors) {
   return { mode, sectors: sectors.filter((s) => !local.includes(s)) };
 }
 
-async function askPrivateRoot(ui, t, root, util, initial) {
+async function askPrivateRoot(ui, t, root, util) {
   return ui.text({
     message: t('wizard.private.question'),
-    defaultValue: initial ?? init.defaultPrivateRoot(root),
+    defaultValue: init.defaultPrivateRoot(root),
     validate: (value) => {
       try {
         init.resolvePrivateRoot(root, value, { util, t });
@@ -303,25 +301,27 @@ async function askPrivateRoot(ui, t, root, util, initial) {
   });
 }
 
-/** The AI tools: --agents preselects (all: every one), else the ones detected here, else all. */
-async function askAgents(ui, t, detected, given) {
-  const fromFlag = given !== undefined ? init.parseAgents(given) : null;
+/** The AI tools (without --agents): the ones detected here preselected, else all. */
+async function askAgents(ui, t, detected) {
   const options = init.AGENTS.map((a) => ({ value: a, label: agentName(a), hint: detected.includes(a) ? t('wizard.agents.detected') : undefined }));
-  const initial = fromFlag ?? (detected.length ? detected : [...init.AGENTS]);
+  const initial = detected.length ? detected : [...init.AGENTS];
   return ui.multiselect({ message: t('wizard.agents.question'), options, initialValues: initial, required: true });
 }
 
 /**
- * The flags the wizard takes as preselected answers, checked before the first question so a
- * wrong one is not found only after all of them: an InitError (usage) or null.
+ * The flags the wizard takes as answers, checked before the first question so a wrong one is not
+ * found only after all of them: an InitError (usage; --mode local with a git remote is refused,
+ * as init refuses it) or null.
  */
-function flagProblem(opts, packs, lang, util) {
+function flagProblem(opts, packs, lang, util, { root, remotes, t }) {
   try {
     if (opts.mode !== undefined && !init.MODES.includes(opts.mode)) throw new init.InitError(2, `--mode must be one of ${init.MODES.join(', ')}`);
     if (opts.lang !== undefined && !packs.has(opts.lang)) throw new init.InitError(2, `--lang must be one of ${[...packs.keys()].join(', ')}`);
+    if (opts.mode === 'local' && remotes.length) throw new init.InitError(1, t('init.refused_remote', { remotes: remotes.join(', ') }));
     // Mode combined takes every privacy; github with a local sector is asked about instead.
     if (opts.sectors !== undefined) init.parseSectors(opts.sectors, packs, lang, 'combined', util);
     if (opts.agents !== undefined) init.parseAgents(opts.agents);
+    if (opts['private-root'] !== undefined) init.resolvePrivateRoot(root, opts['private-root'], { util, t });
     return null;
   } catch (err) {
     if (err instanceof init.InitError) return err;
@@ -462,10 +462,23 @@ async function projectChoices(ctx, now) {
   return choices;
 }
 
+/** What to do after an install: a new session (when the file changed) and project add (without auto add). */
+function projectNextSteps(ctx, res) {
+  const { ui, t, root } = ctx;
+  if (res.changed) ui.message(t('setup.projects.next_session'), undefined, { bullet: true });
+  if (res.settings?.auto_add !== true) {
+    ui.message(t('setup.projects.next_add'), undefined, { bullet: true });
+    ui.command(`${vaultCommand({ root })} project add`);
+  }
+}
+
 /**
- * installProjects' outcome: a refusal (thrown ProjectsRefused, or a result with ok false or action
- * refused) or a snippet (the settings file cannot be edited) is never shown as installed; the
- * snippet is printed whole, outside any box, to be copied.
+ * installProjects' outcome as it is: a refusal (thrown ProjectsRefused, or a result with ok false
+ * or action refused) ends in red with its fix and is never shown as installed; a snippet (the
+ * settings file cannot be edited) is printed whole, outside any box, to be copied; memory.json is
+ * named when it was written anyway. A removal that another agent's hooks keep switched on says so.
+ * A real install shows the file, the settings, where project notes stay, the warnings and what
+ * to do next.
  */
 function showProjects(ctx, spin, res, removing) {
   const { ui, t } = ctx;
@@ -474,6 +487,9 @@ function showProjects(ctx, spin, res, removing) {
     if (!res.snippet) return;
     ui.message(t('setup.projects.snippet', { file }));
     ui.verbatim(String(res.snippet));
+  };
+  const backup = () => {
+    if (res.backup) ui.message(t('setup.projects.backup', { path: res.backup }), 'dim');
   };
   if (res.ok === false || res.action === 'refused') {
     spin.stop(t(removing ? 'setup.projects.remove_failed' : 'setup.projects.failed', { detail: res.error ?? '?' }), 'error');
@@ -484,14 +500,21 @@ function showProjects(ctx, spin, res, removing) {
     spin.stop(t('setup.projects.not_installed', { file }), 'warn');
     snippet();
   } else if (removing) {
-    spin.stop(t(res.action === 'absent' || res.changed === false ? 'setup.projects.absent' : 'setup.projects.removed', { file }));
-    if (res.backup) ui.message(t('setup.projects.backup', { path: res.backup }), 'dim');
+    const other = res.keptBy ? agentName(res.keptBy) : null;
+    const key = other ? 'setup.projects.kept' : res.action === 'absent' || res.changed === false ? 'setup.projects.absent' : 'setup.projects.removed';
+    spin.stop(t(key, { file, agent: other }), other ? 'warn' : 'ok');
+    backup();
   } else {
-    spin.stop(t(res.changed === false ? 'setup.projects.unchanged' : 'setup.projects.installed', { file }));
-    if (res.backup) ui.message(t('setup.projects.backup', { path: res.backup }), 'dim');
+    const key = res.changed === false ? res.memoryChanged ? 'setup.projects.saved' : 'setup.projects.unchanged' : 'setup.projects.installed';
+    spin.stop(t(key, { file }));
+    backup();
     if (res.settings) ui.message(settingsLine(t, res.settings), 'dim');
+    if (res.settings?.store !== 'git' && res.localRoot?.path) {
+      ui.message(t(res.localRoot.exists ? 'setup.projects.local_root' : 'setup.projects.local_root_new', { path: res.localRoot.path }), 'dim');
+    }
   }
   for (const w of res.warnings ?? []) ui.warn(w);
+  if (!removing && res.ok !== false && res.action !== 'refused' && !res.snippet) projectNextSteps(ctx, res);
 }
 
 async function codingProjects(ctx) {
@@ -589,7 +612,7 @@ function extrasContext(root, ui, t, inject) {
  * preselected choices; today, cleanup, allow-ephemeral pass through; dry-run ends after the
  * summary; yes confirms when there is no terminal to ask in). inject (tests): ui, env, detect
  * (() => agent ids), loadHooks, hookOptions ({ env, home } for installProjects), runDoctor,
- * inspectClients, connectClient, hasRemote.
+ * inspectClients, connectClient, hasRemote (for the push question), remotes ((root) => remote names).
  * → exit code (0 ok, 1 refused or check errors, 2 usage, 130 cancelled).
  */
 export async function runWizard({ root, opts = {}, ui: givenUi, env = process.env, detect, ...inject } = {}) {
@@ -615,31 +638,35 @@ export async function runWizard({ root, opts = {}, ui: givenUi, env = process.en
       return 0;
     }
     const util = await init.kitUtil();
-    const problem = flagProblem(opts, packs, lang, util);
+    const remotes = (inject.remotes ?? init.vaultRemotes)(root);
+    const problem = flagProblem(opts, packs, lang, util, { root, remotes, t });
     if (problem) {
       ui.error(problem.message);
       ui.outro(t('wizard.nothing_changed'), { state: 'error' });
       return problem.exitCode;
     }
 
-    lang = await askLanguage(ui, t, packs, lang);
-    t = wizardTranslator(packs, lang);
-    ui.setTranslator(t);
-    const firstMode = await askMode(ui, t, opts.mode);
-    const chosen = await askSectors(ui, t, packs, lang, flagSectors(opts.sectors, packs));
+    // Only what no flag answered is asked.
+    if (opts.lang === undefined) {
+      lang = await askLanguage(ui, t, packs, lang);
+      t = wizardTranslator(packs, lang);
+      ui.setTranslator(t);
+    }
+    const firstMode = opts.mode ?? await askMode(ui, t, remotes);
+    const chosen = opts.sectors !== undefined ? flagSectors(opts.sectors, packs) : await askSectors(ui, t, packs, lang);
     const { mode, sectors } = await settleLocalSectors(ui, t, packs, lang, firstMode, chosen);
     const en = packs.get('en');
     // As init: a private folder for mode local or combined, a local sector, or one given.
     const needsPrivate = mode !== 'github' || sectors.some((s) => isLocal(s, en)) || opts['private-root'] !== undefined;
-    const privateRoot = needsPrivate ? await askPrivateRoot(ui, t, root, util, opts['private-root']) : undefined;
-    const detected = (() => {
+    const privateRoot = needsPrivate ? opts['private-root'] ?? await askPrivateRoot(ui, t, root, util) : undefined;
+    const detected = () => {
       try {
         return (detect ?? (() => detectAgents(root)))();
       } catch {
         return [];
       }
-    })();
-    const agents = await askAgents(ui, t, detected, opts.agents);
+    };
+    const agents = opts.agents !== undefined ? init.parseAgents(opts.agents) : await askAgents(ui, t, detected());
 
     const answers = {
       mode, lang, sectors: sectors.map(sectorItem).join(','), agents: agents.join(','), cleanup: opts.cleanup ?? 'none',

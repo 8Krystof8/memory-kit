@@ -611,6 +611,12 @@ describe('installProjects', () => {
     assert.match(res.error, /is not plain JSON/);
     assert.match(res.fix, /connect claude-code --projects --dry-run prints/);
     assert.deepEqual(Object.keys(JSON.parse(res.snippet).hooks), ['SessionStart', 'Stop', 'PostToolUseFailure']);
+    // The snippet has the layout of the settings file (each event a list of groups), so pasted as
+    // it is, it holds exactly the hooks an install writes into an empty file.
+    assert.deepEqual(ourHooks(JSON.parse(res.snippet), 'claude-code').map((h) => h.name), ['SessionStart', 'Stop', 'PostToolUseFailure']);
+    const home = tmpDir('home');
+    await install({ ...s, home });
+    assert.deepEqual(JSON.parse(res.snippet), json(path.join(home, '.claude', 'settings.json')));
     assert.equal(read(s.claude), text);
     assert.equal(projectsOf(s.root).enabled, true, 'memory.json is set, so pasted hooks work');
     assert.equal(res.settings.enabled, true, 'the settings that were saved');
@@ -1024,7 +1030,9 @@ describe('a hook on a too old Node.js', () => {
     assert.deepEqual(hookCall(['hook', 'codex'], KIT_ROOT), { agent: 'codex', event: null, root: KIT_ROOT });
     assert.equal(hookCall(['doctor'], KIT_ROOT), null);
     enable(root);
-    assert.equal(quietHook(['--root', root, 'hook', 'codex', 'stop'], { kitRoot: '/kit', version: '18.0.0' }), true);
+    assert.equal(quietHook(['--root', root, 'hook', 'codex', 'stop'], { kitRoot: '/kit', version: '18.0.0', env: { MEMORY_KIT_PROBE: '1' } }), true);
+    assert.deepEqual(readHookLog(root), [], 'a doctor --probe run logs nothing');
+    assert.equal(quietHook(['--root', root, 'hook', 'codex', 'stop'], { kitRoot: '/kit', version: '18.0.0', env: {} }), true);
     assert.match(readHookLog(root)[0].error, /^the hook ran on Node\.js 18\.0\.0 and did nothing/);
     assert.equal(quietHook(['check', '--root', root], { kitRoot: '/kit' }), false);
   });

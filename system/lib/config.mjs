@@ -510,7 +510,7 @@ export function loadConfig(root, { lang: langOverride } = {}) {
     waiting,
     enWaiting,
     commands: aliasMap(pack.commands),
-    subcommands: { sector: aliasMap(obj(pack.subcommands).sector) },
+    subcommands: { sector: aliasMap(obj(pack.subcommands).sector), project: aliasMap(obj(pack.subcommands).project) },
     flags: Object.fromEntries(Object.entries(aliasMap(pack.flags)).map(([a, c]) => [dashed(a), dashed(c)])),
     stopwords: new Set(pickList('stopwords')),
     diacriticClasses: obj(pack.diacritic_classes),

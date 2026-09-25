@@ -109,7 +109,7 @@ describe('memory.mjs', () => {
     for (const args of [['help'], ['--help'], []]) {
       const res = runCli(fx.root, args);
       assert.equal(res.code, 0, args.join(' '));
-      for (const cmd of ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp', 'remember', 'project', 'hook']) {
+      for (const cmd of ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp', 'remember', 'project', 'hook', 'setup']) {
         assert.match(res.stdout, new RegExp(`node system/memory\\.mjs ${cmd}\\b`), cmd);
       }
     }
@@ -145,9 +145,39 @@ describe('memory.mjs', () => {
     const line = res.stdout.split('\n').find((l) => l.startsWith('aliases (cs): '));
     assert.ok(line, res.stdout);
     const pairs = line.slice('aliases (cs): '.length).split(', ');
-    for (const pair of ['doktor=doctor', 'aktualizuj=upgrade', 'pripoj=connect', 'zapamatuj=remember', 'projekt=project', 'napoveda=help']) assert.ok(pairs.includes(pair), pair);
-    assert.ok(!pairs.some((p) => p.endsWith('=mcp')), line);
+    for (const pair of ['doktor=doctor', 'aktualizuj=upgrade', 'pripoj=connect', 'zapamatuj=remember', 'projekt=project', 'nastaveni=setup', 'napoveda=help']) assert.ok(pairs.includes(pair), pair);
+    assert.ok(!pairs.some((p) => p.endsWith('=mcp') || p.endsWith('=hook')), line);
     for (const cmd of ['doctor', 'upgrade', 'connect', 'mcp']) assert.match(res.stdout, new RegExp(`node system/memory\\.mjs ${cmd}\\b`), cmd);
+    assert.match(res.stdout, /^subcommand aliases \(cs\): sector pridat=add, uspat=sleep, probudit=wake, vypnout=off, seznam=list; project pridat=add, odebrat=remove, ignorovat=ignore, neignorovat=unignore, seznam=list, stav=status$/m);
+    assert.doesNotMatch(runCli(fixtureVault('en').root, ['help']).stdout, /aliases/, 'English has none');
+  });
+
+  test('the Czech names of the 0.1.2 commands: zapamatuj, projekt, nastaveni, pripoj … --projects', () => {
+    const cs = fixtureVault('cs');
+    const home = tmpDir('cs-home');
+    const env = { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: path.join(home, '.claude'), CODEX_HOME: path.join(home, '.codex') };
+    for (const [alias, canon] of [['zapamatuj', 'remember'], ['projekt', 'project'], ['nastaveni', 'setup'], ['pripoj', 'connect']]) {
+      const res = runCli(cs.root, [alias, '--help']);
+      assert.equal(res.code, 0, res.stderr);
+      assert.match(res.stdout, new RegExp(`^usage: node system/memory\\.mjs ${canon}\\b`), alias);
+    }
+    // The --type values of remember stay English in every language (README.cs.md shows them so).
+    const saved = runCli(cs.root, ['zapamatuj', 'objednat nové štítky', '--typ', 'fact', '--json'], { cwd: tmpDir('plain') });
+    assert.equal(saved.code, 0, saved.stderr);
+    assert.match(JSON.parse(saved.stdout).rel, /^inbox\//);
+    const list = runCli(cs.root, ['projekt', 'seznam', '--json']);
+    assert.equal(list.code, 0, list.stderr);
+    assert.deepEqual(JSON.parse(list.stdout).projects, []);
+    assert.equal(runCli(cs.root, ['projekt', 'stav', '--json']).code, 0);
+    assert.match(runCli(cs.root, ['projekt', 'nesmysl']).stderr, /pridat, odebrat, ignorovat, neignorovat, seznam, stav/);
+    const plan = runCli(cs.root, ['pripoj', 'claude-code', '--projects', '--nanecisto'], { env });
+    assert.equal(plan.code, 0, plan.stderr);
+    assert.match(plan.stdout, /^Claude Code: nainstalovaly by se hooky paměti do /);
+    assert.match(plan.stdout, /zkouška nanečisto: nic se nezměnilo/);
+    assert.ok(!fs.existsSync(path.join(home, '.claude', 'settings.json')), 'a dry run writes nothing');
+    const setup = runCli(cs.root, ['nastaveni']);
+    assert.equal(setup.code, 2, 'no terminal here');
+    assert.match(setup.stderr, /terminál/);
   });
 
   test('doktor runs doctor', () => {

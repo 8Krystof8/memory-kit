@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { KIT_ROOT, checkJson, copyKit, describeFindings, fixtureVault, plantSecret, removeTmpDirs, tmpDir } from '../helpers.mjs';
+import { logHook } from '../../lib/hooklog.mjs';
 
 after(removeTmpDirs);
 
@@ -32,10 +33,11 @@ function git(cwd, args) {
   return res.stdout;
 }
 
-function cli(v, args, { cwd, input = '' } = {}) {
+function cli(v, args, { cwd, input = '', env: extra = {} } = {}) {
   const home = v.home;
   const env = { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: path.join(home, '.claude'), CODEX_HOME: path.join(home, '.codex') };
-  for (const k of ['MEMORY_SECTORS', 'NODE_OPTIONS', 'NODE_TEST_CONTEXT', 'MEMORY_DEBUG']) delete env[k];
+  for (const k of ['MEMORY_SECTORS', 'NODE_OPTIONS', 'NODE_TEST_CONTEXT', 'MEMORY_DEBUG', 'MEMORY_KIT_PROBE']) delete env[k];
+  Object.assign(env, extra);
   const res = spawnSync(process.execPath, [path.join(v.root, 'system', 'memory.mjs'), ...args, '--root', v.root], {
     cwd: cwd ?? v.root, env, input, encoding: 'utf8', windowsHide: true, timeout: 120000,
   });
@@ -51,7 +53,7 @@ const projectJson = (v, sub, repo, extra = []) => {
     throw new Error(`${sub} --json printed no JSON (exit ${res.code}):\n${res.stdout}\n${res.stderr}`);
   }
 };
-const hook = (v, event, input, { agent = 'claude-code', cwd } = {}) => cli(v, ['hook', agent, event], { cwd: cwd ?? input.cwd, input: JSON.stringify(input) });
+const hook = (v, event, input, { agent = 'claude-code', cwd, env } = {}) => cli(v, ['hook', agent, event], { cwd: cwd ?? input.cwd, input: JSON.stringify(input), env });
 const start = (v, repo, sid, agent) => hook(v, 'session-start', { cwd: repo, session_id: sid, hook_event_name: 'SessionStart', source: 'startup' }, { agent });
 /** Claude Code session start output: { user (systemMessage), context }. */
 function startOut(res) {
@@ -343,6 +345,52 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     const status = projectJson(v, 'status', repo);
     assert.equal(status.settings.enabled, false);
     assert.equal(project(v, 'status', repo).stdout.includes('connect claude-code --projects'), true, 'status says how to turn them on');
+  });
+
+  test('a doctor --probe run leaves no trace, whether the environment or the input marks it', () => {
+    // Every setting that makes a hook write is on: the new repository would become a project, the
+    // session end would start the autosync, and a failed sync waits to be reported.
+    const v = vault('en', { projects: { enabled: true, auto_add: true, autosync: true } });
+    const repo = codeRepo();
+    logHook(v.root, { agent: 'claude-code', event: 'autosync', step: 'push', ok: false, error: 'rejected', fix: 'run sync' });
+    const logFile = path.join(v.root, '.memory-kit', 'logs', 'hooks.jsonl');
+    const before = fs.readFileSync(logFile, 'utf8');
+    const traces = () => {
+      const files = [];
+      const walk = (dir) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (e.isDirectory()) walk(path.join(dir, e.name));
+          else files.push(path.relative(v.root, path.join(dir, e.name)).split(path.sep).join('/'));
+        }
+      };
+      walk(path.join(v.root, '.memory-kit'));
+      return files.sort();
+    };
+    const events = (extra) => [
+      ['session-start', { cwd: repo, session_id: 'doctor-probe', hook_event_name: 'SessionStart', source: 'startup', ...extra }],
+      ['stop', { cwd: repo, session_id: 'doctor-probe', stop_hook_active: false, ...extra }],
+      ['tool-failure', { cwd: repo, session_id: 'doctor-probe', tool_name: 'Bash', is_interrupt: false, error: ENOSPC, ...extra }],
+      ['session-end', { cwd: repo, session_id: 'doctor-probe', reason: 'other', ...extra }],
+    ];
+    for (const [label, env, extra] of [['MEMORY_KIT_PROBE=1', { MEMORY_KIT_PROBE: '1' }, {}], ['"probe": true', {}, { probe: true }]]) {
+      for (const [event, input] of events(extra)) {
+        const res = hook(v, event, input, { env });
+        assert.deepEqual([res.code, res.stdout, res.stderr], [0, '', ''], `${label}: ${event}`);
+      }
+      // A session end that started the autosync would log its run within moments.
+      const until = Date.now() + 1500;
+      while (Date.now() < until) spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 250)']);
+      assert.deepEqual(traces(), ['.memory-kit/logs/hooks.jsonl'], `${label}: no session record, hint, report mark or lock`);
+      assert.equal(fs.readFileSync(logFile, 'utf8'), before, `${label}: no log entry`);
+      assert.ok(!fs.existsSync(path.join(v.root, 'sectors', 'dev')) && !fs.existsSync(path.join(v.root, '..', 'private', 'projects.json')), `${label}: no project`);
+    }
+    // The same session start without the mark does all of that.
+    const real = startOut(start(v, repo, 's1'));
+    assert.match(real.user, /the last memory sync failed/);
+    assert.ok(fs.existsSync(path.join(v.root, 'sectors', 'dev')), 'auto_add made the project');
+    assert.ok(traces().includes('.memory-kit/capture/sessions/s1.json'));
+    assert.notEqual(fs.readFileSync(logFile, 'utf8'), before);
+    clean(repo);
   });
 
   test('the error lookup: only Bash and PowerShell, no interrupts or short errors, deduplicated, 5 per session', () => {

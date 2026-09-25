@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { createUI } from '../../lib/tui.mjs';
 import { guessLang, runSetup, runWizard } from '../../lib/wizard.mjs';
 import { KEY, escapes, fakeTerminal, screen } from '../fake-terminal.mjs';
-import { TODAY, copyKit, hashGenerated, readFile, removeTmpDirs, runCli, runInit, tmpDir } from '../helpers.mjs';
+import { TODAY, agentHome, copyKit, hashGenerated, readFile, removeTmpDirs, runCli, runInit, tmpDir } from '../helpers.mjs';
 
 after(removeTmpDirs);
 
@@ -99,11 +99,11 @@ describe('the wizard sets up a vault like init does', () => {
     assert.deepEqual(hashGenerated(root), hashGenerated(twin));
   });
 
-  test('flags become the answers: custom sectors, :github, --agents all, --private-root in mode github', async () => {
+  test('a flag is the answer, its question is not asked: custom sectors, :github, --agents all, --private-root', async () => {
     const root = freshVault('wiz-flags');
     const { ui, term } = terminal();
-    // language, mode, sectors, what to do with notes, private folder, AI tools, set up now, finish
-    term.keys(KEY.enter, KEY.enter, KEY.enter, KEY.enter, KEY.enter, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`);
+    // language, what to do with notes (the only decision the flags leave open), set up now, finish
+    term.keys(KEY.enter, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`);
     const flags = { mode: 'github', sectors: 'core,work,projekt,health:github,notes:local', agents: 'all', 'private-root': '../elsewhere' };
     const code = await runWizard({
       root, ui, env: { LANG: 'en_US.UTF-8' }, opts: { ...flags, today: TODAY, 'allow-ephemeral': true }, detect: () => ['claude-code'],
@@ -111,11 +111,17 @@ describe('the wizard sets up a vault like init does', () => {
     const shown = screen(term.output());
     assert.equal(code, 0, shown);
     assert.equal(term.pending(), 0, 'every scripted answer was used');
-    assert.ok(shown.includes('◇  Which sectors (areas of life)?\n│  Core, Work, Health, projekt, notes'), shown);
+    for (const question of ['Where should the memory live?', 'Which sectors', 'Private folder', 'Which AI tools']) {
+      assert.ok(!shown.includes(question), `not asked: ${question}\n${shown}`);
+    }
     // Only notes (explicitly :local) needs a decision in mode github; health:github is settled.
     assert.ok(shown.includes('◇  notes: sectors usually kept off GitHub, but mode github has no private\n│  folder\n│  switch to combined'), shown);
-    assert.ok(shown.includes('◇  Private folder for local sectors (outside this repository, never pushed)\n│  ../elsewhere'), shown);
-    assert.ok(shown.includes('◇  Which AI tools will use this memory?\n│  Claude Code, Codex, Gemini CLI, Cursor, ChatGPT, Claude app'), shown);
+    // The summary shows what the flags said (the sectors in their order), and the result equals init's.
+    const summary = shown.slice(shown.indexOf('Summary'), shown.indexOf('Set up the memory now?'));
+    for (const text of ['mode: combined', 'sectors: core (github), work (github), projekt (github), health', 'private folder for local sectors: ../elsewhere',
+      'AI tools: Claude Code, Codex, Gemini CLI, Cursor, ChatGPT, Claude app']) {
+      assert.ok(summary.includes(text), `${text}\n${summary}`);
+    }
     assert.ok(shown.includes('◇  Memory is set up'), shown);
 
     const twin = freshVault('wiz-flags-init');
@@ -129,11 +135,14 @@ describe('the wizard sets up a vault like init does', () => {
   test('--private-root is kept in mode github without local sectors, as init keeps it', async () => {
     const root = freshVault('wiz-private');
     const { ui, term } = terminal();
-    term.keys(KEY.enter, KEY.enter, KEY.enter, KEY.enter, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`);
+    // language, mode, sectors, AI tools, set up now, finish: the private folder was given
+    term.keys(KEY.enter, KEY.enter, KEY.enter, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`);
     const code = await runWizard({
       root, ui, env: { LANG: 'en_US.UTF-8' }, opts: { 'private-root': '../elsewhere', today: TODAY, 'allow-ephemeral': true }, detect: () => ['codex'],
     });
     assert.equal(code, 0, screen(term.output()));
+    assert.equal(term.pending(), 0, 'every scripted answer was used');
+    assert.ok(!screen(term.output()).includes('Private folder'), 'the given folder is not asked for');
     const twin = freshVault('wiz-private-init');
     const res = runInit(twin, ['--mode', 'github', '--lang', 'en', '--sectors', 'core,work', '--agents', 'codex', '--private-root', '../elsewhere', '--today', TODAY, '--yes']);
     assert.equal(res.code, 0, res.stdout + res.stderr);
@@ -156,7 +165,7 @@ describe('the wizard sets up a vault like init does', () => {
   test('a wrong flag stops the wizard before its first question', async () => {
     const root = freshVault('wiz-badflag');
     const before = readFile(root, 'memory.json');
-    for (const opts of [{ sectors: 'core,Bad Id' }, { agents: 'claude-code,nobody' }, { mode: 'cloud' }, { sectors: 'core:local' }]) {
+    for (const opts of [{ sectors: 'core,Bad Id' }, { agents: 'claude-code,nobody' }, { mode: 'cloud' }, { sectors: 'core:local' }, { 'private-root': '.' }, { lang: 'xx' }]) {
       const { ui, term } = terminal();
       const code = await runWizard({ root, ui, env: { LANG: 'en_US.UTF-8' }, opts, detect: () => [] });
       const shown = screen(term.output());
@@ -203,6 +212,49 @@ describe('the wizard sets up a vault like init does', () => {
     assert.equal(code, 0);
     assert.equal(readFile(root, 'memory.json'), before);
     assert.match(screen(term.output()), /└  Nothing changed\. Run node system\/init\.mjs again when you are ready\.\n/);
+  });
+
+  // install.sh and install.ps1 ask the mode themselves (before offering GitHub) and then run
+  // `init --root <dir> --mode <mode>`, adding --lang and --sectors only when those were given.
+  test('as the installers call it (--mode given): the mode is never asked again', async () => {
+    const root = freshVault('wiz-installer');
+    const { ui, term } = terminal();
+    term.keys(KEY.enter, KEY.enter, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`); // language, sectors, AI tools, set up now, finish
+    const code = await runWizard({ root, ui, env: { LANG: 'en_US.UTF-8' }, opts: { mode: 'github', today: TODAY }, detect: () => ['codex'] });
+    const shown = screen(term.output());
+    assert.equal(code, 0, shown);
+    assert.equal(term.pending(), 0, 'every scripted answer was used');
+    assert.ok(!term.output().includes('Where should the memory live?'), shown);
+    assert.ok(shown.indexOf('◇  Language of the memory') < shown.indexOf('◇  Which sectors'), shown);
+    assert.equal(JSON.parse(readFile(root, 'memory.json')).mode, 'github');
+  });
+
+  test('with a git remote, local is shown but cannot be chosen; --mode local is refused before any question', async () => {
+    const root = freshVault('wiz-remote');
+    for (const args of [['init', '-q', '-b', 'main'], ['remote', 'add', 'origin', 'https://github.com/me/memory.git']]) {
+      assert.equal(spawnSync('git', args, { cwd: root, windowsHide: true }).status, 0, args.join(' '));
+    }
+    const before = readFile(root, 'memory.json');
+    const { ui, term } = terminal({ columns: 100 });
+    // language; mode: one step down from github skips local and lands on combined; sectors;
+    // private folder; AI tools; set up now? no
+    term.keys(KEY.enter, `${down(1)}${KEY.enter}`, KEY.enter, KEY.enter, KEY.enter, 'n');
+    const code = await runWizard({ root, ui, env: { LANG: 'en_US.UTF-8' }, opts: { today: TODAY, 'allow-ephemeral': true }, detect: () => ['codex'] });
+    const shown = screen(term.output());
+    assert.equal(code, 0, shown);
+    assert.equal(term.pending(), 0, 'every scripted answer was used');
+    assert.match(term.output(), /○ local +not here: this folder has a git remote \(origin\)/);
+    assert.ok(shown.includes('◇  Where should the memory live?\n│  combined'), shown);
+    assert.equal(readFile(root, 'memory.json'), before);
+
+    const refused = terminal();
+    const refusedCode = await runWizard({ root, ui: refused.ui, env: { LANG: 'en_US.UTF-8' }, opts: { mode: 'local', today: TODAY }, detect: () => [] });
+    const said = screen(refused.term.output());
+    assert.equal(refusedCode, 1, said);
+    assert.ok(!said.includes('◇'), `no question was asked: ${said}`);
+    assert.match(said.replace(/\s*\n│\s+/g, ' '), /refused: mode local promises that nothing leaves this computer, but this repository has a remote \(origin\)\. Remove it/);
+    assert.ok(said.endsWith('└  Nothing changed.\n\n'), said);
+    assert.equal(readFile(root, 'memory.json'), before);
   });
 });
 
@@ -358,6 +410,113 @@ describe('the extras menu (setup in a vault that is set up)', () => {
     assert.ok(joined.includes('add repositories automatically: Yes · project notes: in the memory repository · push at session end: Yes\n│\n◇  Memory for coding projects is on. What now? Keep it'), joined);
     assert.ok(!shown.includes('stays off'), shown);
     assert.ok(shown.includes('◇  Memory for coding projects is off; the hooks are out of /h/settings.json'), shown);
+  });
+
+  // The same step against the real lib/hooksetup.mjs, in a home that is never the real one.
+  describe('memory for coding projects against the real installProjects', () => {
+    const settingsOf = (h) => JSON.parse(fs.readFileSync(h.settings, 'utf8'));
+    const projectsOf = (root) => JSON.parse(readFile(root, 'memory.json')).projects;
+    /** Runs setup: { code, shown (the screen), text (its lines on the rail joined, so wrapping does not matter), term }. */
+    const run = async (root, cfg, h, keys) => {
+      const { ui, term } = terminal({ columns: 400 });
+      term.keys(...keys);
+      const code = await runSetup({ root, cfg, ui, hookOptions: { env: h.env, home: h.home } });
+      const shown = screen(term.output());
+      return { code, shown, text: shown.replace(/\s*\n│\s*/g, ' '), term };
+    };
+
+    test('installed: the file, the settings, where the notes stay and what to do next; then switched off', async () => {
+      const { root, cfg } = await initializedVault('setup-real');
+      const h = agentHome('setup-real-home');
+      const on = await run(root, cfg, h, PROJECTS_ON);
+      assert.equal(on.code, 0, on.shown);
+      assert.equal(on.term.pending(), 0, 'no push question: the vault has no remote');
+      const hooks = settingsOf(h).hooks;
+      assert.deepEqual(Object.keys(hooks), ['SessionStart', 'Stop', 'PostToolUseFailure'], 'no SessionEnd without autosync');
+      assert.ok(hooks.SessionStart[0].hooks[0].command.endsWith(`"${path.join(root, 'system', 'memory.mjs').split(path.sep).join(process.platform === 'win32' ? '/' : path.sep)}" hook claude-code session-start`),
+        hooks.SessionStart[0].hooks[0].command);
+      assert.deepEqual(projectsOf(root), { enabled: true, auto_add: false, store: 'local', autosync: false, checkpoint: true, error_lookup: true });
+      const script = `${root.split(path.sep).join('/')}/system/memory.mjs`;
+      assert.ok(on.text.includes([
+        `◇  Hooks are in ${h.settings}`,
+        'add repositories automatically: No · project notes: this computer only · push at session end: No',
+        `Project notes will stay on this computer, in ${path.resolve(root, '..', 'vault-private')} (made with the first project)`,
+        '• Start a new Claude Code session in a code repository (in VS Code reload the window) and accept the folder trust dialog when it asks.',
+        `• A repository gets its memory only when you add it. Run this inside it: node "${script}" project add`,
+      ].join(' ')), on.shown);
+      assert.ok(on.shown.includes(`\n│    node "${script}" project add\n`), 'the command on a line of its own');
+      assert.ok(!/failed|could not|not installed/i.test(on.shown), on.shown);
+
+      // Keep it: the hooks are current, nothing is written.
+      const text = fs.readFileSync(h.settings, 'utf8');
+      const kept = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, KEY.enter, `${down(3)}${KEY.enter}`]);
+      assert.ok(kept.text.includes(`◇  The hooks in ${h.settings} are current`), kept.shown);
+      assert.ok(!kept.shown.includes('Start a new Claude Code session'), 'nothing changed, so no new session is needed');
+      assert.equal(fs.readFileSync(h.settings, 'utf8'), text);
+
+      const off = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(2)}${KEY.enter}`, `${down(3)}${KEY.enter}`]);
+      assert.equal(off.code, 0, off.shown);
+      assert.ok(off.text.includes(`◇  Memory for coding projects is off; the hooks are out of ${h.settings} backup of the old file: `), off.shown);
+      assert.equal(settingsOf(h).hooks, undefined);
+      assert.equal(projectsOf(root).enabled, false);
+    });
+
+    test('switched off while Codex hooks serve the same memory: it says that it stays on', async () => {
+      const { root, cfg } = await initializedVault('setup-real-kept');
+      const h = agentHome('setup-real-kept-home');
+      const { installProjects } = await import('../../lib/hooksetup.mjs');
+      await installProjects(root, { agent: 'codex', env: h.env, home: h.home });
+      // On already (through Codex): change, keep both answers.
+      const on = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(1)}${KEY.enter}`, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`]);
+      assert.ok(on.text.includes(`◇  Hooks are in ${h.settings}`), on.shown);
+      const off = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(2)}${KEY.enter}`, `${down(3)}${KEY.enter}`]);
+      assert.ok(off.text.includes(`▲  The hooks are out of ${h.settings}, but Codex still has memory hooks for this memory, so memory for coding projects stays on`), off.shown);
+      assert.ok(!off.text.includes('Memory for coding projects is off'), off.shown);
+      assert.equal(projectsOf(root).enabled, true);
+    });
+
+    test('refused: shown in red with its fix, never as installed, and nothing is written', async () => {
+      // A settings "file" that is a folder cannot be read.
+      const { root, cfg } = await initializedVault('setup-real-refused');
+      const h = agentHome('setup-real-refused-home');
+      fs.mkdirSync(h.settings, { recursive: true });
+      const before = readFile(root, 'memory.json');
+      const res = await run(root, cfg, h, PROJECTS_ON);
+      assert.equal(res.code, 0, res.shown);
+      assert.ok(res.text.includes(`■  The hooks could not be installed: ${h.settings} cannot be read (EISDIR), so nothing was changed fix: fix the file or its permissions, then connect again ◇`), res.shown);
+      assert.ok(!/Hooks are in|are current|push at session end|Run this inside it|switched on/.test(res.text), res.shown);
+      assert.equal(readFile(root, 'memory.json'), before);
+
+      // A memory that stays on this computer (mode local) got a remote later: the push question is
+      // asked, and yes is refused with its fix.
+      const local = freshVault('setup-real-local');
+      assert.equal(runInit(local, ['--mode', 'local', '--lang', 'en', '--sectors', 'core,work', '--today', TODAY, '--yes', '--allow-ephemeral']).code, 0);
+      assert.equal(spawnSync('git', ['remote', 'add', 'origin', 'https://github.com/me/memory.git'], { cwd: local, windowsHide: true }).status, 0);
+      const { loadConfig } = await import('../../lib/config.mjs');
+      const h2 = agentHome('setup-real-local-home');
+      const push = await run(local, loadConfig(local), h2, [`${down(1)}${KEY.enter}`, 'y', KEY.enter, KEY.enter, 'y', `${down(3)}${KEY.enter}`]);
+      assert.equal(push.term.pending(), 0, 'the push question was asked');
+      assert.ok(push.text.includes('■  The hooks could not be installed: --autosync needs a memory that syncs through git, but memory.json "mode" is local, so nothing was changed fix: connect without --autosync; the memory stays on this computer ◇'), push.shown);
+      assert.ok(!fs.existsSync(h2.settings));
+      assert.equal(JSON.parse(readFile(local, 'memory.json')).projects, undefined);
+    });
+
+    test('a settings file with comments: the hooks to paste, printed whole, and memory.json is switched on', async () => {
+      const { root, cfg } = await initializedVault('setup-real-jsonc');
+      const h = agentHome('setup-real-jsonc-home');
+      fs.mkdirSync(h.claudeDir, { recursive: true });
+      const own = '// my settings\n{ "theme": "dark" }\n';
+      fs.writeFileSync(h.settings, own);
+      const res = await run(root, cfg, h, PROJECTS_ON);
+      assert.ok(res.text.includes(`■  The hooks could not be installed: ${h.settings} is not plain JSON (comments or a syntax error), so the hooks were not written into it fix: make it plain JSON and connect again`), res.shown);
+      // The snippet, whole and outside any box, is what the file needs: each event a list of groups.
+      const snippet = res.shown.slice(res.shown.indexOf('\n{\n') + 1, res.shown.indexOf('\n}\n') + 2);
+      assert.deepEqual(Object.keys(JSON.parse(snippet).hooks), ['SessionStart', 'Stop', 'PostToolUseFailure']);
+      assert.ok(Array.isArray(JSON.parse(snippet).hooks.SessionStart), snippet);
+      assert.ok(res.text.includes('● memory.json has it switched on: it works once the hooks are in place.'), res.shown);
+      assert.equal(fs.readFileSync(h.settings, 'utf8'), own, 'the file is left alone');
+      assert.equal(projectsOf(root).enabled, true);
+    });
   });
 
   test('health check: counts and at most three problems', async () => {

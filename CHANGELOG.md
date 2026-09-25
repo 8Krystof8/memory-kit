@@ -11,31 +11,43 @@ Nothing yet.
 
 ## 0.1.2 (2026-09-25, not released yet)
 
-Memory for code projects, kept outside the code repository. Nothing changes for vaults that do not
-switch it on; the data version stays 1.
+Memory for code projects, kept outside the code repositories and off unless you switch it on; a
+setup wizard and an upgrade screen in the terminal; one-line installers and release tags. Nothing
+changes for vaults that do not switch the project memory on; the data version stays 1.
 
 ### Added
 
 - **`connect claude-code|codex --projects`** installs user-level hooks (`~/.claude/settings.json`,
-  `~/.codex/hooks.json`) that work in the terminal, VS Code and JetBrains. Claude Code hooks use
-  the exec form (Node with arguments, no shell), so Windows paths with spaces need no quoting.
-  Other hooks and settings are kept, a backup is written, files with comments are never rewritten,
-  `--remove` and `--dry-run` work ([docs/projects.md](docs/projects.md)).
-- **`hook <agent> <event>`**, what the hooks run. They do nothing until `projects.enabled` is on
-  and never write into the code repository. Session start: in a project, a brief (git state,
-  handoff, conventions, gotchas, dead ends) and the start view narrowed to it; in a repository the
-  vault does not know, a one-time two-line hint to the user (`project add`, `project ignore`);
-  nothing extra inside the vault or outside git. Stop: one request per session to write the
-  handoff when the code changed. A failed Bash or PowerShell command (Claude Code): a lookup in
-  gotchas and dead ends after cheap filters, five per session at most. Session end: with
-  `autosync` on, a background commit and push of the vault under a lock, never over an unfinished
-  merge or rebase. Every run is logged in `.memory-kit/logs/hooks.jsonl` (a local-store repository
-  only as a hash), and the next session start tells the user about a new failure. A hook never
-  fails a session.
-- **`project add|remove|ignore|unignore|list|status`** (`projekt`, with Czech subcommands), run
-  inside the code repository, all with `--json`. A repository is known by its remote (https, ssh,
-  ssh host aliases and Azure DevOps forms give one key), else by its first commit; two servers are
-  never taken for one repository.
+  `~/.codex/hooks.json`) that work in the terminal, VS Code and JetBrains. They are one shell
+  command each, which every Claude Code version runs: the Node.js that ran `connect`, by its full
+  path (a repository that pins an older Node.js cannot break them), and the vault path in double
+  quotes with forward slashes, so `/bin/sh`, Git Bash, PowerShell and cmd.exe read it alike. The
+  exec form (no shell) is used only with `--form exec`, or for a vault path no shell passes on
+  safely when every Claude Code seen here is 2.1.139 or newer; otherwise such a path is refused
+  with its fix. The error lookup (PostToolUseFailure) is installed only when every Claude Code seen
+  is 2.1.101 or newer (older ones ignore the whole settings file for an unknown event), SessionEnd
+  only with `--autosync`. Other hooks and settings are kept, a backup is written, a file with
+  comments is never rewritten (the hooks to paste are printed instead), `--remove` and `--dry-run`
+  work ([docs/projects.md](docs/projects.md)).
+- **`hook <agent> <event>`**, what the hooks run. They do nothing until `projects.enabled` is on,
+  never write into the code repository and never fail a session (exit 0, also on Node.js older
+  than 22). Session start: in a project, a brief (git state, handoff, conventions, gotchas, dead
+  ends) and the start view narrowed to it; in a repository the vault does not know, a one-time
+  two-line hint to the user (`project add`, `project ignore`); nothing extra inside the vault or
+  outside git. Stop: one request per session to write the handoff when the code changed. A failed
+  Bash or PowerShell command (Claude Code) with at least 20 characters of error text, not an
+  interrupt: a lookup in gotchas and dead ends, once per error and at most five per session; every
+  other failed tool call ends before the vault config is loaded. Session end: with `autosync` on, a
+  background commit and push of the vault under a lock, never over an unfinished merge or rebase.
+- **A failure is never silent**: every hook run and every autosync step (lock, check, commit,
+  pull, push) is logged in `.memory-kit/logs/hooks.jsonl` with the error and the fix (a
+  local-store repository only as a hash); the next session start tells the user once, and
+  `doctor` and `project status` list it.
+- **`project add|remove|ignore|unignore|list|status`** (Czech `projekt` with
+  `pridat|odebrat|ignorovat|neignorovat|seznam|stav`), run inside the code repository, all with
+  `--json`. A repository is
+  known by its remote (https, ssh, ssh host aliases and Azure DevOps forms give one key; a local
+  remote by its path), else by its first commit; two servers are never taken for one repository.
 - **`remember "text" [--type …] [--project <sector>]`** (`zapamatuj`): one dated line into the
   right note of the project. In a repository that is not a project it goes into the inbox of the
   local root while the store is local; in the vault or outside any repository into `inbox/`.
@@ -43,18 +55,73 @@ switch it on; the data version stays 1.
 - Project facts for the overview and the runbook from Node, Python, Rust, Go, PHP, Ruby,
   Java/Kotlin, .NET, Dart/Flutter and Deno projects, Makefiles, justfiles, Taskfiles and Compose
   files (read, never run; secrets left out).
-- `memory.json` key `projects`, with these defaults: `enabled` false (the hooks do nothing),
+- **`memory.json` key `projects`**, with these defaults: `enabled` false (the hooks do nothing),
   `auto_add` false (a new repository is not added by itself), `store` `"local"` (the notes and the
-  repository links stay in the local root, the committed manifest is neutral), `autosync` false,
-  `checkpoint` true, `error_lookup` true, `repos` {} (links of git-store projects only).
+  repository links stay in the local root, the committed manifest is neutral: no project name, no
+  URL), `autosync` false (nothing is committed or pushed by itself), `checkpoint` true,
+  `error_lookup` true, `repos` {} (links of git-store projects only).
+- **A setup wizard in the terminal**: `node system/init.mjs` without answers, and `setup`
+  (`nastaveni`), ask the setup questions one screen at a time, show the plan and apply it only
+  after a yes. A flag given is the answer and its question is not asked (the installers pass the
+  mode they asked); `local` is not offered while the vault has a git remote. In a set-up vault
+  `setup` offers: connect AI apps, memory for coding projects (the result as it really is: where
+  the hooks are, where the notes stay and the next steps, or the refusal and its fix) and a health
+  check.
+- **The upgrade screen**: in a terminal, `upgrade` shows both versions, what is new (from this
+  file), the plan and a question; an Enter typed before the question is on the screen does not
+  answer it.
+- **One-line installers**: `install.sh` (macOS, Linux) and `install.ps1` (Windows) check git and
+  Node.js (they never install them), then make a new private GitHub repository from the template
+  with a logged-in GitHub CLI (only after the mode is known: `local` never gets a remote), or
+  download the kit without its history; then they run the setup. A folder whose GitHub remote is
+  public and a new memory inside another git repository are refused; a folder that holds a memory
+  gets `doctor` and `upgrade` instead.
+- **Release tags**: a push to `main` of the public kit tags `v<version>` and publishes a GitHub
+  Release with this file's section and the SHA-256 of both installers
+  (`system/tools/release-notes.mjs`, `.github/workflows/release.yml`).
+- **`doctor`** check `projects.hooks`: the hooks are complete and current, their Node.js and the
+  Claude Code and Codex versions fit, `disableAllHooks` or a Codex setting does not switch them
+  off, they ran since they were installed, and the failures of the last seven days and a failed
+  sync with their fixes. `doctor --probe` also runs the session start hook the way the agent does;
+  that run leaves no trace.
 
-### Kit-owned files
+### Changed
 
-New: `system/lib/projects.mjs`, `system/lib/repofacts.mjs`, `system/lib/hookinput.mjs`,
-`system/lib/hooklog.mjs`, `system/lib/hooksetup.mjs`, `system/lib/commands/hook.mjs`,
-`system/lib/commands/project.mjs`, `system/lib/commands/remember.mjs`, `docs/projects.md`.
-Changed: `system/memory.mjs`, `system/lib/commands/connect.mjs`, `system/lang/cs/pack.json`,
-`AGENTS.md` and the agents-system templates (version marker only).
+- `init` in an interactive terminal without answers opens the setup wizard (`--no-interactive`
+  keeps the old behaviour); without a terminal its output is unchanged byte for byte.
+- `upgrade` in a terminal shows the upgrade screen; its plain output is unchanged.
+- `doctor` has 18 checks (`projects.hooks` is new) and the option `--probe`.
+- On a Node.js older than 22, `hook` ends quietly with exit 0 and logs why (an agent hook must not
+  fail a session); every other command still stops with exit 3.
+- `help` lists the Czech subcommand aliases of `sector` and `project` next to the command aliases.
+
+### Kit files
+
+New: `install.sh`, `install.ps1`, `docs/projects.md`,
+`system/lib/{projects,repofacts,hookinput,hooklog,hooksetup,oldnode,tui,wizard,changelog}.mjs`,
+`system/lib/commands/{hook,project,remember,setup}.mjs`, `system/tools/release-notes.mjs`, and new
+tests. Changed: `system/memory.mjs`, `system/init.mjs`, `system/VERSION`, `system/lib/config.mjs`,
+`system/lib/doctor.mjs`, `system/lib/kit.mjs`, `system/lib/commands/{connect,doctor,upgrade}.mjs`,
+`system/lang/cs/pack.json`, `docs/architecture.md`, `docs/upgrading.md`, the kit markers of
+`AGENTS.md` and `system/templates/*/kit/agents-system.md`. `.github/workflows/ci.yml` is the same
+as in 0.1.1; `.github/workflows/release.yml` belongs to the public kit only. Removed: nothing.
+
+### Testing
+
+- The whole suite (`node --test "system/tests/**/*.test.mjs"`): 1252 tests, none failing; 5 skip
+  themselves where the machine lacks what they need (Windows, a non-root user, Czech-only steps).
+- `system/tests/integration/projects-e2e.test.mjs` crosses every module: `connect claude-code
+  --projects --autosync` into a fake home, then each installed hook command run the way Claude
+  Code runs it (`/bin/sh -c`; on Windows Git Bash or PowerShell) with its JSON on stdin, from the
+  hint in an unknown repository to a failed push that the next session start and `doctor --json`
+  report. It also proves that the code repository stays untouched, that no file git sees in the
+  vault names the client, and that `memory.json` holds no repository URL.
+- The installers run for real in a temporary home (install.sh under dash, install.ps1 under pwsh
+  7), interactive runs in a pseudo-terminal, gh and the GitHub API as local fakes; shellcheck
+  checks install.sh. The setup wizard and the upgrade screen are tested on a scripted fake
+  terminal and in a real pseudo-terminal.
+- CI runs the suite on Linux, Windows and macOS with Node 22 and 24. The work on 0.1.2 was run
+  locally on Linux only (install.ps1 under pwsh 7 there); Windows and macOS rest on CI.
 
 ## 0.1.1 (2026-09-24, not released yet)
 

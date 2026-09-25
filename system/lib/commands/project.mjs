@@ -15,7 +15,7 @@ import {
 } from '../projects.mjs';
 import { parseCli, usageError } from '../util.mjs';
 
-export const usage = 'project add [--store local|git] [--title "…"] | project remove | project ignore | project unignore | project list | project status [--json]';
+export const usage = 'project add [--store local|git] [--title "…"] [--json] | project remove|ignore|unignore|list|status [--json]';
 
 const DEFAULTS = {
   'project.not_repo': 'not inside a git repository: run this in the folder of a code project',

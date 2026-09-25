@@ -255,7 +255,9 @@ Kanonické anglické názvy fungují vždy, český balíček k nim přidává a
 | `upgrade [--yes] [--dry-run] [--from zdroj] [--rollback]` | `aktualizuj --ano --nanecisto --odkud --vratit` | aktualizuje kit na nejnovější verzi: nejdřív ukáže plán, udělá zálohu, ověří výsledek a při chybě vrátí vše zpět; `--rollback` aktualizaci vrátí |
 | `connect <aplikace> [--name n] [--read-only] [--remove]` · `connect --list` | `pripoj --jmeno --jen-cteni --odebrat` · `pripoj --seznam` | přidá paměť do nastavení MCP v AI aplikaci (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI a další) |
 | `connect claude-code\|codex --projects [--remove]` | `pripoj claude-code --projects` | nainstaluje hooky, které dají každému projektu s kódem paměť ([docs/projects.md](docs/projects.md)) |
-| `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision]` | `zapamatuj "text"` | zapíše řádek do paměti projektu (v repu s kódem) nebo do `inbox/` |
+| `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision\|fact]` | `zapamatuj "text" --typ gotcha` | zapíše řádek do paměti projektu (v repu s kódem) nebo do `inbox/` |
+| `project add\|remove\|ignore\|unignore\|list\|status [--json]` | `projekt pridat\|odebrat\|ignorovat\|neignorovat\|seznam\|stav` | v repu s kódem: dá mu paměť, odpojí ho, umlčí nápovědu, vypíše projekty, ukáže stav |
+| `setup` | `nastaveni` | průvodce nastavením v terminálu: nastaví novou paměť, nebo připojí AI aplikace, paměť pro programátorské projekty a kontrolu instalace |
 | `mcp [--read-only] [--local]` | `mcp --jen-cteni --lokalni` | MCP server, který si aplikace spouštějí samy (stdio); ručně ho nespouštíš |
 
 Návratové kódy: 0 v pořádku, 1 nalezený problém, 2 chyba použití, 3 vnitřní chyba.

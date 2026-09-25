@@ -232,7 +232,9 @@ besides Node.
 | `upgrade [--yes] [--rollback]` | updates the kit to the newest version: shows the plan first, keeps a backup, verifies, rolls back on failure |
 | `connect <app>` · `connect --list` | adds the memory to an AI app's MCP settings (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI and more) |
 | `connect claude-code\|codex --projects [--remove]` | installs the hooks that give every code project its memory ([docs/projects.md](docs/projects.md)) |
-| `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision]` | records one line in the project's memory (inside a code repository) or in `inbox/` |
+| `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision\|fact]` | records one line in the project's memory (inside a code repository) or in `inbox/` |
+| `project add\|remove\|ignore\|unignore\|list\|status [--json]` | run inside a code repository: gives it a memory, unlinks it, silences the hint, lists the projects, shows its state |
+| `setup` | the setup wizard in a terminal: sets up a new memory, or connects AI apps, memory for coding projects and a health check |
 | `mcp [--read-only] [--local]` | the MCP server the apps start (stdio); you do not run it yourself |
 
 Every command also accepts the canonical English names. A language pack adds aliases: in Czech,

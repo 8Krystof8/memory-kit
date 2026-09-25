@@ -384,8 +384,13 @@ Canonical commands and flags always work in every language; the pack adds aliase
 | sector subcommands: `add`, `sleep`, `wake`, `off`, `list` | `pridat`, `uspat`, `probudit`, `vypnout`, `seznam` |
 | flags: `--sector --type --status --all --duplicates --generate --strict --lenient --today --description --title --privacy --keywords --when --not --file --force --json --n --rg --min --engine --sectors --no-push --root` | `--sektor --typ --stav --vse --duplicity --generuj --prisne --tolerantne --dnes --popis --nazev --soukromi --klicova --kdy --nepatri --soubor --vynutit` (others unchanged) |
 | flags of 0.1.1: `--yes --dry-run --rollback --from --no-verify --scope --name --remove --list --read-only --local --fix` | `--ano --nanecisto --vratit --odkud --bez-overeni --rozsah --jmeno --odebrat --seznam --jen-cteni --lokalni --oprav` (`--ref`, `--format` and `--json` unchanged) |
+| commands of 0.1.2: `remember`, `project`, `setup` | `zapamatuj`, `projekt`, `nastaveni` (`hook` keeps its name: agent settings store it) |
+| project subcommands: `add`, `remove`, `ignore`, `unignore`, `list`, `status` | `pridat`, `odebrat`, `ignorovat`, `neignorovat`, `seznam`, `stav` |
 
-The en pack has empty `commands`, `subcommands.sector` and `flags` objects. Flag VALUES that name a
+The en pack has empty `commands`, `subcommands.sector` and `flags` objects. The flags of 0.1.2
+(`--projects --auto-add --store --autosync --form --project --probe --interactive`) and the values
+of `remember --type` have no aliases. `help` lists the command and subcommand aliases of the
+vault's language. Flag VALUES that name a
 type, status, state or privacy are accepted localized or canonical (`--typ rozhodnuti`, `--type decision`).
 Flag aliases map before the command parses its arguments, for every command alike: an alias must
 never equal a flag of any command, and each canonical flag has one alias at most (`--nazev` is
@@ -893,7 +898,9 @@ canonical names by `memory.mjs`. Commands parse with `util.parseArgs` from `node
 the kit whose code runs (it differs from `root` when another checkout upgrades this vault).
 `doctor`, `upgrade` and `mcp` also run when memory.json or a pack cannot be loaded: then `cfg` is
 null, `ctx.configError` holds the error and they read what they need themselves. Commands: `start`,
-`check`, `search`, `new`, `sector`, `sync`, `eval`, `doctor`, `upgrade`, `connect`, `mcp`.
+`check`, `search`, `new`, `sector`, `sync`, `eval`, `doctor`, `upgrade`, `connect`, `mcp`, and from
+0.1.2 `remember`, `project`, `hook` (also run without a readable memory.json: it logs that and
+exits 0) and `setup`.
 
 Extra exports used by init:
 ```js
@@ -912,10 +919,14 @@ export async function createNote(cfg, {type, target, title, description, today, 
 1. Install the SQLite warning filter.
 2. Root = `--root <path>` if given, else `path.resolve(dirname(script), '..')`. Never the cwd.
 3. `loadConfig(root)`; on ConfigError print it and exit 3, except `help` and the CONFIGLESS commands
-   `doctor`, `upgrade` and `mcp`: they run with `cfg = null`, and their names and flags are mapped
-   through the aliases of every pack that can still be read (the language is unknown then).
+   `doctor`, `upgrade`, `mcp` and `hook`: they run with `cfg = null`, and their names and flags are
+   mapped through the aliases of every pack that can still be read (the language is unknown then).
+   `hook <agent> tool-failure` first reads memory.json and its input directly and ends there when
+   no lookup can follow (lib/hookinput.mjs); a run of `doctor --probe` (`MEMORY_KIT_PROBE=1` or
+   `"probe": true` in the input) ends there too, without a log entry.
 4. Map `argv[2]` through `cfg.commands` (also accept canonical); map every `--flag` / `--flag=value`
-   through `cfg.flags`; for `sector`, map the subcommand through `cfg.subcommands.sector`.
+   through `cfg.flags`; for `sector` and `project`, map the subcommand through
+   `cfg.subcommands.sector` or `cfg.subcommands.project`.
 5. `import('./lib/commands/<canonical>.mjs')` and `run(rest, cfg, {root, kitRoot, configError})`;
    catch → exit 3.
 6. `help` / `--help` / no args: print every command's `usage`. `--version`: print `kitVersion`.
@@ -1397,8 +1408,15 @@ node system/memory.mjs connect <client> [--scope user|project] [--name memory-ki
 node system/memory.mjs connect --list [--json]
 node system/memory.mjs connect claude-code|codex --projects [--auto-add|--no-auto-add] [--store local|git] [--autosync|--no-autosync] [--form shell|exec] [--dry-run] [--remove] [--json]
 node system/memory.mjs mcp [--read-only] [--local]
+node system/memory.mjs remember "text" [--type gotcha|dead-end|todo|run|convention|decision|fact] [--project <sector>] [--title "…"] [--json]
+node system/memory.mjs project add [--store local|git] [--title "…"] [--json]
+node system/memory.mjs project remove|ignore|unignore|list|status [--json]
+node system/memory.mjs hook claude-code|codex session-start|stop|tool-failure|session-end
 node system/memory.mjs setup [--interactive] [--yes]
 ```
+`remember`, `project` and `hook` are the memory for coding projects ([projects.md](projects.md)):
+`project` runs inside the code repository; `hook` is what the hooks of `connect … --projects` run,
+with the agent's JSON on stdin, and always exits 0.
 `setup` is interactive: in a set-up vault it opens the extras menu of the setup wizard (connect AI
 apps, memory for coding projects, a health check), in one that is not set up the whole wizard of
 init; without a terminal it names the plain commands and exits 2 (`--interactive` runs it anyway
@@ -1986,11 +2004,14 @@ node system/init.mjs [--interactive | --no-interactive] [--root <path>]
   `TERM=dumb`) and answers are missing, and neither `--yes`, `--json`, `--dry-run` nor
   `--no-interactive` is given, init asks the same questions one screen at a time (language first),
   shows the plan, asks before it applies it with the same functions and offers the extras of
-  `setup`; a set-up vault without answers opens the extras. Flags given become the preselected
-  answers: presets and custom ids of `--sectors` (a `:github`/`:local` suffix settles that
-  sector, so it is not asked about again), `--agents` (`all`: every tool), `--private-root` (kept
-  in mode github too, as above). An invalid flag stops the wizard before its first question
-  (exit 2). `--interactive` forces the wizard; with `--dry-run` it ends after the summary, with
+  `setup`; a set-up vault without answers opens the extras. A flag given is the answer, and its
+  question is not asked (`--lang`, `--mode`, `--sectors` with presets, custom ids and
+  `:github`/`:local` suffixes, `--agents` with `all` for every tool, `--private-root`, kept in mode
+  github too, as above): install.sh and install.ps1 ask the mode themselves before they offer
+  GitHub and pass it as `--mode`. Only a sector kept off git in mode github is still asked about
+  (combined, keep it in the repository, or leave it out). In a vault with a git remote, `local` is
+  shown but cannot be chosen, and `--mode local` is refused before the first question (exit 1,
+  `init.refused_remote`). An invalid flag stops the wizard before its first question (exit 2). `--interactive` forces the wizard; with `--dry-run` it ends after the summary, with
   `--json` it is a usage error, and without a terminal every question takes its default and the
   confirmation is No unless `--yes` is given (the plan is shown, nothing changes). Ctrl+C exits
   130. Without a terminal and without `--interactive` the output above is unchanged byte for byte.

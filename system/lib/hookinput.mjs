@@ -2,7 +2,7 @@
 // it loads the vault config: reads the hook's JSON from stdin, reads the "projects" settings
 // straight from memory.json, and tells whether a failed tool call can have an error lookup at all
 // (most cannot: other tools, interrupts, short errors, sessions outside a known project), so those
-// runs end without further work.
+// runs end without further work. It also knows the mark of a doctor --probe run.
 // Only node:fs and node:path here.
 
 import fs from 'node:fs';
@@ -51,6 +51,16 @@ export function readHookInput({ stdin = process.stdin, waitMs = STDIN_WAIT_MS } 
     stdin.on('error', finish);
   });
 }
+
+/** The environment variable doctor --probe sets for the hook it runs (its input also says "probe": true). */
+export const PROBE_ENV = 'MEMORY_KIT_PROBE';
+
+/**
+ * True for a run of doctor --probe, marked in the environment or in the input (either is enough):
+ * the hook then only starts and ends, and leaves no trace (no session record, hint, project or
+ * log entry).
+ */
+export const isProbe = (env, input) => env?.[PROBE_ENV] === '1' || input?.probe === true;
 
 /** A session id safe as a file name ('' when none). */
 export const safeId = (s) => String(s ?? '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);

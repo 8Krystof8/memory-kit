@@ -5,8 +5,8 @@
 // system/schema/doctor-result.schema.json. Read-only: nothing here writes a file, changes git
 // config or prints (commands/doctor.mjs applies the --fix repairs). Only --probe does more: it runs
 // the session start hook of the project hooks once, in an empty temporary folder that git sees as
-// no repository, marked as a probe (MEMORY_KIT_PROBE=1 and "probe": true in its input), and notes
-// that run in the hook log, so it never counts as a session there. The other kit modules are
+// no repository, marked as a probe (MEMORY_KIT_PROBE=1 and "probe": true in its input; the hook
+// then leaves no trace), and notes that run in the hook log, so it never counts as a session there. The other kit modules are
 // loaded per check, so a damaged module fails only its own check and doctor still reports
 // everything else.
 

@@ -1,7 +1,9 @@
 // `hook <agent> <event>`: what Claude Code and Codex run through their hooks (connect --projects
 // installs them). Reads the hook's JSON from stdin, never fails a session (always exit 0), never
 // writes into the code repository, and does nothing at all while memory.json projects.enabled is
-// not true. Every run is logged (lib/hooklog.mjs; a local-store repository only as a hash).
+// not true. Every run is logged (lib/hooklog.mjs; a local-store repository only as a hash), except
+// the runs of doctor --probe (MEMORY_KIT_PROBE=1 or "probe": true in the input), which leave no
+// trace at all: no session record, no hint, no project, no log entry, nothing reported as read.
 // Events:
 //   session-start  first, news for the user: a failed sync or failed hook runs since the last
 //                  session start (Claude Code shows them as a systemMessage, which reaches the
@@ -31,11 +33,11 @@ import {
   takeAutosyncLock, autosyncLockFile, vaultCommand,
 } from '../projects.mjs';
 import { hookSummary, logHook } from '../hooklog.mjs';
-import { readHookInput, lookupCandidate } from '../hookinput.mjs';
+import { readHookInput, lookupCandidate, isProbe } from '../hookinput.mjs';
 import { writeAtomic } from '../fsafe.mjs';
 import { todayLocal } from '../util.mjs';
 
-export const usage = 'hook <claude-code|codex> <session-start|stop|tool-failure|session-end>';
+export const usage = 'hook claude-code|codex session-start|stop|tool-failure|session-end (run by the agent hooks; JSON on stdin)';
 
 const DEFAULTS = {
   'hook.hint': 'memory-kit: this repository has no project memory. To keep notes for it, run: {cmd} project add',
@@ -373,6 +375,8 @@ export async function run(argv, cfg, ctx = {}) {
   const t0 = ctx.hookStarted ?? performance.now();
   const [agent, event] = argv.filter((a) => !a.startsWith('--'));
   if (!AGENTS.has(agent) || !EVENTS.has(event)) return 0;
+  // doctor --probe only needs to see the hook start and end cleanly: it must leave no trace.
+  if (isProbe(ctx.env ?? process.env)) return 0;
   if (!cfg) {
     // memory.json cannot be read: whether the hooks are on is unknown, but the failure is logged.
     if (ctx.root && ctx.configError) logHook(ctx.root, { agent, event, ok: false, error: `memory.json: ${ctx.configError.message ?? ctx.configError}` });
@@ -390,6 +394,7 @@ export async function run(argv, cfg, ctx = {}) {
   const entry = { agent, event, ok: true };
   try {
     const input = ctx.hookInput ?? await readHookInput();
+    if (isProbe(null, input)) return 0;
     let out = '';
     if (event === 'session-start') out = await sessionStart(cfg, agent, input, entry);
     else if (event === 'stop') out = stop(cfg, input);

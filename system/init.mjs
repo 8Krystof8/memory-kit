@@ -448,6 +448,17 @@ function runGit(root, args) {
   return { ok: res.status === 0, stdout: res.stdout ?? '', stderr: (res.stderr || res.error?.message || '').trim() };
 }
 
+const remoteNames = (root) => runGit(root, ['remote']).stdout.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+
+/**
+ * The names of the vault's git remotes, when root is the top of its own git work tree (a folder
+ * inside another repository has none of its own); [] otherwise. Mode local is refused while
+ * there is one, and the wizard does not offer it then.
+ */
+function vaultRemotes(root) {
+  return isGitTopLevel(root) ? remoteNames(root) : [];
+}
+
 function buildPlan(root, raw, opts, packs, util) {
   if (!MODES.includes(opts.mode)) throw usageError(`--mode must be one of ${MODES.join(', ')}`);
   if (!packs.has(opts.lang)) throw usageError(`--lang must be one of ${[...packs.keys()].join(', ')}`);
@@ -468,7 +479,7 @@ function buildPlan(root, raw, opts, packs, util) {
   const moves = plannedMoves(root, renameMoves(fromPack, toPack));
   const git = isGitTopLevel(root);
   if (opts.mode === 'local' && git) {
-    const remotes = runGit(root, ['remote']).stdout.split('\n').map((r) => r.trim()).filter(Boolean);
+    const remotes = remoteNames(root);
     if (remotes.length) throw new InitError(1, t('init.refused_remote', { remotes: remotes.join(', ') }));
   }
   const cloud = cloudSignal();
@@ -925,7 +936,7 @@ function planJson(plan, applied) {
 // For the setup wizard (lib/wizard.mjs): the same questions, plan and steps as the CLI.
 export {
   AGENTS, InitError, MODES, apply, buildPlan, canonPrivacy, defaultPrivateRoot, findPreset, formatPlan, kitUtil, loadPacks,
-  nextStepItems, parseAgents, parseSectors, planJson, presetEntries, readMemoryJson, translator,
+  nextStepItems, parseAgents, parseSectors, planJson, presetEntries, readMemoryJson, translator, vaultRemotes,
 };
 
 /**

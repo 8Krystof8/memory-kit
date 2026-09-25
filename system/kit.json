@@ -44,7 +44,7 @@
       "group": "docs"
     },
     "docs/architecture.md": {
-      "sha256": "9acc584683f18c891edb2975f4629a1f2d37a98d94773fe319b92d906ba9a88a",
+      "sha256": "fa69f5c1d439aeced3a4262059bbdbb69b695b5a493b2ac964c73a9161fca219",
       "group": "docs"
     },
     "docs/integrations/chatgpt.md": {
@@ -92,7 +92,7 @@
       "group": "docs"
     },
     "docs/projects.md": {
-      "sha256": "ee9b17d7747820ed448924224b86b41472f2f19b96c43671639c4fa6fb93cbb6",
+      "sha256": "9d05f3816d935120a9a9a453660b314ab957e757a48b1df05b419f399406fc3f",
       "group": "docs"
     },
     "docs/search.md": {
@@ -120,7 +120,7 @@
       "group": "code"
     },
     "system/init.mjs": {
-      "sha256": "8d6368e9e6156331146bc20ac19a5211067faabf4221619d4b7342cec6c723c8",
+      "sha256": "8e6f44bea48f68591a338b6eee6c773643054a10b0440cebd56dd0202758c7b4",
       "group": "code"
     },
     "system/lang/LICENSE-snowball.txt": {
@@ -128,7 +128,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "4d750d4376e819de7a6affbf96dc71c280bb3eeb7fa700cac5468fb4b96972a7",
+      "sha256": "974299e584bf78269e84e3ce9dcaa6fc1c5bb4ef5e896518834f68e7ff4e8fa0",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -176,7 +176,7 @@
       "group": "code"
     },
     "system/lib/commands/hook.mjs": {
-      "sha256": "206ed6dbef408501fbe1783b870b1aff75a3c178fe94b5d06cdfb665a92400a8",
+      "sha256": "305522bbda89554c36ca604290b50e753be1867b55adfbec1c890dbbb11e78cb",
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
@@ -188,7 +188,7 @@
       "group": "code"
     },
     "system/lib/commands/project.mjs": {
-      "sha256": "a8f24df7d370bb47b88e975dfa2ebc5ad5c1bd1fd34763a5835e6544103bfc6d",
+      "sha256": "90bd9ea1b3daf1850283e5348e38a9cd8553772ad87dd606c858cf0287f41404",
       "group": "code"
     },
     "system/lib/commands/remember.mjs": {
@@ -220,11 +220,11 @@
       "group": "code"
     },
     "system/lib/config.mjs": {
-      "sha256": "28b09625c07b958dabc9994f0816a2e4d38ecb84f36c58ffe6c2469471a60b73",
+      "sha256": "5eb4e709160e40f72d1d77ec1b3f387b0a68b8eb82707e75b75b9a7117da1aeb",
       "group": "code"
     },
     "system/lib/doctor.mjs": {
-      "sha256": "9aae176f136943153b2aa2daf52b2b905cfc5f9220e2aa9ad13413c938856cea",
+      "sha256": "0d2e7fa78039c155390967ba20960848d7a6a323ea0a9ea1867020824f691a5d",
       "group": "code"
     },
     "system/lib/eval.mjs": {
@@ -248,7 +248,7 @@
       "group": "code"
     },
     "system/lib/hookinput.mjs": {
-      "sha256": "b0f239d28ae1eedec6d034cba7e7cf19ea49169068bd594fc22a4a8092b3943d",
+      "sha256": "83650947dae259a00bc98ba025781d866d2b52cf5a7f85705e6906c71a628e41",
       "group": "code"
     },
     "system/lib/hooklog.mjs": {
@@ -256,7 +256,7 @@
       "group": "code"
     },
     "system/lib/hooksetup.mjs": {
-      "sha256": "9347b24209b8b4a3a2905d6d921bef225f87153d3e87cad90e90d20827b2cc4e",
+      "sha256": "6d6995e711d5399e54b618efbcf2a8a20e9384cc6d752e834f0c745a27f37c8c",
       "group": "code"
     },
     "system/lib/jsonc.mjs": {
@@ -280,7 +280,7 @@
       "group": "code"
     },
     "system/lib/oldnode.mjs": {
-      "sha256": "941655325eb88db3d4df00f1a04e9cb96beb2b5df9214feb3d12b749ad152ae3",
+      "sha256": "6a836d51805dd092c32b3951fff330e40125689c9705123509709ec905cd9654",
       "group": "code"
     },
     "system/lib/projects.mjs": {
@@ -328,11 +328,11 @@
       "group": "code"
     },
     "system/lib/wizard.mjs": {
-      "sha256": "0f8a0104a100625fd943e4bd6e4174106925fa8df77ab7b8284e2679f3c0965d",
+      "sha256": "8eef85317bfff9d0198180b377c5786747b9f8c5c674c27becbae04899ca88ac",
       "group": "code"
     },
     "system/memory.mjs": {
-      "sha256": "bdc49fef2b7885f31f7d2110ca8587b700f0135eafa0cb60031835372efd60c4",
+      "sha256": "e5cacf7ca9438a1ad7172e0089abeb5eddcd184c40fca48f6a48fcaa4f671d06",
       "group": "code"
     },
     "system/migrations/index.mjs": {
@@ -912,11 +912,11 @@
       "group": "tests"
     },
     "system/tests/helpers.mjs": {
-      "sha256": "824b5b24552b9764f86e77ed5e3e40cb30d784f50419ac0b80fdc4007308cb1d",
+      "sha256": "49ad00d7e26a9dfb2cf1926b2f2fc2c2f7d13bd4077ea5b885ffa5cdc840edf6",
       "group": "tests"
     },
     "system/tests/integration/installers.test.mjs": {
-      "sha256": "a24dbc35c698434141f4cb13233dadb454e9e34367fe6fb3a8bd65c793972905",
+      "sha256": "32a2478d24e17260cfafdd12dd66da6bfac6126925232af2d2e2d13b999c3b7e",
       "group": "tests"
     },
     "system/tests/integration/kit.test.mjs": {
@@ -927,8 +927,12 @@
       "sha256": "39075c48aae058ccae44d01e40cc3b89a8dc73d47709c330767a8e124ba96c23",
       "group": "tests"
     },
+    "system/tests/integration/projects-e2e.test.mjs": {
+      "sha256": "981ce64c68f8d095d24b551a9f06f34c6dba0268398e59556a56fec94fba13c0",
+      "group": "tests"
+    },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "5b03b3a1e62e8b2ecce03a39a84c350f8237cf6e604609740de2e32952618021",
+      "sha256": "ac429527f4205c61015cb3e8a9193020de5123a9fcac113e9675e75398ed16ee",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {
@@ -960,7 +964,7 @@
       "group": "tests"
     },
     "system/tests/unit/cli.test.mjs": {
-      "sha256": "e31bc5cd3e4b00602fff7adeabbfc54e5d613fad4de102c6266153cf4291e392",
+      "sha256": "ad3e10f4601177002d258c7f8d1ea6678069665761aedaa332f5264fe2ed928d",
       "group": "tests"
     },
     "system/tests/unit/config.test.mjs": {
@@ -996,7 +1000,7 @@
       "group": "tests"
     },
     "system/tests/unit/hooksetup.test.mjs": {
-      "sha256": "8a695e880c99469fb73f15166c9f424fd4eb330d443c29bcf83b5ebf2437e1b2",
+      "sha256": "0264f3902c4c8e56935b4ab64023b35b7698737ba6f1648fb7635c246353421f",
       "group": "tests"
     },
     "system/tests/unit/kit-manifest.test.mjs": {
@@ -1060,7 +1064,7 @@
       "group": "tests"
     },
     "system/tests/unit/wizard.test.mjs": {
-      "sha256": "929d8c3d7f7690d2fb63771fc85940a96c11b2cc93180a350dc6f53bc772f74a",
+      "sha256": "46cb17e2609ce17502876ca070d4d2c9bca4aa5b6bc72fded1444f019dfa9b70",
       "group": "tests"
     },
     "system/tools/release-notes.mjs": {

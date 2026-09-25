@@ -267,6 +267,47 @@ function runPty(command, { env, input, cwd }) {
   return run('script', ['-qec', command, '/dev/null'], { env, input, cwd });
 }
 
+/**
+ * A pseudo-terminal conversation: each [pattern, keys] of answers is typed 400 ms after pattern
+ * shows up in the output that came after the previous answer (the setup wizard drops keys typed
+ * before its prompt is drawn). → { code, stdout (escape codes removed), answered }.
+ */
+function ptyTalk(command, { env, cwd, answers, timeout = 150_000 }) {
+  return new Promise((resolve) => {
+    const child = spawn('script', ['-qec', command, '/dev/null'], { env, cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+    const kill = setTimeout(() => child.kill('SIGKILL'), timeout);
+    let out = '';
+    let from = 0;
+    let answered = 0;
+    let typing = false;
+    const check = () => {
+      if (typing || answered >= answers.length) return;
+      const [pattern, keys] = answers[answered];
+      if (!pattern.test(out.slice(from))) return;
+      typing = true;
+      setTimeout(() => {
+        child.stdin.write(keys);
+        from = out.length;
+        answered += 1;
+        typing = false;
+        check();
+      }, 400);
+    };
+    child.stdout.on('data', (d) => {
+      out += d;
+      check();
+    });
+    child.stderr.on('data', (d) => {
+      out += d;
+    });
+    child.on('close', (code) => {
+      clearTimeout(kill);
+      child.stdin.destroy();
+      resolve({ code, stdout: out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ''), answered });
+    });
+  });
+}
+
 /** A folder with a fake `node` that reports an old version (a POSIX shell script). */
 function fakeOldNode() {
   const bin = tmpDir('fake-bin');
@@ -589,6 +630,31 @@ describe('install.sh', { skip: !SH ? 'install.sh is for macOS and Linux' : !HAS_
     assert.equal(named.code, 130, named.all);
     assert.match(named.stdout, /Create the memory in ~\/notes\? \[Y\/n\]/);
     assert.deepEqual(fs.readdirSync(cwd), []);
+  });
+
+  test('interactive with --mode: the setup wizard asks the rest, never the mode again', { skip: PTY }, async () => {
+    // The installer passes the mode it asked (or was given) to init as --mode; the wizard then
+    // starts with the language, and its answers are the ones set up.
+    const env = installEnv({ NO_COLOR: '1', TERM: 'xterm', LANG: 'en_US.UTF-8' });
+    const vault = path.join(env.HOME, 'memory');
+    const res = await ptyTalk(`sh ${q(INSTALL_SH)} --no-gh --source ${q(KIT_ROOT)} --dir ${q(vault)} --mode github`, {
+      env,
+      cwd: env.HOME,
+      answers: [
+        [/Create the memory in ~\/memory\? \[Y\/n\]/, 'y\n'],
+        [/Language of the memory/, '\r'],
+        [/Which sectors/, '\r'],
+        [/Which AI tools/, '\r'],
+        [/Set up the memory now\?/, '\r'],
+        [/Anything else\?/, `${ESC}B${ESC}B${ESC}B\r`], // Finish
+      ],
+    });
+    assert.equal(res.code, 0, res.stdout);
+    assert.equal(res.answered, 6, res.stdout);
+    assert.doesNotMatch(res.stdout, /Where should the memory live\?/);
+    assert.match(res.stdout, /Your memory is ready/);
+    const cfg = readJson(path.join(vault, 'memory.json'));
+    assert.deepEqual([cfg.initialized, cfg.mode, cfg.lang], [true, 'github', 'en']);
   });
 
   test('an existing memory: doctor and upgrade are offered, and a newer kit is shown with both versions', { skip: PTY }, () => {
