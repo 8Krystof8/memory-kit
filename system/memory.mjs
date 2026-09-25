@@ -30,7 +30,7 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const COMMANDS = ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp', 'remember', 'project', 'hook'];
+const COMMANDS = ['start', 'check', 'search', 'new', 'sector', 'sync', 'eval', 'doctor', 'upgrade', 'connect', 'mcp', 'remember', 'project', 'hook', 'setup'];
 const CONFIGLESS = new Set(['doctor', 'upgrade', 'mcp', 'hook']);
 const HOOK_AGENTS = new Set(['claude-code', 'codex']);
 const HELP = new Set(['help', '--help', '-h']);
