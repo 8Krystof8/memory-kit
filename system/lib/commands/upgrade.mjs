@@ -3,6 +3,10 @@
 // over to the fetched kit's upgrader when that one is newer; `node <new-kit>/system/memory.mjs
 // upgrade --root <vault>` uses that kit as the source. Without --yes it only prints the plan.
 // Runs without a loadable config too (cfg is then null and messages are English).
+// In a terminal (stdin and stdout TTYs, not --json) the same steps run as a screen of lib/tui.mjs:
+// the plan as counts, "What's new" from the target's CHANGELOG.md, a question instead of "run
+// again with --yes", spinners, and a box with the result. Everywhere else the output is plain
+// text as before; when lib/tui.mjs cannot be loaded the plain text is used too.
 
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -14,11 +18,12 @@ import {
 } from '../upgrade.mjs';
 import { isDir, isFile, parseCli, usageError } from '../util.mjs';
 
-export const usage = 'upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--yes] [--dry-run] [--force] [--rollback [backup-id]] [--no-verify] [--json]';
+export const usage = 'upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--yes] [--dry-run] [--force] [--rollback [backup-id]] [--no-verify] [--json] [--verbose]';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PARENT_ENV = 'MEMORY_KIT_UPGRADE_PARENT';
-const PASS_FLAGS = ['yes', 'dry-run', 'force', 'no-verify', 'json'];
+const PASS_FLAGS = ['yes', 'dry-run', 'force', 'no-verify', 'json', 'verbose'];
+const NOTES_MAX = 6;
 
 // English defaults; packs may translate the same keys (section 4.10).
 const DEFAULTS = {
@@ -101,6 +106,30 @@ const DEFAULTS = {
   'upgrade.rollback.running': 'an upgrade {from} → {to} is running right now (process {pid}); wait for it to finish',
   'upgrade.error.backup_invalid': 'the backup in {dir} cannot be read',
   'upgrade.error.restore_failed': 'restoring {rel} failed',
+  'upgrade.ui.plan': 'Plan',
+  'upgrade.ui.new': 'new',
+  'upgrade.ui.changed': 'changed',
+  'upgrade.ui.removed': 'removed',
+  'upgrade.ui.unchanged': 'unchanged',
+  'upgrade.ui.agents': 'AGENTS.md: the kit section is updated, your text around it stays',
+  'upgrade.ui.skip_missing': '{n} kit files this vault does not carry stay out',
+  'upgrade.ui.propose': '{n} changed here, so kept; the new versions go to {dir}',
+  'upgrade.ui.keep': '{n} no longer part of the kit but changed here, so kept',
+  'upgrade.ui.forced': '{n} changed here and replaced because of --force (the backup keeps yours)',
+  'upgrade.ui.details': 'the file lists: add --verbose',
+  'upgrade.ui.whats_new': 'What\'s new in {version}',
+  'upgrade.ui.more_notes': '{n} more in CHANGELOG.md',
+  'upgrade.ui.confirm': 'Upgrade to {to} now?',
+  'upgrade.ui.not_now': 'Nothing changed.',
+  'upgrade.ui.stopped': 'Nothing changed.',
+  'upgrade.ui.applying': 'Backing up, upgrading and verifying',
+  'upgrade.ui.applied': 'Upgraded {from} → {to}',
+  'upgrade.ui.failed': 'The upgrade did not go through',
+  'upgrade.ui.what_happened': 'What happened',
+  'upgrade.ui.done_title': 'memory-kit {to} is installed',
+  'upgrade.ui.backup': 'backup: {backup}',
+  'upgrade.ui.findings': '{n} new check findings (not failures): node system/memory.mjs check',
+  'upgrade.ui.done': 'Done.',
 };
 
 function say(cfg, key, vars = {}) {
@@ -337,7 +366,7 @@ function resolveSource(values, context, runnerIsVault) {
  * it failed and left a lock of its own (killed half way, a crash), says how to undo that upgrade;
  * keep: the source folder is the only upgrader that can (no recovery tool in the backup).
  */
-function handOver(sourceDir, context, values, info, cfg) {
+function handOver(sourceDir, context, values, info, cfg, { terminal = false } = {}) {
   const lockBefore = lockState(context.root);
   const args = [absOf(sourceDir, 'system/memory.mjs'), 'upgrade', '--root', context.root, '--from', sourceDir];
   for (const flag of PASS_FLAGS) if (values[flag]) args.push(`--${flag}`);
@@ -345,7 +374,8 @@ function handOver(sourceDir, context, values, info, cfg) {
     cwd: context.root,
     encoding: 'utf8',
     windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    // In a terminal the newer upgrader shows its own screen and asks its own question.
+    stdio: terminal ? 'inherit' : ['ignore', 'pipe', 'pipe'],
     maxBuffer: 256 * 1024 * 1024,
     env: { ...process.env, [PARENT_ENV]: JSON.stringify(info) },
   });
@@ -385,6 +415,7 @@ export async function run(argv, cfg, ctx = {}) {
     rollback: { type: 'boolean' },
     'no-verify': { type: 'boolean' },
     json: { type: 'boolean' },
+    verbose: { type: 'boolean' },
   }, usage);
   if (!parsed) return 2;
   const { values, positionals } = parsed;
@@ -443,6 +474,8 @@ export async function run(argv, cfg, ctx = {}) {
     usageError(src.usage, usage);
     return 2;
   }
+  const ui = await terminalUI(ctx, values);
+  if (ui) return runScreen(ui, { cfg, values, context, hints, parent, runner, src, runnerIsVault });
   if (src.missing !== undefined) {
     const message = say(cfg, 'upgrade.source_missing', { source: src.missing });
     if (values.json) writeJson({ runner, delegated_from: parent?.version ?? null, plan: null, result: { applied: false, code: 'source_missing', message } });
@@ -550,5 +583,254 @@ export async function run(argv, cfg, ctx = {}) {
         process.stderr.write(`memory: ${say(cfg, 'upgrade.tmp_left', { dir: tmpBase, detail: err?.message ?? String(err) })}\n`);
       }
     }
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The terminal screen (stdin and stdout are TTYs): the same steps as run, drawn with lib/tui.mjs
+
+/** The UI when both ends are a terminal and --json is off; null otherwise or when lib/tui.mjs cannot load. */
+async function terminalUI(ctx, values) {
+  if (values.json) return null;
+  try {
+    if (ctx?.ui) return ctx.ui.tty ? ctx.ui : null;
+    if (!process.stdout.isTTY || !process.stdin.isTTY) return null;
+    const { createUI } = await import('../tui.mjs');
+    const ui = createUI();
+    return ui.tty ? ui : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Release notes of the kit in dir from its CHANGELOG.md; null when there are none. */
+async function whatsNew(dir, from, to) {
+  try {
+    const { readReleaseNotes } = await import('../changelog.mjs');
+    return readReleaseNotes(dir, to, { from, max: NOTES_MAX });
+  } catch {
+    return null;
+  }
+}
+
+/** The plan as a few symbol lines (file lists only with --verbose). */
+function showPlan(ui, cfg, plan, hints, verbose) {
+  const t = (key, vars) => say(cfg, key, vars);
+  const { sym, style } = ui;
+  const of = (action, reason) => plan.files.filter((f) => f.action === action && (!reason || f.reason === reason));
+  const list = (files, glyph, paint) => {
+    if (verbose) for (const f of files) ui.message(`  ${glyph} ${f.rel}`, paint);
+  };
+  ui.step(t('upgrade.ui.plan'), plan.ok ? 'ok' : 'error');
+  ui.message(t('upgrade.source', { source: plan.source }), 'dim');
+  if (plan.files.length) {
+    const c = plan.counts;
+    const parts = [[sym.add, c.add, 'upgrade.ui.new', style.ok], [sym.change, c.replace, 'upgrade.ui.changed', style.warn],
+      [sym.remove, c.remove, 'upgrade.ui.removed', style.err], [sym.dot, c.unchanged, 'upgrade.ui.unchanged', style.dim]]
+      .filter(([, n]) => n > 0).map(([glyph, n, key, paint]) => `${paint(glyph)} ${n} ${t(key)}`);
+    if (parts.length) ui.message(parts.join('   '));
+    list(of('add'), sym.add, 'ok');
+    list(of('replace'), sym.change, 'warn');
+    list(of('remove'), sym.remove, 'err');
+    const a = plan.agents;
+    if (a.action === 'replace') ui.message(`${style.warn(sym.change)} ${t('upgrade.ui.agents')}`);
+    else if (a.action !== 'unchanged') {
+      const key = `upgrade.agents.${a.state}`;
+      if (DEFAULTS[key]) ui.warn(t(key, { template: a.template ?? 'system/templates/<lang>/kit/agents-system.md' }));
+    }
+  }
+  if (plan.migrations.length) {
+    const names = plan.migrations.map((m) => `${m.id}: ${m.title}`).join('; ');
+    ui.message(`${style.warn(sym.change)} ${t('upgrade.migrations', { from: plan.dataVersion.from, to: plan.dataVersion.to, list: names })}`);
+  }
+  for (const group of ['tests', 'docs']) {
+    const n = of('skip', 'optional').filter((f) => f.group === group).length;
+    if (n) ui.message(`${sym.dot} ${t('upgrade.skip.optional', { group, n })}`, 'dim');
+  }
+  const missing = of('skip', 'missing');
+  if (missing.length) ui.message(`${sym.dot} ${t('upgrade.ui.skip_missing', { n: missing.length })}`, 'dim');
+  list(missing, sym.dot, 'dim');
+  const golden = of('skip', 'golden');
+  if (golden.length) ui.message(`${sym.dot} ${t('upgrade.skip.golden', { files: golden.map((f) => f.rel).join(', ') })}`, 'dim');
+  let hidden = false;
+  for (const [action, key] of [['propose', 'upgrade.ui.propose'], ['keep', 'upgrade.ui.keep'], ['force', 'upgrade.ui.forced']]) {
+    const files = of(action);
+    if (!files.length) continue;
+    ui.warn(t(key, { n: files.length, dir: plan.proposedDir }));
+    list(files, sym.keep, 'warn');
+    hidden = hidden || !verbose;
+  }
+  for (const r of plan.refusals) ui.error(refusalMessage(cfg, r, hints));
+  for (const b of plan.blockers) ui.error(blockerMessage(cfg, b));
+  if (hidden || (!verbose && (of('add').length || of('replace').length || of('remove').length || missing.length))) {
+    ui.message(t('upgrade.ui.details'), 'dim');
+  }
+}
+
+async function showNotes(ui, cfg, dir, plan) {
+  const notes = await whatsNew(dir, plan.from, plan.to);
+  if (!notes?.headlines.length) return;
+  const room = Math.max(12, ui.width() - 8);
+  const body = notes.headlines.map((h) => ({ text: ui.truncate(h, room), bullet: ui.sym.bullet }));
+  if (notes.more) body.push({ text: say(cfg, 'upgrade.ui.more_notes', { n: notes.more }), tone: 'dim' });
+  ui.note(body, say(cfg, 'upgrade.ui.whats_new', { version: plan.to }), { state: 'info' });
+}
+
+function showResult(ui, cfg, plan, result, hints) {
+  const t = (key, vars) => say(cfg, key, vars);
+  if (!result.applied) {
+    const failure = result.failure ?? {};
+    const body = [];
+    if (failure.undone) {
+      body.push(t('upgrade.undone_meanwhile'));
+    } else {
+      body.push(t('upgrade.failed', { step: failure.step ?? '?', detail: failure.detail ?? '' }));
+      if (result.rolledBack) body.push({ text: t('upgrade.rolled_back'), tone: 'ok' });
+      else body.push({ text: t('upgrade.restore_failed', { detail: failure.restore ?? '', command: hints.recover(result.backup) }), tone: 'err' });
+      if (failure.saved?.length) body.push(t('upgrade.saved', { dir: failure.savedIn, files: failure.saved.join(', ') }));
+      if (failure.unrecorded?.length) body.push(t('upgrade.unrecorded', { files: failure.unrecorded.join(', ') }));
+      if (failure.foreign?.length) body.push(t('upgrade.foreign', { files: failure.foreign.join(', ') }));
+    }
+    ui.note(body, t('upgrade.ui.what_happened'), { state: 'error' });
+    return;
+  }
+  const body = [{ text: t('upgrade.ui.backup', { backup: result.backup }) }];
+  if (result.migrations.length) body.push(t('upgrade.migrated', { to: plan.dataVersion.to, list: result.migrations.map((m) => m.id).join(', ') }));
+  if (result.verify) {
+    body.push({ text: t('upgrade.verified'), tone: 'ok' });
+    if (result.verify.eval) {
+      body.push(t('upgrade.verified_eval', { before: result.verify.eval.before.toFixed(2), after: result.verify.eval.after.toFixed(2) }));
+    }
+    if (result.verify.newFindings.length) body.push({ text: t('upgrade.ui.findings', { n: result.verify.newFindings.length }), tone: 'warn' });
+    if (result.verify.foreign?.length) body.push(t('upgrade.foreign', { files: result.verify.foreign.join(', ') }));
+  } else {
+    body.push({ text: t('upgrade.verify_skipped'), tone: 'warn' });
+  }
+  if (result.proposed.length) body.push(t('upgrade.proposed_next', { dir: plan.proposedDir }));
+  ui.note(body, t('upgrade.ui.done_title', { to: plan.to }), { state: 'ok' });
+  // Commands stay outside the box and unwrapped, so they can be copied whole.
+  if (plan.git.repo) {
+    ui.message(t('upgrade.next'));
+    ui.command('git add -A');
+    ui.command(`git commit -m "memory-kit ${plan.from} → ${plan.to}"`);
+  }
+  ui.message(t('upgrade.undo', { command: '' }).trim());
+  ui.command(hints.rollback(result.backup));
+}
+
+/** run() in a terminal: same decisions and exit codes, drawn as a screen. */
+async function runScreen(ui, { cfg, values, context, hints, parent, runner, src, runnerIsVault }) {
+  const t = (key, vars) => say(cfg, key, vars);
+  const { root } = context;
+  ui.setTranslator((key, vars) => (typeof cfg?.t === 'function' ? cfg.t(key, vars) : key));
+  const stop = (message) => {
+    ui.error(message);
+    ui.outro(t('upgrade.ui.stopped'), { state: 'error' });
+    return 1;
+  };
+  try {
+    if (src.missing !== undefined) {
+      ui.intro('memory-kit', readVersion(root) ?? '');
+      return stop(t('upgrade.source_missing', { source: src.missing }));
+    }
+    let sourceDir = src.dir;
+    let cleanup = null;
+    let tmpBase = null;
+    try {
+      if (!sourceDir) {
+        const spin = ui.spinner({ spacer: false });
+        spin.start(t('upgrade.fetching', { url: src.label }));
+        try {
+          const fetched = cloneKit(src.url, { ref: src.ref });
+          sourceDir = fetched.dir;
+          cleanup = fetched.cleanup;
+          tmpBase = fetched.base;
+          spin.clear();
+        } catch (err) {
+          if (!(err instanceof UpgradeError)) throw err;
+          spin.clear();
+          ui.intro('memory-kit', readVersion(root) ?? '');
+          ui.error(t('upgrade.fetch_failed', { url: src.label, detail: err.vars.detail }));
+          ui.message(t('upgrade.fetch_hint'), 'dim');
+          ui.outro(t('upgrade.ui.stopped'), { state: 'error' });
+          return 1;
+        }
+      }
+
+      if (!samePath(sourceDir, context.kitRoot)) {
+        const sourceVersion = readVersion(sourceDir);
+        if (!parseVersion(sourceVersion)) {
+          ui.intro('memory-kit', readVersion(root) ?? '');
+          return stop(t('upgrade.source_invalid', { source: sourceDir }));
+        }
+        if (newerThan(sourceVersion, runner.version) && !parent) {
+          // The newer upgrader draws its own screen on the same terminal.
+          const res = handOver(sourceDir, context, values, { version: runner.version, vaultCli: runnerIsVault, apply: hints.apply() }, cfg, { terminal: true });
+          if (res.keep) cleanup = null;
+          return res.code;
+        }
+        if (runnerIsVault && !values.force && !lockState(root)) {
+          const installed = readVersion(root) ?? '0.0.0';
+          ui.intro(`memory-kit ${installed}`);
+          ui.outro(t('upgrade.up_to_date', { version: installed, source: sourceVersion }));
+          return 0;
+        }
+      }
+
+      const spin = ui.spinner({ spacer: false });
+      spin.start(t('upgrade.ui.plan'));
+      const plan = await planUpgrade({ vault: root, source: sourceDir, force: Boolean(values.force) });
+      spin.clear();
+      ui.intro(`memory-kit ${plan.from} ${ui.sym.arrow} ${plan.to ?? '?'}`);
+      if (plan.upToDate && !values.force && plan.refusals.length === 0 && !plan.lock) {
+        ui.outro(t('upgrade.up_to_date', { version: plan.from, source: plan.to }));
+        return 0;
+      }
+      showPlan(ui, cfg, plan, hints, Boolean(values.verbose));
+      if (!plan.ok) {
+        ui.outro(t(plan.refusals.length ? 'upgrade.refused' : 'upgrade.blocked').replace(/:$/, ''), { state: 'error' });
+        return 1;
+      }
+      await showNotes(ui, cfg, sourceDir, plan);
+      if (values['dry-run']) {
+        ui.step(t('upgrade.dry_run'), 'info');
+        ui.command(hints.apply());
+        ui.outro(t('upgrade.ui.not_now'));
+        return 0;
+      }
+      if (!values.yes && !await ui.confirm({ message: t('upgrade.ui.confirm', { from: plan.from, to: plan.to }), initialValue: true })) {
+        ui.outro(t('upgrade.ui.not_now'));
+        return 0;
+      }
+
+      const work = ui.spinner();
+      work.start(t('upgrade.ui.applying'));
+      let result;
+      try {
+        result = await applyUpgrade(plan, { verify: !values['no-verify'] });
+      } catch (err) {
+        if (!(err instanceof UpgradeError)) throw err;
+        work.stop(t('upgrade.ui.applying'), 'error');
+        return stop(errorMessage(cfg, err));
+      }
+      work.stop(result.applied ? t('upgrade.ui.applied', { from: plan.from, to: plan.to }) : t('upgrade.ui.applying'), result.applied ? 'ok' : 'error');
+      showResult(ui, cfg, plan, result, hints);
+      ui.outro(result.applied ? t('upgrade.ui.done') : t('upgrade.ui.failed'), { state: result.applied ? 'ok' : 'error' });
+      return result.applied ? 0 : 1;
+    } finally {
+      if (cleanup) {
+        try {
+          cleanup();
+        } catch (err) {
+          ui.warn(t('upgrade.tmp_left', { dir: tmpBase, detail: err?.message ?? String(err) }));
+        }
+      }
+    }
+  } catch (err) {
+    if (err?.name === 'Cancelled') {
+      ui.cancelled();
+      return 130;
+    }
+    throw err;
   }
 }

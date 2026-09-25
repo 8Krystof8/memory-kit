@@ -984,6 +984,14 @@ export function formatStartView(view, format = 'text' | 'gemini-hook' | 'json'):
 // lib/jsonc.mjs (core): parseJsonc, stripJsonc, detectStyle, formatJson
 // lib/doctor.mjs (core): CHECK_IDS, REPAIRS, diagnose(root, opts) → {report, skipped, repairs},
 //   formatReport(report, {skipped, t}), validateReport(report, kitRoot); read-only, no stdout (10.7)
+// lib/tui.mjs (core, 0.1.2): createUI({stdout, stdin, env, platform}) → {tty, live, color, unicode,
+//   sym, style, intro, outro, step, note, info, warn, error, success, message, command, spinner,
+//   select, multiselect, confirm, text, cancelled}; capabilities, displayWidth, wrap, truncate,
+//   Cancelled, NonInteractive; imports only node built-ins
+// lib/changelog.mjs (core, 0.1.2): parseChangelog, releaseNotes(markdown, version, {max, from}),
+//   readReleaseNotes(kitDir, version); imports only node built-ins
+// lib/wizard.mjs (core, 0.1.2): runWizard({root, opts}), runSetup({root, cfg}); imports tui,
+//   clients, init.mjs, and loads commands/connect.mjs, config and hooksetup with a dynamic import()
 ```
 `system/kit.json` = `{name, version, data_version, api_version, node, upgrade_from, source,
 files: {rel: {sha256, group}}}`; `system/kit-history.json` = `{version: {rel: sha256}}` for every
@@ -1376,11 +1384,15 @@ node system/memory.mjs sector list
 node system/memory.mjs sync [--no-push]
 node system/memory.mjs eval [--file path] [--min 0.9] [--engine fts5|scan] [--json]
 node system/memory.mjs doctor [--json] [--fix]
-node system/memory.mjs upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--yes] [--dry-run] [--force] [--rollback [id]] [--no-verify] [--json]
+node system/memory.mjs upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--yes] [--dry-run] [--force] [--rollback [id]] [--no-verify] [--json] [--verbose]
 node system/memory.mjs connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json]
 node system/memory.mjs connect --list [--json]
 node system/memory.mjs mcp [--read-only] [--local]
+node system/memory.mjs setup [--interactive]
 ```
+`setup` is interactive: in a set-up vault it opens the extras menu of the setup wizard (connect AI
+apps, memory for coding projects, a health check), in one that is not set up the whole wizard of
+init; without a terminal it names the plain commands and exits 2.
 Default check mode is strict. Everything accepts `--root <path>` (handled by memory.mjs). Every
 `--json` prints `JSON.stringify(x, null, 2) + '\n'`; `search`, `check` and `doctor` follow their
 schemas in `system/schema/` (7.15). Printed next steps name one command per line, never joined
@@ -1511,6 +1523,14 @@ upgraded), the runner is the source.
   UTF-8; a leading UTF-8 BOM is kept; a UTF-16 BOM → state `encoding`, skipped and reported.
 - Without `--yes`, or with `--dry-run`, it prints the plan and the command that applies it (exit 0,
   or 1 when refused or blocked).
+- In a terminal (stdin and stdout TTYs, not CI, not `TERM=dumb`, not `--json`) the same steps are
+  drawn with `lib/tui.mjs`: the header `memory-kit <from> → <to>`, the plan as counts with the
+  symbols `+ ~ − !` (file lists with `--verbose`), "What's new" from the headlines of the target's
+  `CHANGELOG.md` section (`lib/changelog.mjs`), a question instead of "run again with `--yes`",
+  spinners while it fetches, plans and verifies, and a box with the backup id, then the undo
+  command (or what was rolled back). Same decisions and exit codes; Ctrl+C at the question exits
+  130. A newer source takes over on the same terminal (`stdio: inherit`), so it draws its own
+  screen. Without a terminal the output is plain text as described here.
 - **Apply:** a backup `.memory-kit/backups/<YYYYMMDD-HHMMSS>-<from>-to-<to>/` (UTC; `-2`, `-3` on a
   clash) with `backup.json` `{id, kit, from, to, created, state, pid, files, dirs, roots, local}`
   and the saved bytes under `files/<rel>`. A file entry is `{rel, existed, sha256, mode, next?,
@@ -1924,6 +1944,7 @@ node system/init.mjs --questions [--json]
 node system/init.mjs --mode github|local|combined --lang en|cs --sectors <list>
                      [--private-root <path>] [--agents <list>] [--cleanup none]
                      [--allow-ephemeral] [--today YYYY-MM-DD] [--dry-run] [--yes] [--json] [--root <path>]
+node system/init.mjs [--interactive | --no-interactive] [--root <path>]
 ```
 - `--sectors`: comma list of preset names or ids, each optionally `:github` or `:local`
   (`core,work,school,family:local`). `core` is always included (first sector, holds the profile).
@@ -1948,6 +1969,13 @@ node system/init.mjs --mode github|local|combined --lang en|cs --sectors <list>
 - Missing required flags (`--mode --lang --sectors`) → prints the missing questions, exit 2. Without
   `--yes` it prints the plan and exits 0 without changes (like `--dry-run`).
 - Refuses (exit 1) when `memory.json.initialized` is true.
+- The setup wizard (`lib/wizard.mjs`): when stdin and stdout are terminals (not CI, not
+  `TERM=dumb`) and answers are missing, and neither `--yes`, `--json`, `--dry-run` nor
+  `--no-interactive` is given, init asks the same questions one screen at a time (language first,
+  flags given become the preselected answers), shows the plan, applies it with the same functions
+  and offers the extras of `setup`; a set-up vault without answers opens the extras. `--interactive`
+  forces it (without a terminal every question takes its default). Ctrl+C exits 130. Without a
+  terminal the output above is unchanged byte for byte.
 
 Steps (in order; each step idempotent):
 1. Validate flags against the target pack.
