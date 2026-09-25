@@ -9,7 +9,23 @@ which kit-owned files changed.
 
 Nothing yet.
 
-## 0.1.2 (2026-09-25, not released yet)
+## 0.1.2 (2026-09-25)
+
+### Defaults and privacy
+
+| `memory.json` `projects` key | default | meaning |
+|---|---|---|
+| `enabled` | false until `connect … --projects` | the hooks do nothing while false |
+| `auto_add` | false | a new repository is never added by itself; one short hint instead |
+| `store` | local | dev notes and the repository list stay in the local root, never in git |
+| `autosync` | false | no commit or push at session end unless you opt in |
+| `checkpoint` | true | handoff request at the end of a session, only in added projects |
+| `error_lookup` | true | gotcha lookup after a failed Bash/PowerShell command, only in added projects |
+
+Hook runs and failures are logged in `.memory-kit/logs/hooks.jsonl` (never committed) and shown by
+`doctor` and the next session start. Upgrading from 0.1.1 changes nothing until you run
+`connect claude-code --projects`; users of the 0.1.2 draft should run it again to get shell-form
+hooks and the safe defaults.
 
 Memory for code projects, kept outside the code repositories and off unless you switch it on; a
 setup wizard and an upgrade screen in the terminal; one-line installers and release tags. Nothing
@@ -159,7 +175,7 @@ as in 0.1.1; `.github/workflows/release.yml` belongs to the public kit only. Rem
 - CI runs the suite on Linux, Windows and macOS with Node 22 and 24. The work on 0.1.2 was run
   locally on Linux only (install.ps1 under pwsh 7 there); Windows and macOS rest on CI.
 
-## 0.1.1 (2026-09-24, not released yet)
+## 0.1.1 (2026-09-24)
 
 Foundations for the future: safe upgrades, a stable surface for other programs and apps, and
 Windows and macOS next to Linux. Still no model calls. Your notes, `memory.json` and golden
