@@ -196,6 +196,10 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
         assert.deepEqual({ ...added, code: undefined }, { code: undefined, ok: true, action: 'add', created: true, sector: 'dev', store, key: 'github.com/linden/shop', notes: notesDir });
         const again = projectJson(v, 'add', repo);
         assert.deepEqual([again.created, again.sector], [false, 'dev']);
+        // The text status of an added project names its sector and never also says "not added".
+        const text = project(v, 'status', repo).stdout;
+        assert.match(text, lang === 'cs' ? /sektor dev/ : /sector dev/, text);
+        assert.doesNotMatch(text, lang === 'cs' ? /nepřidaný/ : /not added/, text);
         const mem = JSON.parse(fs.readFileSync(path.join(v.root, 'memory.json'), 'utf8'));
         if (store === 'git') assert.deepEqual(mem.projects.repos, { 'github.com/linden/shop': 'dev' });
         else {

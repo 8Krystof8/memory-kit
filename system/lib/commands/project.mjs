@@ -202,14 +202,16 @@ async function status(cfg, values) {
   else if (!ident) lines.push(say(cfg, 'project.status_no_repo'));
   else {
     lines.push(say(cfg, 'project.status_repo', { key: ident.key, top: ident.top }));
-    if (found) lines.push(say(cfg, 'project.status_known', { id: found.id, store: found.store, notes: notesOf(cfg, found.id) }));
-    if (found && !found.exact) lines.push(say(cfg, 'project.status_via', { key: found.key, cmd }));
-    else if (ident.unsettled && !ignored) lines.push(say(cfg, `project.${ident.unsettled}`));
+    if (found) {
+      lines.push(say(cfg, 'project.status_known', { id: found.id, store: found.store, notes: notesOf(cfg, found.id) }));
+      if (!found.exact) lines.push(say(cfg, 'project.status_via', { key: found.key, cmd }));
+    } else if (ident.unsettled && !ignored) lines.push(say(cfg, `project.${ident.unsettled}`));
     else lines.push(say(cfg, ignored ? 'project.status_ignored' : 'project.status_unknown', { cmd }));
   }
   lines.push(say(cfg, 'project.status_settings', settings));
   if (!set.enabled) lines.push(say(cfg, 'project.off', { cmd }));
-  const when = (t) => String(t ?? '?').slice(0, 16).replace('T', ' ');
+  // Log times are UTC ISO strings; say so, as the session-start brief does (hook.mjs).
+  const when = (t) => (t ? `${String(t).slice(0, 16).replace('T', ' ')} UTC` : '?');
   const runs = Object.entries(json.hooks.last_runs).map(([event, e]) => say(cfg, e.ok === false ? 'project.run_failed' : 'project.run_ok', { event, when: when(e.t) }));
   lines.push(runs.length ? say(cfg, 'project.status_runs', { runs: runs.join(', ') }) : say(cfg, 'project.status_no_runs'));
   const sync = summary.lastSync;
