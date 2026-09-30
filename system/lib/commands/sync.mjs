@@ -1,6 +1,8 @@
 // `sync`: git pull --rebase, resolve conflicts that touch only generated files (_ai/, .ignore,
 // the home page) by regenerating them, then push (docs/architecture.md, 10.5). Never force-pushes, never resolves a conflict in a
-// note: any other conflict aborts the rebase and exits 1.
+// note: any other conflict aborts the rebase and exits 1. It never commits: uncommitted changes to
+// tracked files stop it at once (exit 1) with the commands that commit them, before git refuses the
+// pull with its own words.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -29,6 +31,25 @@ function rebaseInProgress(root) {
     if (p && fs.existsSync(path.resolve(root, p))) return true;
   }
   return false;
+}
+
+/**
+ * Tracked files with changes that are not committed (staged or not), in NFC; untracked files do
+ * not stop a pull. Empty while a rebase or merge waits: git's own message says more then.
+ */
+function uncommitted(root) {
+  const res = git(root, ['status', '--porcelain', '-z', '--untracked-files=no'], { allowFail: true });
+  if (!res.ok) return [];
+  const out = [];
+  const parts = res.stdout.split('\0');
+  for (let i = 0; i < parts.length; i++) {
+    const entry = parts[i];
+    if (entry.length < 4) continue;
+    out.push(entry.slice(3).normalize('NFC'));
+    // A rename or copy is followed by its old name, which is no file of its own.
+    if (entry[0] === 'R' || entry[0] === 'C') i++;
+  }
+  return out;
 }
 
 /** Conflicted paths in NFC (git prints names as stored, NFD on some disks). */
@@ -108,6 +129,12 @@ export async function run(argv, cfg) {
   if (!remotes) {
     process.stdout.write(`${cfg.t('sync.no_remote')}\n`);
     return 0;
+  }
+  const changed = rebaseInProgress(root) ? [] : uncommitted(root);
+  if (changed.length) {
+    const files = `${changed.slice(0, 5).join(', ')}${changed.length > 5 ? `, … +${changed.length - 5}` : ''}`;
+    process.stderr.write(`${cfg.t('sync.uncommitted', { n: changed.length, files })}\n`);
+    return 1;
   }
 
   try {

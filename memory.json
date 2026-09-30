@@ -10,6 +10,8 @@
   "agents": ["claude-code", "codex", "gemini-cli", "cursor", "chatgpt", "claude-app"],
   "budgets": {},
   "search": { "log": false, "n": 5 },
+  "feedback": { "notice": true, "log": true },
+  "updates": { "check": false, "github": true },
   "eval": { "golden": "system/tests/golden.json", "min": 0.9 },
   "cleanup": { "provider": "none" }
 }

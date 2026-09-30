@@ -5,7 +5,8 @@
 // projects.store is local, keeps the capture in the inbox of the local root: the text may be about
 // a client, and nothing about a client may reach git by itself. Elsewhere (the vault, or no
 // repository at all) the capture goes into the inbox. Secrets are refused. Reads the text from
-// stdin when none is given.
+// stdin when none is given. Every save is a line of the activity log (a note outside the vault
+// folder, in a local root, only counted).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,6 +14,7 @@ import {
   ProjectError, identifyIn, insideVault, findProject, appendLine, noteAbs, projectSettings, ensureLocalRoot, shownPath, vaultCommand,
   REMEMBER_TYPES,
 } from '../projects.mjs';
+import { agentFromEnv, logActivity } from '../activity.mjs';
 import { serialize } from '../frontmatter.mjs';
 import { scanText } from '../secrets.mjs';
 import { fold } from '../text.mjs';
@@ -143,6 +145,8 @@ export async function run(argv, cfg) {
       mem.close?.();
     }
   }
+  const inVault = typeof result.rel === 'string' && !result.local && !path.isAbsolute(result.rel) && !result.rel.startsWith('..');
+  logActivity(cfg, { via: 'cli', op: 'save', agent: agentFromEnv(), ...(inVault ? { notes: [result.rel] } : { local: 1 }), ...(sector ? { project: sector } : {}) });
   if (values.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   return 0;
 }

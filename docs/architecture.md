@@ -19,8 +19,15 @@ server 10.9 (user guides: docs/api.md, docs/integrations/mcp.md).
 ## 1. Conventions (apply to every file you write)
 
 ### 1.1 Runtime
-- Node >= 22, ESM only (`.mjs`), **zero dependencies**, no network access at runtime (the one
-  exception: `upgrade` fetches the kit with `git clone`, section 10.6). Built-ins only:
+- Node >= 22, ESM only (`.mjs`), **zero dependencies**, no network access at runtime (the
+  exceptions go through git where the owner asks for them: `sync` pulls and pushes the vault's own
+  remote, and `upgrade` fetches the kit with `git clone`, section 10.6).
+  The update check (10.6) reads the kit's version tags with `git ls-remote`, when the owner runs
+  `upgrade --check` or turns the daily check on (`"updates": {"check": true}`, off by default).
+  `system/tests/unit/network.test.mjs` proves it: no module imports a built-in that opens a
+  connection, calls a network API of the runtime or starts a download tool, and git gets `pull`
+  and `push` only in `commands/sync.mjs`, `clone` only in `lib/upgrade.mjs` and `ls-remote` only
+  in `lib/updates.mjs`. Built-ins only:
   `node:fs`, `node:path`, `node:os`, `node:crypto`, `node:child_process` (git, rg), `node:util`
   (`parseArgs`), `node:sqlite` (optional, see 13.6), `node:test`, `node:assert`.
 - `node:sqlite` prints an `ExperimentalWarning`. Any module that imports it must first install a
@@ -62,7 +69,9 @@ server 10.9 (user guides: docs/api.md, docs/integrations/mcp.md).
 - Sorting: explicit keys, ties broken by `rel` with plain code-unit comparison (`a < b`), never
   `localeCompare`. Numbers are printed with `String(n)` or `n.toFixed(k)`, never `toLocaleString`.
 - Only these may read the clock: `new`, `sector` (dates written into files), `init`, `sync`,
-  the search log line and the human search footer timing. All of them accept `--today` too.
+  the search log line and the human search footer timing. All of them accept `--today` too. So may
+  the lines of the activity log and `activity` (10.10), which are about this computer's use of
+  the memory, not about its notes, and never feed a generated file.
 
 ### 1.4 Errors and exit codes
 | code | meaning |
@@ -208,6 +217,8 @@ only ever use notes with `note.root === 'main'`.
   "agents": ["claude-code", "codex", "gemini-cli", "cursor", "chatgpt", "claude-app"],
   "budgets": {},
   "search": { "log": false, "n": 5 },
+  "feedback": { "notice": true, "log": true },
+  "updates": { "check": false, "github": true },
   "eval": { "golden": "system/tests/golden.json", "min": 0.9 },
   "cleanup": { "provider": "none" }
 }
@@ -225,6 +236,10 @@ only ever use notes with `note.root === 'main'`.
 | `budgets` | object | overrides of section 3.1 keys; a value larger than the default is clamped to the default and a config warning is recorded |
 | `search.log` | bool | append queries to `system/usage/search.log` (default false) |
 | `search.n` | int | default result count (default 5, max 20) |
+| `feedback.notice` | bool | the owner's line at a session start in Claude Code (10.4, and the project hooks of `connect --projects`); default true, a value that is not a boolean → config warning, true |
+| `feedback.log` | bool | the activity log of this computer (10.10); default true, same rule |
+| `updates.check` | bool | the daily check for a newer kit at a session start, in the background (10.6); default false, so the kit never goes online by itself; not a boolean → config warning, false |
+| `updates.github` | bool | the nightly CI of a vault on GitHub opens one issue about a newer kit (15.4); default true, not a boolean → config warning, true |
 | `eval.golden` | string | rel path of the golden file |
 | `eval.min` | number | minimum hit@3 for exit 0 (default 0.9) |
 | `cleanup.provider` | string | phase 1 accepts only `"none"` (roadmap placeholder); any other value → config warning, treated as none |
@@ -677,7 +692,8 @@ type Cfg = {
   commands: {alias: canon}, subcommands: {sector: {alias: canon}}, flags: {alias: canon},
   stopwords: Set<string>, diacriticClasses: object, genericNames: Set<string>,
   presets: object, exportSuffix: string, profileNote: string, startSafety: string[],
-  budgets: object /* merged + clamped */, search: {log, n}, eval: {golden, min},
+  budgets: object /* merged + clamped */, search: {log, n}, feedback: {notice, log}, updates: {check, github},
+  eval: {golden, min},
   cleanup: {provider: 'none'}, profile: string|null, agents: string[],
   warnings: string[],
   t(key: string, vars?: object): string,
@@ -903,9 +919,9 @@ canonical names by `memory.mjs`. Commands parse with `util.parseArgs` from `node
 the kit whose code runs (it differs from `root` when another checkout upgrades this vault).
 `doctor`, `upgrade` and `mcp` also run when memory.json or a pack cannot be loaded: then `cfg` is
 null, `ctx.configError` holds the error and they read what they need themselves. Commands: `start`,
-`check`, `search`, `new`, `sector`, `sync`, `eval`, `doctor`, `upgrade`, `connect`, `mcp`, and from
+`check`, `search`, `new`, `sector`, `sync`, `eval`, `doctor`, `upgrade`, `connect`, `mcp`, from
 0.1.2 `remember`, `project`, `hook` (also run without a readable memory.json: it logs that and
-exits 0) and `setup`.
+exits 0) and `setup`, and from 0.1.3 `activity`.
 
 Extra exports used by init:
 ```js
@@ -990,7 +1006,23 @@ characters. Every call reads the notes afresh.
 // lib/startview.mjs (core): the start view as a pure function, used by start, the API and mcp
 export async function renderStartView(cfg, {sectors, today, surface = 'cli' | 'mcp', project: {command}}?):
   {text, stale, initialized, failed}   // project: the view of the project hooks, absolute command and paths
-export function formatStartView(view, format = 'text' | 'gemini-hook' | 'json'): string
+export async function buildStartView(cfg, options): {view, counts: {notes, sectors} | null, error: string | null}
+export function startNotice(cfg, built, {command, project}?): string | null   // the owner's line (10.4); null when off
+export function claudeHookJson(text, notice, maxBytes): string   // one line + \n, cut to fit maxBytes
+export function formatStartView(view, format = 'text' | 'claude-hook' | 'gemini-hook' | 'json', {notice, maxBytes}?): string
+// lib/activity.mjs (core, 0.1.3): the activity log (10.10); imports only node built-ins and util
+export const ACTIVITY_REL, ACTIVITY_OPS, ACTIVITY_VIA
+export function logActivity(cfgOrRoot, entry, {now, env}?): boolean   // never throws
+export function readActivity(root, {limit}?), activityEntry(entry, now), activityOn(cfgOrRoot),
+  agentFromEnv(env), localDay(time), summarizeActivity(entries, {now, days, latest, top})
+// lib/updates.mjs (core, 0.1.3): the update check (10.6); git ls-remote only here
+export const UPDATES_REL                                   // .memory-kit/updates.json
+export function latestFromTags(lsRemoteText): string | null   // vX.Y.Z or X.Y.Z; no pre-release
+export function latestAt({dir} | {url}, {git, env}?): string   // throws UpdateCheckError
+export function releasesOf(source, version?): {page, tag} | null   // a GitHub source only
+export function updateSettings(cfgOrRoot): {check, github}
+export function readUpdates(root), writeUpdates(root, data), checkDue(cfg, {env, now}),
+  checkInBackground(cfg, {env, now, start}), updateLine(cfg, {command, now, mark}), issueText(cfg, {latest, installed, source})
 // lib/fsafe.mjs (core): writeAtomic, copyAtomic, renameRetry, unlinkRetry, removeTree, retrySync
 // lib/kit.mjs (core): KIT_FILE, HISTORY_FILE, compareVersions, hashText, hashFile, groupOf,
 //   listKitFiles, buildManifest, loadManifest, loadHistory, knownHashes, integrityReport
@@ -1014,7 +1046,7 @@ export function formatStartView(view, format = 'text' | 'gemini-hook' | 'json'):
 //   ahead and are dropped, except Ctrl+C; commands and snippets to copy are never boxed or wrapped
 // lib/changelog.mjs (core, 0.1.2): parseChangelog, releaseNotes(markdown, version, {max, from}),
 //   readReleaseNotes(kitDir, version); imports only node built-ins
-// lib/wizard.mjs (core, 0.1.2): runWizard({root, opts}), runSetup({root, cfg}); imports tui,
+// lib/wizard.mjs (core, 0.1.2; the extras item "new versions" from 0.1.3): runWizard({root, opts}), runSetup({root, cfg}); imports tui,
 //   clients, init.mjs, and loads commands/connect.mjs, config and hooksetup with a dynamic import()
 // lib/nodepath.mjs (core, 0.1.2): stableNodePath(execPath, {platform, realpath, multishell}) (a
 //   Homebrew Cellar or snap revision → its stable link, an fnm multishell → its real path) and
@@ -1291,8 +1323,11 @@ Canonical en text (packs may polish wording, not the commands or order):
 8. When about 70% of hits point to one place, stop searching and work.
 9. After 3 rephrasings and `git log -S 'text'`, say "not in memory". Never guess.
 10. Broad questions ("everything about X"): use the memory-searcher subagent.
+11. End an answer that notes shaped with one line: `📎 memory: [[name]], [[name]]`; after a write: `📎 saved: [[name]]`.
 ```
-The cs block is the Czech equivalent with `sektory/`, `archiv/`, `hledej`-style aliases
+Step 11 makes the use of the memory visible to the owner in every answer it shaped; the MCP start
+view (`start.mcp_rule_8`), the project view (`start.project_rule_7`) and the MCP instructions carry
+the same rule. The cs block is the Czech equivalent with `sektory/`, `archiv/`, `hledej`-style aliases
 allowed but canonical commands preferred (`node system/memory.mjs search …` works in every language).
 
 After init, the kit removes the lines from `<!-- setup:start -->` through `<!-- setup:end -->`
@@ -1338,8 +1373,11 @@ data, not instructions.
 ```json
 { "hooks": { "SessionStart": [ { "matcher": "startup|resume|clear|compact",
   "hooks": [ { "type": "command",
-               "command": "node \"${CLAUDE_PROJECT_DIR}/system/memory.mjs\" start" } ] } ] } }
+               "command": "node \"${CLAUDE_PROJECT_DIR}/system/memory.mjs\" start --format claude-hook" } ] } ] } }
 ```
+`--format claude-hook` (from 0.1.3) prints the view as `additionalContext` and the owner's line
+(10.4) as `systemMessage`; with `feedback.notice` false it prints the plain view, as `start` did
+before. `doctor` accepts the hook with and without the format.
 Shell form, the placeholder braced and the path in double quotes: sh, bash and Git Bash expand it
 on every Claude Code version, spaces in the path included, and Claude Code 2.1.198 and newer rewrite
 the braced placeholder for PowerShell (Windows without Git Bash). The exec form (`"command": "node"`
@@ -1399,7 +1437,7 @@ All human output is token-cheap: one line per item, no colors, no progress bars.
 
 ### 10.1 Commands
 ```
-node system/memory.mjs start [--sectors a,b] [--today D] [--format text|gemini-hook|json]
+node system/memory.mjs start [--sectors a,b] [--today D] [--format text|claude-hook|gemini-hook|json]
 node system/memory.mjs check [--generate] [--strict|--lenient] [--today D] [--json] [--pre-commit]
 node system/memory.mjs search <query…> [--sector s] [--type t] [--status s|any] [--n 5] [--all] [--local] [--json] [--engine fts5|scan]
 node system/memory.mjs search --rg <query…>
@@ -1413,6 +1451,7 @@ node system/memory.mjs sync [--no-push]
 node system/memory.mjs eval [--file path] [--min 0.9] [--engine fts5|scan] [--json]
 node system/memory.mjs doctor [--json] [--fix] [--probe]
 node system/memory.mjs upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--yes] [--dry-run] [--force] [--rollback [id]] [--no-verify] [--json] [--verbose]
+node system/memory.mjs upgrade --check [--from <dir|git-url>] [--json]
 node system/memory.mjs connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json]
 node system/memory.mjs connect --list [--json]
 node system/memory.mjs connect claude-code|codex --projects [--auto-add|--no-auto-add] [--store local|git] [--autosync|--no-autosync] [--form shell|exec] [--dry-run] [--remove] [--json]
@@ -1422,12 +1461,15 @@ node system/memory.mjs project add [--store local|git] [--title "…"] [--json]
 node system/memory.mjs project remove|ignore|unignore|list|status [--json]
 node system/memory.mjs hook claude-code|codex session-start|stop|tool-failure|session-end
 node system/memory.mjs setup [--interactive] [--yes]
+node system/memory.mjs activity [--days 7] [--json]
 ```
 `remember`, `project` and `hook` are the memory for coding projects ([projects.md](projects.md)):
 `project` runs inside the code repository; `hook` is what the hooks of `connect … --projects` run,
 with the agent's JSON on stdin, and always exits 0.
 `setup` is interactive: in a set-up vault it opens the extras menu of the setup wizard (connect AI
-apps, memory for coding projects, a health check), in one that is not set up the whole wizard of
+apps, memory for coding projects, a health check, and from 0.1.3 new versions: what is known, the
+channels, the daily check on or off in memory.json, and the steps that add the workflow of the
+issue to an older vault on GitHub), in one that is not set up the whole wizard of
 init; without a terminal it names the plain commands and exits 2 (`--interactive` runs it anyway
 with every default, and sets a vault up only with `--yes`).
 Default check mode is strict. Everything accepts `--root <path>` (handled by memory.mjs). Every
@@ -1481,8 +1523,21 @@ turned into LF, so a CRLF checkout is still fresh and prints LF. The rendering i
 `renderStartView` of `lib/startview.mjs` (7.15), shared with the API and `mcp`. `--format text`
 (default) prints the view; `json` prints `{text, stale, initialized, failed}`; `gemini-hook` prints
 one line `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":<text>}}` with
-every non-ASCII character escaped as `\uXXXX` (Gemini CLI's SessionStart hook). An invalid format
-prints a usage line on stderr and still exits 0.
+every non-ASCII character escaped as `\uXXXX` (Gemini CLI's SessionStart hook). `claude-hook`
+(the vault's Claude Code hook, 9.6) prints one line
+`{"systemMessage":<notice>,"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":<text>}}`,
+the view cut at a line boundary until the whole output fits `hook_bytes`; without a notice
+(`feedback.notice` false) it prints the view as `text` does. The notice is one line for the owner
+(`startNotice`): `start.notice` (the memory loaded, notes and sectors of the view's summary),
+`start.notice_setup` (not set up yet), or `start.notice_failed` (the error, and `doctor`). The
+project hooks put `start.notice_project` (the project's sector) first in their `systemMessage` for
+Claude Code; Codex, which shows no `systemMessage`, gets no such line. A newer kit that a check
+found (10.6) adds the line `updates.notice` once a day (the day is noted as `told` in
+`.memory-kit/updates.json`), also when `feedback.notice` is false; the project hooks relay it to
+Codex like a warning. Every run of `start` is a
+line of the activity log (10.10), with the agent of the format (`claude-hook`: claude-code,
+`gemini-hook`: gemini-cli) or of the environment. An invalid format prints a usage line on stderr
+and still exits 0.
 
 ### 10.5 new, sector, sync, eval
 - `new` prints `created <rel>` and, if the description is empty, `new.fill_description`. It refuses
@@ -1511,7 +1566,11 @@ prints a usage line on stderr and still exits 0.
   `new.reserved`) and a local root written for another OS (`*.foreign_root`). `sector list`: one
   line per sector `<id> · <state> · <privacy> · <notes> notes · <description>`.
 - `sync`: mode `local` → `sync.local_mode`, exit 0 (nothing leaves the computer, even when a remote
-  exists). No remote → `sync.no_remote`, exit 0. Else `git pull --rebase`; while a rebase is in
+  exists). No remote → `sync.no_remote`, exit 0. `sync` never commits: tracked files with changes
+  that are not committed (`git status --porcelain --untracked-files=no`; untracked files do not stop
+  a pull) → `sync.uncommitted` on stderr with the files (at most 5 named) and the commands that
+  commit them, exit 1, before git refuses the pull in its own words (from 0.1.3; not while a rebase
+  waits, whose own message says more). Else `git pull --rebase`; while a rebase is in
   progress: conflicted files (`git diff --name-only --diff-filter=U`) all generated (`_ai/`, `.ignore`,
   the home page) →
   `writeGenerated`, `git add`, `git -c core.editor=true rebase --continue` (max 20 rounds); any other
@@ -1537,6 +1596,23 @@ code. A source newer than the runner takes over:
 child never hands over again). A source that is not newer: "up to date", exit 0. When the runner is
 another checkout (`node <new-kit>/system/memory.mjs upgrade --root <vault>`, how a 0.1.0 vault is
 upgraded), the runner is the source.
+
+`upgrade --check` (from 0.1.3; not with `--yes`, `--dry-run`, `--force`, `--rollback`,
+`--no-verify` or `--ref`) only asks the same source for its newest version (`lib/updates.mjs`): a
+git source with `git ls-remote --tags --refs` (15 s timeout, `GIT_TERMINAL_PROMPT=0`; the newest
+tag `vX.Y.Z` or `X.Y.Z` without a pre-release part), a folder source by its `system/VERSION`.
+Nothing is downloaded and nothing about the vault is sent. It notes `{checked, installed, latest,
+source}` in `.memory-kit/updates.json` and prints `updates.available` and `updates.how` (plus
+`updates.subscribe` with the releases page of a GitHub source, or `updates.subscribe_plain`, while
+`updates.check` is off), or `upgrade.up_to_date`; exit 0. A source that cannot be asked:
+`updates.failed` on stderr, exit 1, nothing noted. `--json` prints `{installed, latest, available,
+source, checked, releases, settings: {check, github}, issue: {title, body} | null, closing, message}`
+for the nightly CI (15.4): `issue` when a newer kit is out (`issueText`), `closing` the comment that
+closes the issue after the upgrade. With `"updates": {"check": true}` a session start (`start`, and
+the project hooks) runs `upgrade --check --json` detached in the background (`checkInBackground`)
+when `checkDue`: the vault is set up, no `CI`, `NO_UPDATE_NOTIFIER` or `MEMORY_KIT_PROBE=1` in the
+environment, and the last attempt is a day old or more (or in the future); the attempt is noted
+first, so parallel sessions start one check, and the session never waits for it.
 
 - **Plan** (`lib/upgrade.mjs` `planUpgrade`, no writes): refuses (exit 1) a source whose files do not
   match its own kit.json, a VERSION and kit.json that disagree, a broken memory.json, an older source
@@ -1666,6 +1742,7 @@ null), in this order:
 | `config.data_version` | memory.json `version` vs `DATA_VERSION` and kit.json `data_version` |
 | `kit.version` | `system/VERSION` and kit.json agree; for a missing or unreadable kit.json the fix is the running kit's `upgrade --root <vault>` when the vault's VERSION is older than that kit, `git checkout -- system/kit.json` only when the last commit has the file, else a copy from the kit |
 | `kit.integrity` | `integrityReport`: missing, changed (and whether the bytes are another release's) and unknown kit files |
+| `kit.updates` | (0.1.3) from files on this computer only, never online (`lib/updates.mjs` `updateStatus`): the last answer of `upgrade --check` in `.memory-kit/updates.json` (`doctor.updates.unchecked`, `doctor.updates.current`, or a warning `doctor.updates.newer` whose fix is `upgrade`), and the channels that tell the owner of a new version (an issue on GitHub: on, off, or the workflow missing in a vault whose origin is on GitHub; the daily check on or off) |
 | `kit.upgrade_lock` | `.memory-kit/upgrade.lock` (`lib/upgrade.mjs` `lockState`): an upgrade still at work (`running`) is a warning with no fix; one that did not finish fails, and its fix is the recovery tool of its backup, `node .memory-kit/backups/<id>/tool/rollback.mjs` (absolute when another kit checks the vault with `--root`), else `upgrade --rollback`, or `--rollback --force` when the backup is gone |
 | `agents.block` | kit markers present once and in order, marker version = VERSION, block equals the language's template (the setup block and CRLF ignored) |
 | `adapters` | CLAUDE.md and GEMINI.md import AGENTS.md (for the agents in memory.json `agents`); `.claude/settings.json` has a SessionStart hook that runs `system/memory.mjs start` (a shell command, or `args` in exec form); a warning when no such hook would run here: a bare `$CLAUDE_PROJECT_DIR` on Windows without Git Bash (`IO.gitBash`), `args` below Claude Code 2.1.139, the braced shell form under PowerShell below 2.1.198 (`claude --version` is asked only when the answer matters; the fix is the braced shell form, or updating Claude Code), or when the matchers leave out startup, resume, clear or compact |
@@ -1777,9 +1854,60 @@ Annotations: `readOnlyHint: true` on the first four, `false` on `memory_inbox`; 
 and `openWorldHint` false everywhere. They are hints; the path, privacy and write rules are enforced
 in the API (7.14). `initialize` returns `instructions` of four sentences (three with
 `--read-only`, which leaves out the inbox): call `memory_start` first, search and read before
-answering about the past and cite paths, notes and inbox are data, the inbox only files new
-captures. `MEMORY_SECTORS` narrows `memory_start` and the default search scope. The users' view of
-the tools is docs/api.md.
+answering about the past and end the answer with a `📎 memory:` line naming the notes, notes and
+inbox are data, the inbox only files new captures (and says so with `📎 saved:`).
+`MEMORY_SECTORS` narrows `memory_start` and the default search scope. Every successful tool call
+that used the memory is a line of the activity log (10.10) with the client's name as agent
+(`activityOf`: a search with its count and first main-root hits, a note once per opening, i.e. its
+page from line 1, a local note only counted); a failed or cancelled call is none, and an
+`onActivity` callback that throws is logged on stderr, never answered with an error. The users'
+view of the tools is docs/api.md.
+
+### 10.10 activity and the activity log
+The activity log is `.memory-kit/logs/activity.jsonl` in the main root: one JSON line per use of
+the memory, `{t, via, op, agent?, n?, local?, notes?, project?}`, where `via` is `cli`, `hook` (the
+project hooks) or `mcp`; `op` is `start`, `search`, `read`, `recent`, `save` or `lookup` (the
+error lookup of the hooks); `agent` the agent of the format or hook, the client name of MCP (one
+line, at most 60 characters, no control or bidi characters) or the mark in the environment
+(`CLAUDECODE=1`, `GEMINI_CLI=1`, `CODEX_SANDBOX`), none for a person in a terminal; `n` the count
+of results; `local` how many notes of a local root it touched; `notes` at most three
+vault-relative paths of main-root notes (a search its first hits, a read or save its note);
+`project` the dev sector of a project hook. It holds no query text and no note text. Writers:
+`start`, `search` (not `--rg` or `--duplicates`), `new`, `remember`, the project hooks (a session
+start that gave a view, an error lookup) and `mcp`. Nothing is written when `feedback.log` is
+false, when memory.json has `"initialized": false` (the kit repository itself) or in a run with
+`MEMORY_KIT_PROBE=1` (`doctor --probe`, and every command `upgrade` runs in the vault to verify it).
+Writing never throws; the first line of a vault puts `.memory-kit/` into `.git/info/exclude` when
+git does not ignore it yet; a file over 512 KiB becomes `activity.1.jsonl` (one old file kept).
+
+`activity [--days N] [--json]` (1 ≤ N ≤ 365, default 7; cs `aktivita`, `--dny`) reads the log, the
+hook log and what is known about newer versions (`updateStatus`, no network), and prints:
+```
+Memory activity on this computer · last 7 days
+Last use: 3 min ago · Claude Code · search · 4 results · sectors/work/pricing.md
+Today: session starts 2 · searches 5 · notes read 3 · saved 1
+Last 7 days: session starts 9 · searches 31 · notes read 14 · saved 2 · error lookups 1
+Who: Claude Code 30 · claude-ai (MCP) 12 · Codex 2
+Notes used most: sectors/work/pricing.md 6 · sectors/core/profile.md 3
+Latest:
+- 3 min ago · Claude Code · search · 4 results · sectors/work/pricing.md
+- 5 min ago · Claude Code · session start · project dev
+Project hooks: last run 5 min ago (session-start, ok) · failed runs in 7 days: 0
+Kit: 0.1.3 · 0.1.4 is out (checked 2 h ago): node system/memory.mjs upgrade
+New versions: an issue on GitHub · no daily check ("updates": {"check": true} turns it on)
+The log stays on this computer (.memory-kit/logs/activity.jsonl; never committed, no query text). Turn it off: "feedback": {"log": false} in memory.json
+```
+"Today" is this computer's calendar day; ages are relative to now; a line from the future (a clock
+that was wrong) is never counted, and is the last use only when every line is from the future. "Who" counts entries per name (at most 5; the CLI and the
+project hooks of one agent are one name, an MCP app keeps its own; `--json` keeps agent and way
+apart); "Notes used
+most" counts reads, the first hit of each search and saves (at most 5; ties by path). "Latest"
+holds the newest 8 entries of the period. Empty log: `activity.never` and, while the log is on,
+`activity.empty_hint` (what fills it, and `doctor`); log off or vault not set up:
+`activity.off` or `activity.not_set_up`. `--json` prints
+`{days, entries, last, today, period, who, notes, latest, log: {on, off, file}, hooks: {last, failures}, updates: {installed, latest, checked, available, channels: {github, check}}}`
+(`today` and `period` count every op, `off` is null, `"off"` or `"not_set_up"`). Always exit 0,
+except a bad flag (2).
 
 ---
 
@@ -2151,7 +2279,19 @@ own line-ending settings (no `core.autocrlf false`); `.gitattributes` decides th
 Windows runs see what an owner's Windows clone sees. Job `vault` (private instances; on push only when public,
 otherwise schedule and manual, because private repos have limited Actions minutes): Node 22,
 `node system/memory.mjs check --lenient` and a search smoke test
-(`node system/memory.mjs search "memory" --json`). CI never commits.
+(`node system/memory.mjs search "memory" --json`). CI never commits. `ci.yml` stays byte for byte
+the file of 0.1.1: a changed workflow in an upgrade would make the vault's next push need a token
+with the `workflow` scope, which the usual `gh` login lacks (`installers.test.mjs` holds it).
+
+`.github/workflows/memory-kit-updates.yml` (from 0.1.3; not in `system/kit.json`, so `upgrade` never
+ships it, like `release.yml`; a vault made from the template has it, an older one adds it on
+GitHub): schedule `41 3 * * *` and manual runs, permissions `contents: read`, `issues: write`. In a
+set-up vault (`"initialized": true`) with `updates.github` not false it runs the vault's own
+`upgrade --check --json` (never a kit fetched in CI; no answer, also from a kit older than 0.1.3,
+ends the step with exit 0), and with `gh`: a newer kit and no open issue labelled `memory-kit` → the
+label (`--force`) and one issue with `issue.title` and `issue.body`; an open one with an older title
+→ it is renamed and gets a comment (a comment notifies, an edit does not); the same title →
+nothing; no newer kit → an open one is closed with `closing`.
 
 ---
 
@@ -2278,6 +2418,31 @@ From 0.1.1:
     four modules copied there import nothing but `node:` modules and each other.
 41. **A running upgrade is never undone.** Its lock (same computer, live process, younger than two
     hours) refuses a second upgrade and every `--rollback`, and `--force` does not override it.
+42. **The memory works in the background, and shows that it does** (0.1.3). A memory that failed to
+    load looked the same as one that worked, and nobody could tell an agent that used the memory
+    from one that did not. So the owner gets one line at a session start in Claude Code (a
+    `systemMessage`, which costs the agent no context), a 📎 line under an answer that notes shaped,
+    and `activity` on demand, and nothing more: no line per search, no summary per session. Codex
+    shows no `systemMessage` and gets no loaded line, since a relay would cost every session a
+    sentence of the agent; failures still reach it. `feedback.notice` turns the line off.
+43. **The activity log is on by default and stays on the computer.** Unlike the search log
+    (decision 14) it is never committed, holds no query text and names no note of a local sector, so
+    it can be on without asking; `feedback.log` turns it off. It records uses by agents and the
+    owner only: a vault that is not set up, `doctor --probe` and the checks of `upgrade` write
+    nothing.
+44. **Every owner can choose how to hear of a new version, and the computer stays quiet by default**
+    (0.1.3). A memory that works in the background is never upgraded if nobody hears of a new
+    kit, and one channel does not fit everyone. So: an issue from the workflow
+    `memory-kit-updates.yml` (in every vault made from the template from 0.1.3 on: GitHub runs it
+    and announces issues by e-mail and in its app, and the computer sends nothing; `upgrade` never
+    ships it, because pushing a changed workflow needs the `workflow` scope, so an older vault adds
+    it once on GitHub; it runs the vault's own CLI, never a kit fetched in CI, which could read the
+    private notes), a daily check at the session start that names a newer version
+    in the owner's line (off by default, because it goes online; it follows the habits of `gh` and
+    npm: once a day, in the background, never in CI, `NO_UPDATE_NOTIFIER` honoured), `upgrade
+    --check` by hand, and GitHub's own release notifications and feed. A check reads version tags
+    only (`git ls-remote`), never downloads, and a pull request that upgrades by itself is out: an
+    upgrade belongs on the owner's computer, with its backup and its checks.
 
 ---
 
@@ -2287,7 +2452,8 @@ Only the owner edits a file. Files marked (+) are additions inside the module's 
 
 | module | files |
 |---|---|
-| core | `system/memory.mjs`, `system/lib/config.mjs`, `system/lib/frontmatter.mjs`, `system/lib/vault.mjs`, `system/lib/check.mjs`, `system/lib/generate.mjs`, `system/lib/fingerprint.mjs`, `system/lib/secrets.mjs`, `system/lib/commands/{start,check,new,sector,sync}.mjs`, `system/VERSION`, (+) `system/lib/util.mjs`; from 0.1.1 `system/api.mjs` (public JS API), `system/lib/{fsafe,startview,kit,upgrade,migrations,schema,doctor,mcp,clients,jsonc}.mjs`, `system/lib/commands/{doctor,upgrade,connect,mcp}.mjs`, `system/schema/*.schema.json`, `system/migrations/index.mjs`, `system/tools/release.mjs`, `system/kit.json`, `system/kit-history.json` |
+| core | `system/memory.mjs`, `system/lib/config.mjs`, `system/lib/frontmatter.mjs`, `system/lib/vault.mjs`, `system/lib/check.mjs`, `system/lib/generate.mjs`, `system/lib/fingerprint.mjs`, `system/lib/secrets.mjs`, `system/lib/commands/{start,check,new,sector,sync}.mjs`, `system/VERSION`, (+) `system/lib/util.mjs`; from 0.1.1 `system/api.mjs` (public JS API), `system/lib/{fsafe,startview,kit,upgrade,migrations,schema,doctor,mcp,clients,jsonc}.mjs`, `system/lib/commands/{doctor,upgrade,connect,mcp}.mjs`, from 0.1.3 `system/lib/activity.mjs`,
+`system/lib/updates.mjs` and `system/lib/commands/activity.mjs`, `system/schema/*.schema.json`, `system/migrations/index.mjs`, `system/tools/release.mjs`, `system/kit.json`, `system/kit-history.json` |
 | search | `system/lib/text.mjs`, `system/lib/search.mjs`, `system/lib/commands/search.mjs`, `system/lang/cs/stemmer.mjs`, `system/lang/cs/base-stemmer.mjs`, `system/lang/en/stemmer.mjs`, `system/lang/en/base-stemmer.mjs` (or a shared `system/lang/snowball-base.mjs`), `system/lang/LICENSE-snowball.txt` |
 | packs | `system/lang/{en,cs}/pack.json`, `system/templates/{en,cs}/*.md` (as `system/templates/{en,cs}/notes/*.md` and (+) `system/templates/{en,cs}/kit/*`), `system/init.mjs`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.agents/skills/memory/SKILL.md`, `.claude/agents/memory-searcher.md`, `.claude/settings.json`, `.githooks/pre-commit`, `.gitignore`, `.gitattributes`, `memory.json`, `home.md`, `state.md`, `waiting.md`, `sectors/core/_core.md`, `inbox/.gitkeep`, `journal/.gitkeep`, `archive/.gitkeep`, `attachments/.gitkeep` |
 | tests | `system/tests/**` (incl. `golden.json`, fixtures, helpers), `system/lib/eval.mjs`, `system/lib/commands/eval.mjs`, `.github/workflows/ci.yml` |

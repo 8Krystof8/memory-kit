@@ -7,6 +7,7 @@ and how to undo it. The last part is for maintainers who publish a new version.
 ## Contents
 
 - [What an upgrade promises](#what-an-upgrade-promises)
+- [Hearing of a new version](#hearing-of-a-new-version)
 - [Upgrade in four commands](#upgrade-in-four-commands)
 - [What happens, step by step](#what-happens-step-by-step)
 - [Which files change](#which-files-change)
@@ -37,6 +38,33 @@ and how to undo it. The last part is for maintainers who publish a new version.
   and golden questions. If anything fails, it puts every file back, byte for byte.
 - **It can be undone.** `upgrade --rollback` restores the backup, also after an interrupted
   upgrade.
+
+## Hearing of a new version
+
+Four ways, and you can use several; the README's
+[Hear of new versions](../README.md#hear-of-new-versions) shows them side by side:
+
+- **An issue in your memory's repository** (on in every memory on GitHub made from 0.1.3 on). The
+  nightly workflow `.github/workflows/memory-kit-updates.yml` runs the vault's own
+  `upgrade --check --json` and opens one issue labelled `memory-kit` when a newer kit is out; a
+  still newer one renames it and adds a comment, and after your upgrade it is closed. It may read
+  the vault and write issues, nothing else. Off: `"updates": {"github": false}` in `memory.json`.
+  `upgrade` never ships this file (it is not in `system/kit.json`), because a changed workflow
+  makes the next push need a token with the `workflow` scope; an older memory adds it once on
+  GitHub (Add file → Create new file), which needs no such token.
+- **A line at the session start** (off by default). With `"updates": {"check": true}` the session
+  start runs `upgrade --check` in the background at most once a day, never in CI and never with
+  `NO_UPDATE_NOTIFIER` set; Claude Code then shows a newer version once a day next to the line
+  `memory-kit: memory loaded …`, and Codex gets it through the agent.
+- **By hand:** `node system/memory.mjs upgrade --check` (`--json` for scripts).
+- **On GitHub:** Watch → Custom → Releases on the kit's page, or its feed
+  `https://github.com/8Krystof8/memory-kit/releases.atom`.
+
+`upgrade --check` asks the source that `upgrade` would use ([Where the new kit comes
+from](#where-the-new-kit-comes-from)): a git source with one `git ls-remote --tags` (the newest tag
+`vX.Y.Z` without a pre-release part), a folder by its `system/VERSION`. It downloads nothing, sends
+nothing about the vault, notes the answer in `.memory-kit/updates.json` and ends with exit 0, or 1
+when the source cannot be asked.
 
 ## Upgrade in four commands
 
@@ -465,6 +493,7 @@ The upgrade itself needs no network. Only fetching a git URL does.
 ```text
 node system/memory.mjs upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--yes] [--dry-run]
                                [--force] [--rollback [backup-id]] [--no-verify] [--json]
+node system/memory.mjs upgrade --check [--from <dir|git-url>] [--json]
 ```
 
 | option | Czech alias | what it does |
@@ -476,7 +505,8 @@ node system/memory.mjs upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--ye
 | `--force` | `--vynutit` | replace files you changed, ignore uncommitted changes and the lock of an interrupted upgrade, allow a downgrade; with `--rollback`: restore files changed after the upgrade (your version is saved under `conflicts/` first), or remove a lock whose backup is gone. It never overrides an upgrade that is still running |
 | `--rollback [id]` | `--vratit` | restore the newest backup (after an interrupted upgrade: its backup), or the named one |
 | `--no-verify` | `--bez-overeni` | skip the checks before and after |
-| `--json` | | print `{ runner, delegated_from, plan, result }` as JSON |
+| `--json` | | print `{ runner, delegated_from, plan, result }` as JSON; with `--check`, `{ installed, latest, available, source, checked, releases, settings, issue, closing, message }` |
+| `--check` | | only say whether the source has a newer version ([Hearing of a new version](#hearing-of-a-new-version)); not with `--yes`, `--dry-run`, `--force`, `--rollback`, `--no-verify` or `--ref` |
 
 Exit codes: 0 done or up to date, 1 refused, blocked or failed (and rolled back), 2 a usage error,
 3 an internal error.

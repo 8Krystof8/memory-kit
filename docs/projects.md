@@ -16,7 +16,7 @@ spaces and accents in the path of the vault.
 | when | what the memory does |
 |---|---|
 | a session starts in a repository the vault does not know | tells you once per repository, in two lines, how to give it a memory (`project add`) or silence the hint (`project ignore`). Nothing is added by itself, unless `auto_add` is on |
-| a session starts in a project | shows the agent the branch, uncommitted files, last commits, the handoff, conventions, gotchas and dead ends of *this* project, plus the start view narrowed to it; since the agent works in the code repository, the view's commands and paths name the vault by its full path |
+| a session starts in a project | shows the agent the branch, uncommitted files, last commits, the handoff, conventions, gotchas and dead ends of *this* project, plus the start view narrowed to it; since the agent works in the code repository, the view's commands and paths name the vault by its full path. In Claude Code you get one line, `memory-kit: memory loaded for this project (dev) · 58 notes` (`"feedback": {"notice": false}` in `memory.json` turns it off) |
 | a session starts anywhere | tells you, once per failure, when the last sync or a hook run failed, with the fix |
 | the agent finishes and the code changed | asks it once per session to rewrite the handoff and record fixed errors, dead ends and decisions (no extra model call: the agent is running anyway). "Changed" is a new commit, or uncommitted files that differ from the session's start in their list, size or time, so a file edited again counts; a compaction or a resume keeps the start. When another session worked in the same repository within a day, the request says the changes may not all be this session's. A Claude Code run without a person (`claude -p`, the Agent SDK) is never asked, since the reply would become its result; `codex exec` gives no such sign, so it is asked unless `checkpoint` is false. The hooks read the repository with `GIT_OPTIONAL_LOCKS=0`, so they never take its index lock; when git cannot answer, nothing is asked |
 | a Bash or PowerShell command fails (Claude Code) | looks the error up in the project's gotchas and dead ends and hands a match (three lines at most) to the agent; interrupts, short errors and repeats are skipped, and a session makes five lookups at most |
@@ -104,6 +104,9 @@ Every hook run adds a line to `.memory-kit/logs/hooks.jsonl` in the vault (a loc
 repository appears only as a hash): the event, whether it worked, how long it took and, for
 autosync, the failing step (`lock`, `check`, `commit`, `pull` or `push`), the error and the fix.
 `project status` and `doctor` show it, and the next session start tells you about a new failure.
+A session start that gave the agent the project's view and an error lookup are also lines of the
+activity log (`.memory-kit/logs/activity.jsonl`, with the project's sector, never its repository),
+which `node system/memory.mjs activity` shows next to the uses of the CLI and the MCP apps.
 
 `.memory-kit/` is never committed. A clone whose `.gitignore` lacks the line (a vault made by
 0.1.0 does) gets `.memory-kit/` in its `.git/info/exclude` before the first file there, autosync

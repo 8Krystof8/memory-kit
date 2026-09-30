@@ -13,8 +13,9 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { spawn } from 'node:child_process';
 import {
-  ERRORS, FALLBACK_VERSION, INSTRUCTIONS, LEGACY_VERSIONS, MODERN_VERSIONS, createServer, serveStdio,
+  ERRORS, FALLBACK_VERSION, INSTRUCTIONS, LEGACY_VERSIONS, MODERN_VERSIONS, activityOf, createServer, serveStdio,
 } from '../../lib/mcp.mjs';
+import { ACTIVITY_REL } from '../../lib/activity.mjs';
 import {
   KIT_ROOT, fixtureVault, plantSecret, readFile, removeTmpDirs, runCli, tmpDir, writeFile, writeJson,
 } from '../helpers.mjs';
@@ -183,6 +184,17 @@ class Client {
     assert.equal(this.tail ?? '', '', 'stdout ends with a complete line');
     return exit;
   }
+}
+
+/** The activity log of a vault: its text and its entries. */
+function activityLog(root) {
+  let text = '';
+  try {
+    text = fs.readFileSync(path.join(root, ...ACTIVITY_REL.split('/')), 'utf8');
+  } catch {
+    /* nothing recorded */
+  }
+  return { text, entries: text.split('\n').filter(Boolean).map((l) => JSON.parse(l)) };
 }
 
 /** The text of a tool result's single text block. */
@@ -892,6 +904,58 @@ describe('JSON-RPC framing and lifecycle', () => {
 
 // ---------------------------------------------------------------------------------------------
 
+describe('the activity log of the MCP server', () => {
+  test('every call that used the memory is a line with the client: a note once per opening, no query, a local one only counted', async () => {
+    const v = fixtureVault('en');
+    const c = new Client(v.root, ['--local']);
+    await c.initialize();
+    await c.call('memory_start', {});
+    const found = await c.call('memory_search', { query: 'harbor bakery pricing' });
+    const top = found.structuredContent.results.find((r) => !r.local).rel;
+    await c.call('memory_read', { path: top, lines: 5 });
+    await c.call('memory_read', { path: top, offset: 6, lines: 5 });
+    const local = (await c.call('memory_search', { query: 'running plan' })).structuredContent.results.find((r) => r.local);
+    await c.call('memory_read', { path: local.rel, lines: 3 });
+    await c.call('memory_recent', {});
+    await c.call('memory_inbox', { text: 'Harbor Bakery asks for a loyalty card.', title: 'loyalty card ask' });
+    assertToolError(await c.call('memory_read', { path: 'sectors/work/no-such-note.md' }));
+    await c.close();
+    const { text, entries } = activityLog(v.root);
+    assert.deepEqual(entries.map((e) => [e.via, e.op, e.agent]), [
+      ['mcp', 'start', 'test-client'], ['mcp', 'search', 'test-client'], ['mcp', 'read', 'test-client'],
+      ['mcp', 'search', 'test-client'], ['mcp', 'read', 'test-client'], ['mcp', 'recent', 'test-client'], ['mcp', 'save', 'test-client'],
+    ], 'the second page of a note and a failed call are no new use');
+    assert.deepEqual(entries[2].notes, [top]);
+    assert.deepEqual([entries[4].notes, entries[4].local], [undefined, 1]);
+    assert.ok(entries[3].local >= 1);
+    assert.match(entries[6].notes[0], /^inbox\/\d{4}-\d{2}-\d{2}-loyalty-card-ask\.md$/);
+    assert.ok(!/harbor bakery pricing|running plan|running-plan|loyalty card\./i.test(text), text);
+  });
+
+  test('feedback.log false: the server records nothing', async () => {
+    const v = fixtureVault('en');
+    const cfg = JSON.parse(readFile(v.root, 'memory.json'));
+    writeJson(v.root, 'memory.json', { ...cfg, feedback: { log: false } });
+    const c = new Client(v.root);
+    await c.initialize();
+    await c.call('memory_search', { query: 'pricing' });
+    await c.close();
+    assert.equal(activityLog(v.root).entries.length, 0);
+  });
+
+  test('activityOf: what each tool records', () => {
+    assert.deepEqual(activityOf('memory_start', { text: 'x' }, 'app'), { via: 'mcp', agent: 'app', op: 'start' });
+    assert.deepEqual(activityOf('memory_search', { total: 9, localHits: 2, results: [{ rel: 'a.md', local: false }, { rel: 'b.md', local: true }] }),
+      { via: 'mcp', op: 'search', n: 9, notes: ['a.md'], local: 3 });
+    assert.deepEqual(activityOf('memory_read', { path: 'a.md', root: 'main', from: 1 }), { via: 'mcp', op: 'read', notes: ['a.md'] });
+    assert.equal(activityOf('memory_read', { path: 'a.md', root: 'main', from: 40 }), null);
+    assert.deepEqual(activityOf('memory_read', { path: '../private/x.md', root: 'private', from: 1 }), { via: 'mcp', op: 'read', local: 1 });
+    assert.deepEqual(activityOf('memory_recent', { days: 7, notes: [{}, {}] }), { via: 'mcp', op: 'recent', n: 2 });
+    assert.deepEqual(activityOf('memory_inbox', { path: 'inbox/x.md' }), { via: 'mcp', op: 'save', notes: ['inbox/x.md'] });
+    assert.equal(activityOf('memory_unknown', {}), null);
+  });
+});
+
 describe('the protocol engine in-process', () => {
   /** Runs serveStdio over a PassThrough; returns helpers to feed lines and read responses. */
   function harness(options) {
@@ -902,6 +966,22 @@ describe('the protocol engine in-process', () => {
     const messages = () => out.join('').split('\n').filter(Boolean).map(assertJsonRpcLine);
     return { input, out, logs, done, messages };
   }
+
+  test('an onActivity that throws: the answer still goes out and the problem is logged', async () => {
+    const logs = [];
+    const seen = [];
+    const open = async () => ({ t: (key) => key, start: async () => ({ text: 'x', stale: false, initialized: true, failed: false }), close() {} });
+    const onActivity = (entry) => {
+      seen.push(entry);
+      throw new Error('disk full');
+    };
+    const server = createServer({ root: tmpDir('mcp-activity'), open, log: (l) => logs.push(l), onActivity });
+    await server.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', clientInfo: { name: 'probe-app' } } }));
+    const res = JSON.parse(await server.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'memory_start', arguments: {} } })));
+    assert.equal(res.result.isError, false);
+    assert.deepEqual(seen, [{ via: 'mcp', agent: 'probe-app', op: 'start' }]);
+    assert.ok(logs.some((l) => l === 'activity not recorded: disk full'), logs.join('\n'));
+  });
 
   test('a cancelled request gets no response; the others do', async () => {
     let release;

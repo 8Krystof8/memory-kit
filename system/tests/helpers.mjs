@@ -49,8 +49,9 @@ export const LANGS = {
   },
 };
 
-// Never copied into a test vault.
-const SKIP_NAMES = new Set(['.git', 'node_modules', '.cache', '.trash']);
+// Never copied into a test vault. .memory-kit/ holds this computer's logs and backups (a session
+// in the kit checkout itself can make it), never a part of the kit.
+const SKIP_NAMES = new Set(['.git', 'node_modules', '.cache', '.trash', '.memory-kit']);
 
 // ---------------------------------------------------------------------------------------------
 // Temporary folders
@@ -225,7 +226,10 @@ export function agentHome(label = 'agent-home', { claudeVersion = '2.1.282' } = 
 // Running the CLI
 
 // Variables that would change what a command does; tests set them explicitly when needed.
-const SCRUBBED_ENV = ['MEMORY_SECTORS', 'MEMORY_SEARCH_ENGINE', 'NODE_TEST_CONTEXT', 'NODE_OPTIONS', 'CLAUDE_CODE_REMOTE', 'CLAUDE_CODE_ENTRYPOINT', 'CODESPACES', 'GITPOD_WORKSPACE_ID'];
+// The marks agents leave in the environment of their commands (lib/activity.mjs agentFromEnv) go
+// too: a test run inside Claude Code must see what CI sees.
+const SCRUBBED_ENV = ['MEMORY_SECTORS', 'MEMORY_SEARCH_ENGINE', 'NODE_TEST_CONTEXT', 'NODE_OPTIONS', 'CLAUDE_CODE_REMOTE', 'CLAUDE_CODE_ENTRYPOINT', 'CODESPACES', 'GITPOD_WORKSPACE_ID',
+  'CLAUDECODE', 'GEMINI_CLI', 'CODEX_SANDBOX', 'CODEX_SANDBOX_NETWORK_DISABLED', 'MEMORY_KIT_PROBE'];
 
 function childEnv(extra = {}) {
   const env = { ...process.env };

@@ -70,6 +70,11 @@ The app then has five tools:
 
 Details about each tool are in [api.md](../api.md#the-mcp-server).
 
+The server asks the app's AI to end an answer that your notes shaped with one line such as
+`📎 memory: [[pricing]], [[harbor-bakery]]`, so you see when it used the memory. Each tool call is
+also a line of the activity log on this computer, with the app's name: `node system/memory.mjs
+activity` shows which apps used the memory and when ([Is it working?](../../README.md#is-it-working)).
+
 `connect` needs to run once per app and computer. The settings point at the vault folder on this
 computer, so on another computer run it there too.
 
@@ -241,6 +246,9 @@ args = ["/home/you/my-memory/system/memory.mjs", "mcp", "--root", "/home/you/my-
   password. Connect with `--read-only` when an app should not write at all.
 - `memory_read` opens only notes. Kit code, `.git/`, hidden folders and paths outside the vault are
   refused in code, whatever the app sends.
+- The activity log (`.memory-kit/logs/activity.jsonl`) stays on this computer and is never
+  committed. It records the app's name and what a call did, never the query or note text, and a
+  note of a local sector only as a count. `"feedback": {"log": false}` in `memory.json` turns it off.
 
 ## Troubleshooting
 
@@ -261,4 +269,5 @@ vault and warns about entries that no longer work.
 | Gemini CLI lists no tools | the folder is not trusted; Gemini CLI starts no MCP servers in untrusted folders |
 | `could not be written … close … and run the command again` | on Windows the app holds the file open; close the app and run `connect` again |
 | every tool call answers with a config error | `memory.json` of the vault is broken; the server keeps running and reports it. `node system/memory.mjs doctor` shows how to fix it |
+| you are not sure the app uses the memory at all | run `node system/memory.mjs activity`: every tool call it made is listed with the app's name; nothing there after a session means the app never called the tools (ask it to call `memory_start`) |
 | you moved or renamed the vault folder | the entry still points at the old folder, so `connect` in the new place reports a conflict: run it with `--force` to replace the old entry |

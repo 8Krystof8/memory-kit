@@ -64,9 +64,20 @@ function startOut(res) {
   return { user: j.systemMessage ?? '', context: j.hookSpecificOutput?.additionalContext ?? '' };
 }
 const vaultCmd = (v) => `${commandNode()} "${v.root.replace(/\\/g, '/')}/system/memory.mjs"`;
+// The line that tells the user the memory of a known project loaded (memory.json feedback.notice).
+const LOADED = /^memory-kit: (?:memory loaded for this project|paměť tohoto projektu načtena) \(([a-z0-9-]+)\) · /;
+/** What a session start tells the user besides that line: warnings and hints. */
+const news = (user) => user.split('\n').filter((l) => l && !LOADED.test(l)).join('\n');
 // The vault command in a message: the Node.js by its path (quoted, or a bare word), then the script.
 const CMD = '(?:"[^"]*"|\\S+) ".*memory\\.mjs"';
 const failure = (v, repo, sid, extra) => hook(v, 'tool-failure', { cwd: repo, session_id: sid, hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', is_interrupt: false, ...extra });
+const activityOf = (v) => {
+  try {
+    return fs.readFileSync(path.join(v.root, '.memory-kit', 'logs', 'activity.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  } catch {
+    return [];
+  }
+};
 const logOf = (v) => {
   try {
     return fs.readFileSync(path.join(v.root, '.memory-kit', 'logs', 'hooks.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -196,6 +207,10 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
         assert.deepEqual({ ...added, code: undefined }, { code: undefined, ok: true, action: 'add', created: true, sector: 'dev', store, key: 'github.com/linden/shop', notes: notesDir });
         const again = projectJson(v, 'add', repo);
         assert.deepEqual([again.created, again.sector], [false, 'dev']);
+        // The text status of an added project names its sector and never also says "not added".
+        const text = project(v, 'status', repo).stdout;
+        assert.match(text, lang === 'cs' ? /sektor dev/ : /sector dev/, text);
+        assert.doesNotMatch(text, lang === 'cs' ? /nepřidaný/ : /not added/, text);
         const mem = JSON.parse(fs.readFileSync(path.join(v.root, 'memory.json'), 'utf8'));
         if (store === 'git') assert.deepEqual(mem.projects.repos, { 'github.com/linden/shop': 'dev' });
         else {
@@ -210,10 +225,13 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
         let list = projectJson(v, 'list', repo);
         assert.deepEqual(list.projects, [{ sector: 'dev', store, key: 'github.com/linden/shop', notes: notesDir, last_session: null }]);
 
-        const brief = start(v, repo, 's1');
-        assert.equal(brief.code, 0, brief.stderr);
-        assert.match(brief.stdout, lang === 'cs' ? /^# Projekt shop · sektor paměti `dev`/ : /^# Project shop · memory sector `dev`/);
-        assert.ok(!/Warning|Pozor/.test(brief.stdout), 'no warnings without failures');
+        const briefRun = start(v, repo, 's1');
+        assert.equal(briefRun.code, 0, briefRun.stderr);
+        const brief = startOut(briefRun);
+        assert.match(brief.context, lang === 'cs' ? /^# Projekt shop · sektor paměti `dev`/ : /^# Project shop · memory sector `dev`/);
+        assert.match(brief.user, lang === 'cs' ? /^memory-kit: paměť tohoto projektu načtena \(dev\) · poznámky: \d+$/ : /^memory-kit: memory loaded for this project \(dev\) · \d+ notes$/,
+          'the user learns in one line that the memory loaded');
+        assert.ok(!/Warning|Pozor/.test(`${brief.user}\n${brief.context}`), 'no warnings without failures');
         list = projectJson(v, 'list', repo);
         assert.match(list.projects[0].last_session, /^\d{4}-\d{2}-\d{2}T/);
 
@@ -454,6 +472,45 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     clean(repo);
   });
 
+  test('the loaded line: Claude Code only, off with feedback.notice; the views and lookups are in the activity log', () => {
+    const v = vault('en');
+    const repo = codeRepo();
+    assert.equal(projectJson(v, 'add', repo).code, 0);
+    assert.match(startOut(start(v, repo, 'n1')).user, /^memory-kit: memory loaded for this project \(dev\) · \d+ notes$/);
+    const codex = start(v, repo, 'n2', 'codex').stdout;
+    assert.match(codex, /^# Project shop/, 'Codex: the brief as plain text');
+    assert.ok(!codex.includes('memory loaded'), 'Codex shows no systemMessage, and a loaded line is not worth a relay');
+    assert.equal(cli(v, ['remember', '--type', 'gotcha', GOTCHA], { cwd: repo }).code, 0);
+    assert.match(failure(v, repo, 'n1', { error: ENOSPC }).stdout, /a similar error was met before/);
+    assert.equal(start(v, tmpDir('plain'), 'n4').stdout, '', 'outside any repository: nothing, not even a line in the log');
+    const hooked = activityOf(v).filter((e) => e.via === 'hook');
+    assert.deepEqual(hooked.map((e) => [e.op, e.agent, e.project]), [['start', 'claude-code', 'dev'], ['start', 'codex', 'dev'], ['lookup', 'claude-code', 'dev']]);
+    assert.ok(hooked[2].n >= 1, JSON.stringify(hooked[2]));
+
+    const file = path.join(v.root, 'memory.json');
+    fs.writeFileSync(file, `${JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), feedback: { notice: false } }, null, 2)}\n`);
+    const quiet = start(v, repo, 'n3');
+    assert.match(quiet.stdout, /^# Project shop/, 'plain context again: nothing for the user');
+    clean(repo);
+  });
+
+  test('a newer kit that a check found: named after the loaded line once a day; Codex gets it through the agent', () => {
+    const v = vault('en');
+    const repo = codeRepo();
+    assert.equal(projectJson(v, 'add', repo).code, 0);
+    const version = fs.readFileSync(path.join(v.root, 'system', 'VERSION'), 'utf8').trim();
+    const next = version.replace(/(\d+)$/, (d) => String(Number(d) + 1));
+    const updates = path.join(v.root, '.memory-kit', 'updates.json');
+    fs.writeFileSync(updates, `${JSON.stringify({ latest: next })}\n`);
+    const [loaded, update] = startOut(start(v, repo, 'u1')).user.split('\n');
+    assert.match(loaded, LOADED);
+    assert.match(update, new RegExp(`^memory-kit: version ${next.replace(/\./g, '\\.')} is out \\(this memory has ${version.replace(/\./g, '\\.')}\\)\\. See what is new and update: ${CMD} upgrade$`));
+    assert.doesNotMatch(startOut(start(v, repo, 'u2')).user, /is out/, 'once a day');
+    fs.writeFileSync(updates, `${JSON.stringify({ latest: next })}\n`);
+    assert.match(start(v, repo, 'u3', 'codex').stdout, /^memory-kit asks you to pass this on to the user: memory-kit: version .+ is out/);
+    clean(repo);
+  });
+
   test('the error lookup: only Bash and PowerShell, no interrupts or short errors, deduplicated, 5 per session', () => {
     const v = vault('en');
     const repo = codeRepo();
@@ -494,9 +551,9 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
       `${JSON.stringify({ t: new Date().toISOString(), agent: 'claude-code', event: 'stop', ok: false, error: 'EACCES' })}\n`);
     failedRun();
     const told = startOut(start(v, repo, 's5'));
-    assert.match(told.user, new RegExp(`^Warning: failed memory hook runs since the last warning: 1; see: ${CMD} doctor$`));
+    assert.match(news(told.user), new RegExp(`^Warning: failed memory hook runs since the last warning: 1; see: ${CMD} doctor$`));
     assert.match(told.context, /^# Project shop/, 'the brief still reaches the agent');
-    assert.equal(startOut(start(v, repo, 's6')).user, '', 'once');
+    assert.equal(news(startOut(start(v, repo, 's6')).user), '', 'once');
     failedRun();
     assert.match(startOut(start(v, v.root, 's7')).user, /^Warning: failed memory hook runs since the last warning: 1;/, 'in the vault too');
     failedRun();
@@ -561,7 +618,7 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.deepEqual([failed.event, failed.step, failed.ok], ['autosync', 'push', false], JSON.stringify(failed));
     assert.ok(failed.error && failed.fix.includes('memory.mjs') && failed.fix.includes('sync'), JSON.stringify(failed));
     const told = startOut(start(v, repo, 's1'));
-    assert.match(told.user, new RegExp(`^Warning: the last memory sync failed \\(.* UTC, step push\\): .+\\. Fix: open the vault and run: ${CMD} sync$`));
+    assert.match(news(told.user), new RegExp(`^Warning: the last memory sync failed \\(.* UTC, step push\\): .+\\. Fix: open the vault and run: ${CMD} sync$`));
     assert.match(told.context, /^# Project shop/);
     const status = projectJson(v, 'status', repo);
     assert.deepEqual([status.hooks.last_sync.ok, status.hooks.last_sync.step], [false, 'push']);
@@ -587,7 +644,7 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     const deadline = Date.now() + 30000;
     while (logOf(v).at(-1)?.step !== 'done' && Date.now() < deadline) spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 200)']);
     assert.equal(logOf(v).at(-1)?.step, 'done', JSON.stringify(logOf(v).at(-1)));
-    assert.equal(startOut(start(v, repo, 's2')).user, '', 'a successful sync: nothing to tell');
+    assert.equal(news(startOut(start(v, repo, 's2')).user), '', 'a successful sync: nothing to tell');
   });
 
   test('autosync commits through the vault\'s pre-commit hook even when the session\'s PATH starts with an old node', { skip: process.platform === 'win32' && 'POSIX shell' }, () => {

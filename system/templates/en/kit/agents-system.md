@@ -1,4 +1,4 @@
-<!-- kit:start v0.1.2 · system section: maintained by memory-kit, replaced on upgrade -->
+<!-- kit:start v0.1.3 · system section: maintained by memory-kit, replaced on upgrade -->
 # Memory: rules for AI agents
 This repository is a long-term memory: markdown notes with YAML frontmatter are the only source of truth.
 People read it in any markdown editor or on GitHub, starting from the generated `home.md`; agents use
@@ -25,6 +25,7 @@ your context yet, run `node system/memory.mjs start` first.
 8. When about 70% of hits point to one place, stop searching and work.
 9. After 3 rephrasings and `git log -S 'text'`, say "not in memory". Never guess.
 10. Broad questions ("everything about X"): use the memory-searcher subagent.
+11. End an answer that notes shaped with one line: `📎 memory: [[name]], [[name]]`; after a write: `📎 saved: [[name]]`.
 <!-- search:end -->
 
 ## Writing

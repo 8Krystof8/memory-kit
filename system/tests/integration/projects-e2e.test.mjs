@@ -172,9 +172,10 @@ test('projects end to end: connect, then every hook as Claude Code runs it, up t
   assert.equal(added.code, 0, added.stderr);
   assert.deepEqual(JSON.parse(added.stdout), { ok: true, action: 'add', created: true, sector: 'dev', store: 'local', key: `github.com/${CLIENT}-ltd/shop`, notes: '../private/sectors/dev' });
 
-  // 4. The next session gets the brief of the project (plain text: nothing for the user).
-  const brief = start('e2e-2');
-  assert.match(brief, /^# Project shop · memory sector `dev`/);
+  // 4. The next session gets the brief of the project, and the user one line: the memory loaded.
+  const brief = JSON.parse(start('e2e-2'));
+  assert.match(brief.systemMessage, /^memory-kit: memory loaded for this project \(dev\) · \d+ notes$/);
+  assert.match(brief.hookSpecificOutput.additionalContext, /^# Project shop · memory sector `dev`/);
 
   // 5. A gotcha is remembered in the project's local notes.
   const remembered = cli(['remember', '--type', 'gotcha', GOTCHA], repo);
@@ -221,9 +222,13 @@ test('projects end to end: connect, then every hook as Claude Code runs it, up t
   assert.ok(failed.error, JSON.stringify(failed));
   assert.match(failed.fix, new RegExp(`^open the vault and run: ${CMD} sync$`));
   const told = JSON.parse(start('e2e-3'));
-  assert.match(told.systemMessage, new RegExp(`^Warning: the last memory sync failed \\(.* UTC, step push\\): .+\\. Fix: open the vault and run: ${CMD} sync$`));
+  const [loaded, warning] = told.systemMessage.split('\n');
+  assert.match(loaded, /^memory-kit: memory loaded for this project \(dev\)/);
+  assert.match(warning, new RegExp(`^Warning: the last memory sync failed \\(.* UTC, step push\\): .+\\. Fix: open the vault and run: ${CMD} sync$`));
   assert.match(told.hookSpecificOutput.additionalContext, /^# Project shop/);
-  assert.match(start('e2e-4'), /^# Project shop/, 'told once: the next start is the brief alone');
+  const again = JSON.parse(start('e2e-4'));
+  assert.match(again.systemMessage, /^memory-kit: memory loaded for this project \(dev\) · \d+ notes$/, 'told once: the next start has only the loaded line');
+  assert.match(again.hookSpecificOutput.additionalContext, /^# Project shop/);
   const doctor = cli(['doctor', '--json']);
   const hooks = JSON.parse(doctor.stdout).checks.find((c) => c.id === 'projects.hooks');
   assert.equal(hooks.status, 'warn', JSON.stringify(hooks));

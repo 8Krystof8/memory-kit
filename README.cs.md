@@ -268,23 +268,24 @@ Kanonické anglické názvy fungují vždy, český balíček k nim přidává a
 
 | příkaz | alias | co dělá |
 |---|---|---|
-| `start [--sectors a,b] [--format text\|gemini-hook\|json]` | `start` | vypíše start (totéž, co ukáže hook SessionStart); `gemini-hook` a `json` jsou pro hooky a programy |
+| `start [--sectors a,b] [--format text\|claude-hook\|gemini-hook\|json]` | `start` | vypíše start (totéž, co ukáže hook SessionStart); `claude-hook`, `gemini-hook` a `json` jsou pro hooky a programy |
 | `search "dotaz" [--sector s] [--type t] [--status s\|any] [--n 5] [--all] [--local] [--json]` | `hledej`, `--sektor`, `--typ`, `--stav`, `--vse` | fulltext, řádek na výsledek s úryvkem; lokální sektory jen spočítá, pokud chybí `--local` |
 | `search --rg "slova"` | `hledej --rg` | vypíše regex s třídami diakritiky pro `rg -i` |
 | `search --duplicates "název" ["popis"]` | `hledej --duplicity` | najde existující poznámku dřív, než založíš novou |
 | `new <typ> <sektor>/<nazev> [--description "…"]` | `novy`, `--popis` | založí poznámku ze šablony s povinnými poli |
 | `sector add\|sleep\|wake\|off\|list [<id>]` | `sektor pridat\|uspat\|probudit\|vypnout\|seznam` | spravuje sektory; každá změna přegeneruje pohledy |
 | `check [--generate] [--strict\|--lenient]` | `kontrola --generuj --prisne\|--tolerantne` | zkontroluje vault; `--generate` nejdřív sjednotí poznámky (LF, NFC) a přestaví `domu.md`, `_ai/` a `.ignore` |
-| `sync [--no-push]` | `synchronizuj` | `git pull --rebase`, konflikty jen v generovaných souborech vyřeší sám, pushne; nikdy force; v režimu `local` nic nedělá |
+| `sync [--no-push]` | `synchronizuj` | `git pull --rebase`, konflikty jen v generovaných souborech vyřeší sám, pushne; nikdy force a nikdy necommituje (necommitnuté změny ho zastaví i s příkazy, které je commitnou); v režimu `local` nic nedělá |
 | `eval [--file cesta]` | `eval --soubor` | spustí tvoje kontrolní otázky a vypíše hit@3 |
 | `doctor [--json] [--fix]` | `doktor [--oprav]` | zkontroluje nastavení: Node, memory.json, soubory kitu, git hooky, kořeny, připojené aplikace; ke každému problému řekne, jak ho opravit |
-| `upgrade [--yes] [--dry-run] [--from zdroj] [--rollback]` | `aktualizuj --ano --nanecisto --odkud --vratit` | aktualizuje kit na nejnovější verzi: nejdřív ukáže plán, udělá zálohu, ověří výsledek a při chybě vrátí vše zpět; `--rollback` aktualizaci vrátí |
+| `upgrade [--yes] [--dry-run] [--from zdroj] [--rollback]` · `upgrade --check` | `aktualizuj --ano --nanecisto --odkud --vratit` · `aktualizuj --check` | aktualizuje kit na nejnovější verzi: nejdřív ukáže plán, udělá zálohu, ověří výsledek a při chybě vrátí vše zpět; `--rollback` aktualizaci vrátí; `--check` jen řekne, jestli vyšla novější verze ([Nové verze](#nove-verze)) |
 | `connect <aplikace> [--name n] [--read-only] [--remove]` · `connect --list` | `pripoj --jmeno --jen-cteni --odebrat` · `pripoj --seznam` | přidá paměť do nastavení MCP v AI aplikaci (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI a další) |
 | `connect claude-code\|codex --projects [--remove]` | `pripoj claude-code --projects` | nainstaluje hooky pro projekty s kódem, které přidáš; nic se samo nepřidá ani nepushne ([docs/projects.md](docs/projects.md)) |
 | `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision\|fact]` | `zapamatuj "text" --typ gotcha` | zapíše řádek do paměti projektu (v přidaném repu s kódem), do inboxu lokálního kořene (v jiném repozitáři) nebo do `inbox/` |
 | `project add\|remove\|ignore\|unignore\|list\|status [--json]` | `projekt pridat\|odebrat\|ignorovat\|neignorovat\|seznam\|stav` | v repu s kódem: dá mu paměť, odpojí ho, umlčí nápovědu, vypíše projekty, ukáže stav |
-| `setup` | `nastaveni` | průvodce nastavením v terminálu: nastaví novou paměť, nebo připojí AI aplikace, paměť pro programátorské projekty a kontrolu instalace |
+| `setup` | `nastaveni` | průvodce nastavením v terminálu: nastaví novou paměť, nebo připojí AI aplikace, paměť pro programátorské projekty, kontrolu instalace a to, jak se dozvíš o nových verzích |
 | `mcp [--read-only] [--local]` | `mcp --jen-cteni --lokalni` | MCP server, který si aplikace spouštějí samy (stdio); ručně ho nespouštíš |
+| `activity [--days 7] [--json]` | `aktivita --dny 7` | co agenti na tomto počítači s pamětí dělali: poslední použití, počty, kdo, nejpoužívanější poznámky ([Funguje to?](#funguje-to)) |
 
 Návratové kódy: 0 v pořádku, 1 nalezený problém, 2 chyba použití, 3 vnitřní chyba.
 
@@ -304,6 +305,63 @@ $ node system/memory.mjs hledej --rg "kalendářem pekárně"
 
 Dotaz bez diakritiky („maturitni praci“) najde text s diakritikou („maturitní práce“). Ukázky
 pocházejí z vymyšleného testovacího vaultu (studio „Linden Studio“, „Střední škola Severka“).
+
+## Funguje to?
+
+Paměť běží na pozadí, ale na třech místech ukazuje, že funguje.
+
+**Na začátku každé relace v Claude Code** jeden řádek od memory-kit, který agent nemusí číst (je to
+zpráva hooku, ne součást kontextu agenta):
+
+```text
+memory-kit: paměť načtena · poznámky: 34 · sektory: 5
+```
+
+V projektu s kódem a [hooky pro projekty](docs/projects.md) zní `paměť tohoto projektu načtena
+(dev)`. Když se paměť nenačte, řádek řekne proč a pošle tě na `doctor`, takže rozbitá paměť už
+nevypadá jako funkční. Vypneš ho přes `"feedback": {"notice": false}` v `memory.json`.
+
+**Pod odpovědí, kterou ovlivnily tvoje poznámky**, agent přidá řádek, který je jmenuje, a po
+uložení řádek s novou poznámkou:
+
+```text
+📎 z paměti: [[rozsah-balicku]], [[pekarna-u-pristavu]]
+📎 uloženo: [[2026-09-29-pekarna-chce-vernostni-kartu]]
+```
+
+Je to krok 11 pravidel hledání a stojí i v instrukcích MCP serveru. Je to pokyn pro agenta, tedy
+zvyk, ne záruka. Záznam ti dá až další část.
+
+**Kdykoli** ukáže `aktivita`, co agenti na tomto počítači s pamětí dělali:
+
+```text
+$ node system/memory.mjs aktivita
+Aktivita paměti na tomto počítači · posledních 7 dní
+Naposledy: před 4 min · Claude Code · uloženo · inbox/2026-09-29-pekarna-chce-vernostni-kartu.md
+Dnes: starty relací 3 · hledání 5 · přečtené poznámky 2 · uložené 1
+Posledních 7 dní: starty relací 11 · hledání 23 · přečtené poznámky 9 · uložené 3
+Kdo: Claude Code 38 · claude-ai (MCP) 11 · Codex 2
+Nejpoužívanější poznámky: sektory/prace/klienti/pekarna-u-pristavu.md 6 · sektory/prace/rozsah-balicku.md 4
+Poslední:
+- před 4 min · Claude Code · uloženo · inbox/2026-09-29-pekarna-chce-vernostni-kartu.md
+- před 6 min · Claude Code · hledání · výsledky: 13 · sektory/prace/klienti/pekarna-u-pristavu.md
+- před 9 min · Claude Code · start relace
+Záznam zůstává na tomto počítači (.memory-kit/logs/activity.jsonl; nikdy se necommituje, bez textu dotazů). Vypnutí: "feedback": {"log": false} v memory.json
+```
+
+(Výstup je zkrácený.) Záznam dostane jeden řádek za každý start relace, hledání, otevřenou
+poznámku, uložení a vyhledání chyby, z CLI, z hooků projektů i z MCP serveru. Zůstává v
+`.memory-kit/` na tomto počítači a nikdy se necommituje. Nemá v sobě text dotazů ani poznámek a
+poznámku z lokálního sektoru nikdy nejmenuje (ty jen spočítá). `aktivita --json` vypíše totéž
+jako data.
+
+**Co memory-kit nikdy nedělá:** sám od sebe nekomunikuje se sítí. Online jde jen git, a jen tam,
+kde o to požádáš: `sync` stáhne a pošle repozitář tvé paměti (automatická synchronizace jen
+když ji zapneš), `upgrade` stáhne kit z jeho zdroje a [kontrola nové verze](#nove-verze) přečte
+tagy verzí kitu (když ji spustíš, nebo jednou denně, když si to zapneš). Žádná telemetrie.
+[`system/tests/unit/network.test.mjs`](system/tests/unit/network.test.mjs) to dokazuje při každém
+běhu CI: žádný modul kitu neimportuje síťový modul, nevolá `fetch` ani nespouští stahovací
+nástroj a git dostane `pull`, `push`, `clone` a `ls-remote` jen na těch místech.
 
 ## Kontrola nastavení
 
@@ -349,6 +407,29 @@ verzi nejdřív uloží do zálohy a teprve potom soubor vrátí.
 Paměť založená z verze 0.1.0 příkaz `upgrade` ještě nemá. Nový kit ji jednou aktualizuje zvenku,
 potřebné tři příkazy najdeš v [docs/upgrading.md](docs/upgrading.md#upgrading-a-vault-made-from-010)
 (anglicky). Potom už stačí příkaz výše.
+
+## Nové verze
+
+Paměť běží na pozadí, takže nikdo nespouští `upgrade` jen pro jistotu. Vyber si jeden nebo víc
+způsobů, jak se o nové verzi dozvíš:
+
+| způsob | jak | zapnuto od začátku |
+|---|---|---|
+| issue v repozitáři tvé paměti | noční workflow [`.github/workflows/memory-kit-updates.yml`](.github/workflows/memory-kit-updates.yml) založí jedno issue „Je k dispozici memory-kit 0.1.4“ s novinkami a příkazem; GitHub ti dá vědět e-mailem a v aplikaci a po aktualizaci ho workflow zavře. Tvůj počítač nic neposílá. Vypnutí: `"updates": {"github": false}` v `memory.json` | ano, u paměti na GitHubu založené od verze 0.1.3 (starší si soubor jednou přidá, viz níže) |
+| řádek na začátku relace | `"updates": {"check": true}` v `memory.json`: jednou denně se na pozadí začátek relace zeptá zdroje kitu na nejnovější verzi a Claude Code pak jednou denně ukáže `memory-kit: vyšla verze 0.1.4 (tahle paměť má 0.1.3) …` (Codexu ji předá agent). Nikdy v CI; `NO_UPDATE_NOTIFIER=1` to vypne pro všechny nástroje | ne, protože jde na síť |
+| ručně | `node system/memory.mjs aktualizuj --check` řekne, jestli vyšla novější verze, a nic víc; `aktivita` a `doktor` ukážou, co našla poslední kontrola a které z těchto cest máš zapnuté, a `nastaveni` → Nové verze zapne nebo vypne denní kontrolu | – |
+| na GitHubu | na [stránce kitu](https://github.com/8Krystof8/memory-kit): Watch → Custom → Releases, nebo kanál [releases.atom](https://github.com/8Krystof8/memory-kit/releases.atom) v libovolné čtečce | – |
+
+Kontrola jen přečte tagy verzí kitu (jeden `git ls-remote`): nic nestahuje a nic o tobě ani o
+tvých poznámkách neposílá. Samotná aktualizace zůstává na tvém počítači, s plánem, zálohou a
+kontrolami.
+
+`upgrade` nikdy nepřidá ani nezmění soubor workflow: push takového souboru potřebuje token
+s oprávněním `workflow`, které běžné přihlášení přes `gh` nemá, a další `sync` by selhal. Paměť
+založená od verze 0.1.3 má workflow ze šablony. Ve starší ho jednou přidej na GitHubu, kde žádný
+zvláštní token nepotřebuješ: otevři repozitář své paměti, Add file → Create new file, pojmenuj ho
+`.github/workflows/memory-kit-updates.yml`, vlož [tento soubor](.github/workflows/memory-kit-updates.yml)
+a commitni. Odpovídat začne po aktualizaci na 0.1.3.
 
 ## Pro vývojáře
 

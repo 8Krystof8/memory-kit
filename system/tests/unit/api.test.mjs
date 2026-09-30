@@ -299,7 +299,7 @@ describe('start --format and the start view helpers', () => {
     const res = runCli(fx.root, ['start', '--format', 'yaml']);
     assert.equal(res.code, 0);
     assert.equal(res.stdout, '');
-    assert.match(res.stderr, /--format musí být text, gemini-hook nebo json, zadáno "yaml"/);
+    assert.match(res.stderr, /--format musí být text, claude-hook, gemini-hook nebo json, zadáno "yaml"/);
     assert.match(res.stderr, /usage: node system\/memory\.mjs start /);
   });
 

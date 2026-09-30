@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { agentFromEnv, logActivity } from '../activity.mjs';
 import { parse, updateFrontmatter } from '../frontmatter.mjs';
 import { loadVault } from '../vault.mjs';
 import {
@@ -205,6 +206,8 @@ export async function run(argv, cfg) {
     return 1;
   }
   process.stdout.write(`${cfg.t('new.created', { rel: res.shown })}\n`);
+  // A note of a local root is only counted in the activity log, never named.
+  logActivity(cfg, { via: 'cli', op: 'save', agent: agentFromEnv(), ...(res.root === 'main' ? { notes: [res.rel] } : { local: 1 }) });
   if (!values.description || !values.description.trim()) {
     process.stdout.write(`${cfg.t('new.fill_description', { key: cfg.keys.description })}\n`);
   }

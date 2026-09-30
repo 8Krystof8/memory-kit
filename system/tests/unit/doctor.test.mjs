@@ -551,6 +551,25 @@ describe('kit files', { skip: NO_GIT }, () => {
   });
 });
 
+describe('new versions (kit.updates)', { skip: NO_GIT }, () => {
+  test('from files on this computer only: not checked yet, the newest known, a newer one (warn with the upgrade)', async () => {
+    const v = clone('updates');
+    const version = fs.readFileSync(path.join(v.root, 'system', 'VERSION'), 'utf8').trim();
+    const next = version.replace(/(\d+)$/, (d) => String(Number(d) + 1));
+    let ch = (await doctorOf(v.root)).byId['kit.updates'];
+    assert.equal(ch.status, 'ok');
+    assert.equal(ch.message, `memory-kit ${version}, not checked for a newer one yet (node system/memory.mjs upgrade --check); new versions: no daily check ("updates": {"check": true} turns it on)`);
+    writeJson(v.root, '.memory-kit/updates.json', { checked: '2026-09-30T08:00:00.000Z', latest: version });
+    ch = (await doctorOf(v.root)).byId['kit.updates'];
+    assert.equal(ch.message, `memory-kit ${version} is the newest known (checked 2026-09-30 08:00 UTC); new versions: no daily check ("updates": {"check": true} turns it on)`);
+    writeJson(v.root, '.memory-kit/updates.json', { checked: '2026-09-30T08:00:00.000Z', latest: next });
+    ch = (await doctorOf(v.root)).byId['kit.updates'];
+    assert.equal(ch.status, 'warn');
+    assert.match(ch.message, new RegExp(`^memory-kit ${next.replace(/\./g, '\\.')} is out, this vault has ${version.replace(/\./g, '\\.')} \\(checked 2026-09-30 08:00 UTC\\)`));
+    assert.equal(ch.fix, 'node system/memory.mjs upgrade (it shows what is new and asks before it changes anything)');
+  });
+});
+
 describe('upgrade lock', { skip: NO_GIT }, () => {
   test('a lock whose backup is gone needs --rollback --force; with its backup, --rollback', async () => {
     const v = clone('lock');
@@ -665,7 +684,7 @@ describe('AGENTS.md and the agent files', { skip: NO_GIT }, () => {
     };
     const adapters = async (opts) => (await doctorOf(v.root, opts)).byId.adapters;
     const fine = /the Claude Code SessionStart hook runs start/;
-    const braced = 'use the braced form: "command": "node \\"${CLAUDE_PROJECT_DIR}/system/memory.mjs\\" start"';
+    const braced = 'use the braced form: "command": "node \\"${CLAUDE_PROJECT_DIR}/system/memory.mjs\\" start --format claude-hook"';
     const update = 'update Claude Code (claude update), or install Git for Windows (git-scm.com), whose Git Bash runs the hook';
 
     // The shipped hook (braced shell form) works under sh and bash: claude is never asked.
@@ -737,7 +756,7 @@ describe('AGENTS.md and the agent files', { skip: NO_GIT }, () => {
     ch = d.byId.adapters;
     assert.match(ch.message, /without braces, which breaks when Claude Code runs hooks in PowerShell/);
     assert.match(ch.message, /the SessionStart hook skips clear, so those sessions start without the memory/);
-    assert.match(ch.fix, /use the braced form: "command": "node \\"\$\{CLAUDE_PROJECT_DIR\}\/system\/memory\.mjs\\" start"/);
+    assert.match(ch.fix, /use the braced form: "command": "node \\"\$\{CLAUDE_PROJECT_DIR\}\/system\/memory\.mjs\\" start --format claude-hook"/);
     assert.match(ch.fix, /"startup\|resume\|clear\|compact"/);
 
     writeJson(v.root, '.claude/settings.json', { hooks: {} });

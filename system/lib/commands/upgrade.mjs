@@ -7,6 +7,9 @@
 // the plan as counts, "What's new" from the target's CHANGELOG.md, a question instead of "run
 // again with --yes", spinners, and a box with the result. Everywhere else the output is plain
 // text as before; when lib/tui.mjs cannot be loaded the plain text is used too.
+// --check only asks the source for its newest version (lib/updates.mjs: git ls-remote of its tags,
+// nothing downloaded), notes the answer in .memory-kit/updates.json and says what to do; --json
+// prints it for the nightly CI of a vault, which opens the issue of a newer kit.
 
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -18,7 +21,7 @@ import {
 } from '../upgrade.mjs';
 import { isDir, isFile, parseCli, usageError } from '../util.mjs';
 
-export const usage = 'upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--yes] [--dry-run] [--force] [--rollback [backup-id]] [--no-verify] [--json] [--verbose]';
+export const usage = 'upgrade [--from <dir|git-url>] [--ref <branch|tag>] [--yes] [--dry-run] [--force] [--rollback [backup-id]] [--no-verify] [--json] [--verbose] | upgrade --check [--from <dir|git-url>] [--json]';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PARENT_ENV = 'MEMORY_KIT_UPGRADE_PARENT';
@@ -446,6 +449,59 @@ function newerThan(a, b) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// --check
+
+/**
+ * Asks the source for its newest version and says whether a newer one is out. The answer goes to
+ * .memory-kit/updates.json (the owner's session-start line names it). --json: {installed, latest,
+ * available, source, checked, releases, settings, issue, closing, message}, where issue is the
+ * {title, body} the nightly CI opens and closing the comment it closes that issue with. → exit 1
+ * when the source cannot be asked.
+ */
+async function runCheck(cfg, context, values, src, out, runnerIsVault) {
+  const u = await import('../updates.mjs');
+  const installed = readVersion(context.root) ?? '0.0.0';
+  const settings = u.updateSettings(cfg ?? context.root);
+  const cli = runnerIsVault ? 'node system/memory.mjs' : `node ${quote(path.join(context.root, 'system', 'memory.mjs'))}`;
+  if (src.missing !== undefined) {
+    const message = say(cfg, 'upgrade.source_missing', { source: src.missing });
+    if (values.json) writeJson({ installed, latest: null, available: false, source: src.missing, checked: null, releases: null, settings, issue: null, closing: null, message });
+    else out.err(message);
+    return 1;
+  }
+  let latest;
+  try {
+    latest = u.latestAt(src.dir ? { dir: src.dir } : { url: src.url });
+  } catch (err) {
+    if (!(err instanceof u.UpdateCheckError)) throw err;
+    const message = u.say(cfg, 'updates.failed', { source: src.label, detail: err.detail });
+    if (values.json) writeJson({ installed, latest: null, available: false, source: src.label, checked: null, releases: null, settings, issue: null, closing: null, message });
+    else out.err(message);
+    return 1;
+  }
+  const available = !parseVersion(installed) || compareVersions(latest, installed) > 0;
+  const checked = new Date().toISOString();
+  u.writeUpdates(context.root, { ...u.readUpdates(context.root), checked, installed, latest, source: src.label });
+  const pages = u.releasesOf(src.url ?? '', latest);
+  const lines = available
+    ? [u.say(cfg, 'updates.available', { latest, installed }), u.say(cfg, 'updates.how', { cmd: cli })]
+    : [say(cfg, 'upgrade.up_to_date', { version: installed, source: latest })];
+  if (available && !settings.check) lines.push(pages ? u.say(cfg, 'updates.subscribe', { releases: pages.page }) : u.say(cfg, 'updates.subscribe_plain'));
+  if (values.json) {
+    writeJson({
+      installed, latest, available, source: src.label, checked, releases: pages?.page ?? null, settings,
+      issue: available ? u.issueText(cfg, { latest, installed, source: src.url ?? '' }) : null,
+      closing: available ? null : u.say(cfg, 'updates.issue_closed', { installed }),
+      message: lines.join('\n'),
+    });
+    return 0;
+  }
+  for (const line of lines) out.line(line);
+  out.flush();
+  return 0;
+}
+
+// ---------------------------------------------------------------------------------------------
 
 export async function run(argv, cfg, ctx = {}) {
   const args = [];
@@ -463,9 +519,14 @@ export async function run(argv, cfg, ctx = {}) {
     'no-verify': { type: 'boolean' },
     json: { type: 'boolean' },
     verbose: { type: 'boolean' },
+    check: { type: 'boolean' },
   }, usage);
   if (!parsed) return 2;
   const { values, positionals } = parsed;
+  if (values.check && (values.yes || values['dry-run'] || values.force || values.rollback || values['no-verify'] || values.ref !== undefined)) {
+    usageError('--check only asks the source for its newest version; it takes --from and --json', usage);
+    return 2;
+  }
   if (positionals.length > (values.rollback ? 1 : 0)) {
     usageError(`unexpected argument "${positionals[values.rollback ? 1 : 0]}"`, usage);
     return 2;
@@ -521,6 +582,7 @@ export async function run(argv, cfg, ctx = {}) {
     usageError(src.usage, usage);
     return 2;
   }
+  if (values.check) return runCheck(cfg, context, values, src, out, runnerIsVault);
   const ui = await terminalUI(ctx, values);
   if (ui) return runScreen(ui, { cfg, values, context, hints, parent, runner, src, runnerIsVault });
   if (src.missing !== undefined) {

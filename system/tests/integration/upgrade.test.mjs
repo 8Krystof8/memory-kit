@@ -490,6 +490,8 @@ describe('upgrading this kit to a newer one', { concurrency: 4 }, () => {
     assert.equal(readFile(v.root, 'system/lib/text.mjs'), readFile(NEXT, 'system/lib/text.mjs'));
     const saved = path.join(v.root, '.memory-kit', 'backups', fout.result.backup, 'files', 'system', 'lib', 'text.mjs');
     assert.ok(fs.readFileSync(saved, 'utf8').endsWith('// my tweak\n'), 'the backup keeps the owner\'s version');
+    // The vault's start, check and doctor that upgrade runs to verify the result are no use of the memory.
+    assert.ok(!fs.existsSync(path.join(v.root, '.memory-kit', 'logs', 'activity.jsonl')), 'no line in the activity log');
   });
 
   test('(d) uncommitted changes in paths the upgrade writes block it; after a commit it runs', { skip: !HAS_GIT && 'git is not installed' }, async () => {

@@ -9,6 +9,129 @@ which kit-owned files changed.
 
 Nothing yet.
 
+## 0.1.3 (2026-09-30)
+
+You can now see that the memory works while it stays in the background: one line at a session
+start in Claude Code, a 📎 line under an answer that notes shaped, and `activity` for what the
+agents did with the memory on this computer. And you hear of the next version your way: an issue
+from your vault's nightly CI, a line at the session start, `upgrade --check`, or GitHub's own
+notifications. Nothing leaves the computer unless you ask for it, and nothing new is committed;
+the data version stays 1. The switches are in `memory.json`: `"feedback": {"notice": true, "log":
+true}` and `"updates": {"check": false, "github": true}`.
+
+### Added
+
+- **One line for you at every session start in Claude Code**: `memory-kit: memory loaded · 58
+  notes · 6 sectors` in the vault, `memory-kit: memory loaded for this project (dev) · 58 notes` in
+  a code project with the project hooks, and when the memory did not load, the error and `doctor`.
+  Until now a memory that failed to load looked the same as one that loaded. It is a
+  `systemMessage` of the hook, so the agent's context does not grow; Codex shows none, so it gets
+  no line. `"feedback": {"notice": false}` turns it off.
+- **A 📎 line under an answer that notes shaped**: the search rules ask the agent to end such an
+  answer with `📎 memory: [[name]], [[name]]`, and a write with `📎 saved: [[name]]`. In
+  `AGENTS.md`, in the start view of the MCP tools and of code projects, and in the instructions of
+  the MCP server.
+- **`activity` shows what the agents did with the memory on this computer** (Czech `aktivita`,
+  `--dny` for `--days`): the last use, the counts of today and of the last days (session starts, searches, notes read, saves, error lookups), who
+  used it (Claude Code, Codex, Gemini CLI, an MCP app), the notes used most and the latest uses,
+  and the last run of the project hooks. `--json` prints the same as data.
+- **The activity log behind it**, `.memory-kit/logs/activity.jsonl`: one line per session start,
+  search, note opened, save and error lookup, from the CLI, the project hooks and the MCP server.
+  It stays on this computer (`.memory-kit/` is never committed), holds no query text and no note
+  text, and names no note of a local sector (those are only counted). A vault that is not set up
+  (the kit repository itself), `doctor --probe` and the checks `upgrade` runs record nothing.
+  `"feedback": {"log": false}` turns it off.
+
+- **You hear of a new version the way you choose**, in four ways that can be combined:
+  - an issue in your memory's repository, opened by the new workflow
+    `.github/workflows/memory-kit-updates.yml` when a newer kit is out, renamed with a comment for a
+    still newer one and closed after your upgrade; GitHub announces it by e-mail and in its app;
+    your computer sends nothing; a memory made from 0.1.3 on has it, `"updates": {"github": false}`
+    turns it off;
+  - a line at the session start, `memory-kit: version 0.1.4 is out (this memory has 0.1.3) …`, once
+    a day, from a check in the background that is off by default (`"updates": {"check": true}`;
+    never in CI, `NO_UPDATE_NOTIFIER` honoured);
+  - `upgrade --check` by hand (`--json` for scripts);
+  - Watch → Custom → Releases on GitHub, or the feed `releases.atom`.
+  A check reads the kit's version tags with one `git ls-remote`: it downloads nothing and sends
+  nothing about you or your notes. `activity` and `doctor` (the new check `kit.updates`) show what
+  the last check found and which of these ways are on, from files on this computer only, and
+  `setup` has a fourth item, New versions, that switches the daily check on or off and shows an
+  older vault on GitHub how to add the workflow.
+
+### Changed
+
+- The vault's Claude Code SessionStart hook runs `start --format claude-hook`: the start view and
+  the owner's line in one hook object that fits `hook_bytes`. `start --format` takes `claude-hook`
+  next to `text`, `gemini-hook` and `json`; the other formats print what they printed before.
+- The search block of `AGENTS.md` has an 11th step (the 📎 line); the MCP start view and the
+  project view have one more rule each, and the MCP instructions still have four sentences.
+- `memory.json` has a `feedback` block (`notice` and `log`, both true when missing) and an `updates`
+  block (`check` false and `github` true when missing); `init` writes both.
+- `.github/workflows/memory-kit-updates.yml` is new: the only workflow that may write issues
+  (`issues: write`). It is not in `system/kit.json`, so `upgrade` never ships it: pushing a changed
+  workflow needs a token with the `workflow` scope, which the usual `gh` login lacks, so
+  `.github/workflows/ci.yml` stays the file of 0.1.1 as well. The network test allows
+  `git ls-remote` in `system/lib/updates.mjs` only.
+- `doctor` has 19 checks: `kit.updates` is new. The extras menu of `setup` has four items.
+- The kit's tests never copy a `.memory-kit/` folder of the checkout into a test vault, and they
+  clear the marks agents leave in the environment (`CLAUDECODE`, `GEMINI_CLI`, `CODEX_SANDBOX`), so a
+  run inside Claude Code sees what CI sees.
+
+### Fixed
+
+- `sync` on a memory with uncommitted changes stops at once and names the files and the four
+  commands that commit and sync them (it never commits by itself), instead of git's own "cannot
+  pull with rebase: You have unstaged changes".
+- `project status` of an added project no longer also says "not added", and the times of the hook
+  runs it lists are labelled UTC.
+
+### Upgrading
+
+`upgrade` replaces `.claude/settings.json` when you never changed it. If you did, it keeps your
+file and puts the new one in `.memory-kit/upgrade/0.1.3/proposed/`: add ` --format claude-hook` to
+the command of your SessionStart hook to get the line (your hook keeps working without it). The
+project hooks need nothing: they get the line with the new code. For the issue about the next
+version, add `.github/workflows/memory-kit-updates.yml` once on GitHub (Add file → Create new file,
+then paste the file from the kit), which needs no token with the `workflow` scope; the README
+section "Hear of new versions" has the steps.
+
+### Kit files
+
+New: `system/lib/activity.mjs`, `system/lib/updates.mjs`, `system/lib/commands/activity.mjs`, and
+the tests `system/tests/unit/{activity,network,updates}.test.mjs` and
+`system/tests/integration/{activity,updates}.test.mjs`; `.github/workflows/memory-kit-updates.yml`
+comes with the template only. Changed: `.claude/settings.json`, `memory.json`, `system/VERSION`,
+`system/memory.mjs`, `system/init.mjs`,
+`system/lib/{config,startview,mcp,doctor,upgrade,wizard}.mjs`,
+`system/lib/commands/{start,search,new,remember,hook,mcp,upgrade,sync,project}.mjs`, `system/schema/memory.schema.json`,
+`system/lang/cs/pack.json`, the system section of `AGENTS.md` and
+`system/templates/{en,cs}/kit/agents-system.md`, `system/tests/helpers.mjs` and the tests of the
+changed behaviour, `README.md`, `README.cs.md`, `docs/architecture.md`, `docs/api.md`,
+`docs/privacy.md`, `docs/projects.md`, `docs/upgrading.md`, `docs/maintenance.md`,
+`docs/integrations/{claude-code,mcp}.md`. Removed: nothing.
+
+### Testing
+
+- The whole suite: 1325 tests, none failing; 10 skip themselves where the machine lacks what they
+  need. 65 are new: the activity log as a library (what an entry may hold, the switches, rotation,
+  torn lines, the summary), the owner's line and the activity report end to end in English and
+  Czech, the MCP server's lines (a note once per opening, no query, a local note only counted), the
+  project hooks (Claude Code gets the line, Codex does not; views and lookups are logged), an
+  upgrade that leaves no line, and the update check (the tags of a source, the settings, the
+  daily check in the background and never in CI, the line once a day, the workflow's issue, the
+  `kit.updates` check of doctor, the New versions item of setup), and `sync` stopping on
+  uncommitted changes.
+- `system/tests/unit/network.test.mjs` scans every module of the kit: imports only of kit files
+  and built-ins that open no connection, no `fetch` or other network API, no download tool, and git
+  gets `pull` and `push` only in `sync`, `clone` only in `upgrade` and `ls-remote` only in the
+  update check.
+- The update check runs against a real git repository with release tags as the kit's source, and
+  the shell of `memory-kit-updates.yml` is taken from the file and run with bash against a fake `gh`:
+  it opens one issue, renames and comments an older one, leaves the same one alone, closes it after
+  the upgrade, and does nothing when turned off, in the kit repository or without an answer.
+- Run locally on Linux with Node.js 26; Windows and macOS rest on CI.
+
 ## 0.1.2 (2026-09-25)
 
 ### Defaults and privacy

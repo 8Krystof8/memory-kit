@@ -62,15 +62,17 @@ describe('AGENTS.md (9.1, 9.2)', () => {
   });
 
   for (const lang of ['en', 'cs']) {
-    test(`${lang}: the search block has 10 numbered steps and fits 1600 bytes`, () => {
+    test(`${lang}: the search block has 11 numbered steps and fits 1600 bytes`, () => {
       const system = read(`system/templates/${lang}/kit/agents-system.md`);
       assert.ok(!system.includes('<!-- setup:start -->'), 'templates carry no setup block');
       const block = extractSearchBlock(system);
       assert.ok(block, 'search markers');
       assert.ok(Buffer.byteLength(block) <= 1600, `${Buffer.byteLength(block)} bytes`);
       const steps = block.split('\n').filter((l) => /^\d+\. /.test(l)).map((l) => Number(l.split('.')[0]));
-      assert.deepEqual(steps, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      assert.deepEqual(steps, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
       assert.ok(block.includes('node system/memory.mjs search'), 'canonical command');
+      // The last step makes the use of the memory visible: the notes an answer used, or a write.
+      assert.match(block.split('\n').at(-1), /^11\. .*`📎 [^`]+\[\[[^`]+\]\][^`]*`.*`📎 [^`]+\[\[[^`]+\]\]`\.$/);
     });
   }
 });
@@ -106,16 +108,17 @@ describe('adapters (9.3 to 9.6)', () => {
     assert.match(agent.body, /1500 tokens/);
   });
 
-  test('the SessionStart hook prints the start file (shell form with a braced, quoted placeholder)', () => {
+  test('the SessionStart hook prints the start file with the owner\'s notice (shell form with a braced, quoted placeholder)', () => {
     const settings = JSON.parse(read('.claude/settings.json'));
     const entries = settings.hooks.SessionStart;
     const entry = entries.find((e) => e.matcher === 'startup|resume|clear|compact');
     assert.ok(entry, JSON.stringify(entries));
     // No `args` (exec form): Claude Code before 2.1.139 drops it and runs a bare `node` that reads
     // the hook input JSON as a script. The braces let Claude Code 2.1.198+ rewrite the placeholder
-    // for PowerShell; sh, bash and Git Bash expand it on every version.
+    // for PowerShell; sh, bash and Git Bash expand it on every version. --format claude-hook adds
+    // the one line for the owner (systemMessage) to the view.
     assert.deepEqual(entry.hooks, [{
-      type: 'command', command: 'node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start',
+      type: 'command', command: 'node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start --format claude-hook',
     }]);
   });
 
