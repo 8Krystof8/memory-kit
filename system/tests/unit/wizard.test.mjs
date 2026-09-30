@@ -472,13 +472,18 @@ describe('the extras menu (setup in a vault that is set up)', () => {
   describe('memory for coding projects against the real installProjects', () => {
     const settingsOf = (h) => JSON.parse(fs.readFileSync(h.settings, 'utf8'));
     const projectsOf = (root) => JSON.parse(readFile(root, 'memory.json')).projects;
-    /** Runs setup: { code, shown (the screen), text (its lines on the rail joined, so wrapping does not matter), term }. */
+    /** Text without any white space: a long path wrapped inside a word (macOS and Windows temp folders) still compares. */
+    const flat = (text) => text.replace(/\n│/g, '\n').replace(/\s+/g, '');
+    /**
+     * Runs setup: { code, shown (the screen), text (its lines on the rail joined, for what must not
+     * be there), flat (for what must be there, wherever the terminal wrapped it), term }.
+     */
     const run = async (root, cfg, h, keys) => {
       const { ui, term } = terminal({ columns: 400 });
       term.keys(...keys);
       const code = await runSetup({ root, cfg, ui, hookOptions: { env: h.env, home: h.home } });
       const shown = screen(term.output());
-      return { code, shown, text: shown.replace(/\s*\n│\s*/g, ' '), term };
+      return { code, shown, text: shown.replace(/\s*\n│\s*/g, ' '), flat: flat(shown), term };
     };
 
     test('installed: the file, the settings, where the notes stay and what to do next; then switched off', async () => {
@@ -493,26 +498,26 @@ describe('the extras menu (setup in a vault that is set up)', () => {
         hooks.SessionStart[0].hooks[0].command);
       assert.deepEqual(projectsOf(root), { enabled: true, auto_add: false, store: 'local', autosync: false, checkpoint: true, error_lookup: true });
       const script = `${root.split(path.sep).join('/')}/system/memory.mjs`;
-      assert.ok(on.text.includes([
+      assert.ok(on.flat.includes(flat([
         `◇  Hooks are in ${h.settings}`,
         'add repositories automatically: No · project notes: this computer only · push at session end: No',
         `Project notes will stay on this computer, in ${path.resolve(root, '..', 'vault-private')} (made with the first project)`,
         '• Start a new Claude Code session in a code repository (in VS Code reload the window) and accept the folder trust dialog when it asks.',
         `• A repository gets its memory only when you add it. Run this inside it: ${commandNode()} "${script}" project add`,
-      ].join(' ')), on.shown);
+      ].join(' '))), on.shown);
       assert.ok(on.shown.includes(`\n│    ${commandNode()} "${script}" project add\n`), 'the command on a line of its own');
       assert.ok(!/failed|could not|not installed/i.test(on.shown), on.shown);
 
       // Keep it: the hooks are current, nothing is written.
       const text = fs.readFileSync(h.settings, 'utf8');
       const kept = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, KEY.enter, `${down(4)}${KEY.enter}`]);
-      assert.ok(kept.text.includes(`◇  The hooks in ${h.settings} are current`), kept.shown);
+      assert.ok(kept.flat.includes(flat(`◇  The hooks in ${h.settings} are current`)), kept.shown);
       assert.ok(!kept.shown.includes('Start a new Claude Code session'), 'nothing changed, so no new session is needed');
       assert.equal(fs.readFileSync(h.settings, 'utf8'), text);
 
       const off = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(2)}${KEY.enter}`, `${down(4)}${KEY.enter}`]);
       assert.equal(off.code, 0, off.shown);
-      assert.ok(off.text.includes(`◇  Memory for coding projects is off; the hooks are out of ${h.settings} backup of the old file: `), off.shown);
+      assert.ok(off.flat.includes(flat(`◇  Memory for coding projects is off; the hooks are out of ${h.settings} backup of the old file: `)), off.shown);
       assert.equal(settingsOf(h).hooks, undefined);
       assert.equal(projectsOf(root).enabled, false);
     });
@@ -524,9 +529,9 @@ describe('the extras menu (setup in a vault that is set up)', () => {
       await installProjects(root, { agent: 'codex', env: h.env, home: h.home });
       // On already (through Codex): change, keep both answers.
       const on = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(1)}${KEY.enter}`, KEY.enter, KEY.enter, `${down(4)}${KEY.enter}`]);
-      assert.ok(on.text.includes(`◇  Hooks are in ${h.settings}`), on.shown);
+      assert.ok(on.flat.includes(flat(`◇  Hooks are in ${h.settings}`)), on.shown);
       const off = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(2)}${KEY.enter}`, `${down(4)}${KEY.enter}`]);
-      assert.ok(off.text.includes(`▲  The hooks are out of ${h.settings}, but Codex still has memory hooks for this memory, so memory for coding projects stays on`), off.shown);
+      assert.ok(off.flat.includes(flat(`▲  The hooks are out of ${h.settings}, but Codex still has memory hooks for this memory, so memory for coding projects stays on`)), off.shown);
       assert.ok(!off.text.includes('Memory for coding projects is off'), off.shown);
       assert.equal(projectsOf(root).enabled, true);
     });
@@ -539,7 +544,7 @@ describe('the extras menu (setup in a vault that is set up)', () => {
       const before = readFile(root, 'memory.json');
       const res = await run(root, cfg, h, PROJECTS_ON);
       assert.equal(res.code, 0, res.shown);
-      assert.ok(res.text.includes(`■  The hooks could not be installed: ${h.settings} cannot be read (EISDIR), so nothing was changed fix: fix the file or its permissions, then connect again ◇`), res.shown);
+      assert.ok(res.flat.includes(flat(`■  The hooks could not be installed: ${h.settings} cannot be read (EISDIR), so nothing was changed fix: fix the file or its permissions, then connect again ◇`)), res.shown);
       assert.ok(!/Hooks are in|are current|push at session end|Run this inside it|switched on/.test(res.text), res.shown);
       assert.equal(readFile(root, 'memory.json'), before);
 
@@ -552,7 +557,7 @@ describe('the extras menu (setup in a vault that is set up)', () => {
       const h2 = agentHome('setup-real-local-home');
       const push = await run(local, loadConfig(local), h2, [`${down(1)}${KEY.enter}`, 'y', KEY.enter, KEY.enter, 'y', `${down(4)}${KEY.enter}`]);
       assert.equal(push.term.pending(), 0, 'the push question was asked');
-      assert.ok(push.text.includes('■  The hooks could not be installed: --autosync needs a memory that syncs through git, but memory.json "mode" is local, so nothing was changed fix: connect without --autosync; the memory stays on this computer ◇'), push.shown);
+      assert.ok(push.flat.includes(flat('■  The hooks could not be installed: --autosync needs a memory that syncs through git, but memory.json "mode" is local, so nothing was changed fix: connect without --autosync; the memory stays on this computer ◇')), push.shown);
       assert.ok(!fs.existsSync(h2.settings));
       assert.equal(JSON.parse(readFile(local, 'memory.json')).projects, undefined);
     });
@@ -564,12 +569,12 @@ describe('the extras menu (setup in a vault that is set up)', () => {
       const own = '// my settings\n{ "theme": "dark" }\n';
       fs.writeFileSync(h.settings, own);
       const res = await run(root, cfg, h, PROJECTS_ON);
-      assert.ok(res.text.includes(`■  The hooks could not be installed: ${h.settings} is not plain JSON (comments or a syntax error), so the hooks were not written into it fix: make it plain JSON and connect again`), res.shown);
+      assert.ok(res.flat.includes(flat(`■  The hooks could not be installed: ${h.settings} is not plain JSON (comments or a syntax error), so the hooks were not written into it fix: make it plain JSON and connect again`)), res.shown);
       // The snippet, whole and outside any box, is what the file needs: each event a list of groups.
       const snippet = res.shown.slice(res.shown.indexOf('\n{\n') + 1, res.shown.indexOf('\n}\n') + 2);
       assert.deepEqual(Object.keys(JSON.parse(snippet).hooks), ['SessionStart', 'Stop', 'PostToolUseFailure']);
       assert.ok(Array.isArray(JSON.parse(snippet).hooks.SessionStart), snippet);
-      assert.ok(res.text.includes('● memory.json has it switched on: it works once the hooks are in place.'), res.shown);
+      assert.ok(res.flat.includes(flat('● memory.json has it switched on: it works once the hooks are in place.')), res.shown);
       assert.equal(fs.readFileSync(h.settings, 'utf8'), own, 'the file is left alone');
       assert.equal(projectsOf(root).enabled, true);
     });

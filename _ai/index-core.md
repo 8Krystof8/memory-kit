@@ -1,4 +1,4 @@
-memory-kit v1 · source bbe807500a65 · content 18609c8db958 · as-of 2026-09-23 · DO NOT EDIT
+memory-kit v1 · source d35cf68096ed · content 18609c8db958 · as-of 2026-09-23 · DO NOT EDIT
 # Index: core · 0 notes · base sectors/core/
 Search: `node system/memory.mjs search "query" --sector core` · fallback `rg -il 'stem' sectors/core/`
 

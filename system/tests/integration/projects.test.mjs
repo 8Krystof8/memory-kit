@@ -660,9 +660,15 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     const pinned = tmpDir('pinned-node');
     fs.writeFileSync(path.join(pinned, 'node'), '#!/bin/sh\necho "v20.20.2"\nexit 3\n', { mode: 0o755 });
     const old = { PATH: `${pinned}${path.delimiter}${process.env.PATH}`, HOME: v.home, NVM_BIN: '' };
+    // The hook passes over the PATH's old node when a usual place has Node.js 22 or newer (the CI
+    // runners have one in /usr/local/bin): the refusal shows only on a machine without one.
+    const usualNewer = ['/opt/homebrew/bin/node', '/usr/local/bin/node'].some((p) => fs.existsSync(p)
+      && spawnSync(p, ['-e', 'process.exit(parseInt(process.versions.node) >= 22 ? 0 : 1)'], { windowsHide: true }).status === 0);
     const refused = spawnSync('git', ['commit', '--allow-empty', '-qm', 'by hand'], { cwd: v.root, env: { ...process.env, ...old }, encoding: 'utf8' });
-    assert.notEqual(refused.status, 0, 'the hook refuses a commit with that node first');
-    assert.match(refused.stderr, /is not Node\.js 22 or newer/);
+    if (!usualNewer) {
+      assert.notEqual(refused.status, 0, 'the hook refuses a commit with that node first');
+      assert.match(refused.stderr, /is not Node\.js 22 or newer/);
+    }
     assert.equal(cli(v, ['remember', 'order new labels'], { cwd: v.root }).code, 0);
     assert.equal(cli(v, ['hook', 'claude-code', 'autosync'], { env: old }).code, 0);
     const synced = logOf(v).filter((e) => e.event === 'autosync').at(-1);

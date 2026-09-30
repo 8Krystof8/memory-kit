@@ -22,7 +22,7 @@ import {
 import { hookCall, quietHook } from '../../lib/oldnode.mjs';
 import { commandNode } from '../../lib/nodepath.mjs';
 import { readHookLog } from '../../lib/hooklog.mjs';
-import { KIT_ROOT, bareRoot, fixtureVault, removeTmpDirs, runCli, tmpDir } from '../helpers.mjs';
+import { KIT_ROOT, bareRoot, cloneDir, fixtureVault, removeTmpDirs, runCli, tmpDir } from '../helpers.mjs';
 
 after(removeTmpDirs);
 
@@ -576,7 +576,8 @@ describe('installProjects', () => {
   test('a refusal throws, and the wizard reads it as a failure with its fix', async () => {
     const base = tmpDir('refused');
     const root = path.join(base, 'Důležité!');
-    fs.cpSync(bareRoot('en'), root, { recursive: true });
+    // The helpers' plain copy: fs.cpSync left memory.json out of this folder on the Windows runners.
+    cloneDir(bareRoot('en'), root);
     put(path.join(root, 'system', 'memory.mjs'), '// cli\n');
     const home = tmpDir('home');
     let caught = null;
@@ -728,8 +729,13 @@ describe('installProjects', () => {
     const text = read(s.codex);
     const hooks = JSON.parse(text).hooks;
     assert.deepEqual(Object.keys(hooks), ['SessionStart', 'Stop']);
-    assert.deepEqual(hooks.Stop, [{ hooks: [{ type: 'command', command: `${NODE_WORD} "${hookScript(s.root)}" hook codex stop`, timeout: 10 }] }]);
-    assert.equal(hooks.Stop[0].hooks[0].commandWindows, undefined, 'commandWindows only on Windows');
+    // Codex on Windows gets commandWindows too, the same cmd.exe-safe string (hookHandler).
+    const codexHook = (event, timeout) => {
+      const command = `${NODE_WORD} "${hookScript(s.root)}" hook codex ${event}`;
+      return { type: 'command', command, ...(IS_WIN ? { commandWindows: command } : {}), timeout };
+    };
+    assert.deepEqual(hooks.Stop, [{ hooks: [codexHook('stop', 10)] }]);
+    if (!IS_WIN) assert.equal(hooks.Stop[0].hooks[0].commandWindows, undefined, 'commandWindows only on Windows');
     assert.match(res.warnings.join('\n'), /Codex 0\.123\.0 runs hooks only with \[features\] hooks = true/);
     assert.match(res.warnings.join('\n'), /turns hooks off \(\[features\] hooks = false\)/);
     await install(s, { agent: 'codex' });
@@ -737,13 +743,15 @@ describe('installProjects', () => {
     assert.match(formatInstall(res, null).join('\n'), /open \/hooks and trust the memory hooks/);
     await install(s, { agent: 'codex', autosync: true, io: { hasRemote: () => true } });
     const synced = json(s.codex).hooks;
-    assert.deepEqual(synced.SessionEnd, [{ hooks: [{ type: 'command', command: `${NODE_WORD} "${hookScript(s.root)}" hook codex session-end`, timeout: 3 }] }]);
+    assert.deepEqual(synced.SessionEnd, [{ hooks: [codexHook('session-end', 3)] }]);
     assert.deepEqual([synced.SessionStart, synced.Stop], [hooks.SessionStart, hooks.Stop], 'the other hooks keep their place and text (Codex trust)');
     const win = await install(s, { agent: 'codex', platform: 'win32', io: { codexInfo: () => ({ observed: [{ source: 'cli', version: '0.125.0' }], min: '0.125.0', off: null }) } });
     assert.match(win.warnings.join('\n'), /Codex 0\.125\.0 on Windows reads commandWindows only from 0\.131/);
   });
 
-  test('warnings: disableAllHooks, hooks of another memory, node not on the PATH', async () => {
+  // platform: 'linux' with a vault in a Windows temp folder (C:\\…) is no setup that exists: the
+  // path alone makes the plan another one there.
+  test('warnings: disableAllHooks, hooks of another memory, node not on the PATH', { skip: IS_WIN && 'a POSIX platform needs a POSIX vault path' }, async () => {
     const s = setup();
     const other = hookGroups('claude-code', EVENTS['claude-code'], { form: 'shell', nodeWord: 'node' }, { script: '/elsewhere/system/memory.mjs', platform: 'linux' });
     put(s.claude, JSON.stringify({ disableAllHooks: true, hooks: { Stop: [other.Stop] } }));
