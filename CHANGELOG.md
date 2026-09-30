@@ -9,6 +9,34 @@ which kit-owned files changed.
 
 Nothing yet.
 
+## 0.1.4 (not released yet)
+
+Planned for the weekend of 10 and 11 October 2026. From this version on, `main` only ever holds
+released versions: the work happens on `dev`, and a release is a pull request from `dev` whose CI
+is green on Linux, macOS and Windows.
+
+### Changed
+
+- **The README says which AI tool gets what**: one table for Claude Code, Codex, Gemini CLI,
+  Cursor and apps over MCP, and every sign that the memory works is marked as measured (the line at
+  the session start, `activity`) or best-effort (the 📎 line, an instruction the agent may skip or
+  write without having read a note).
+- **Release rules**: `main` only ever holds released versions, a release needs green CI on every
+  platform, and a version number is used once ([CONTRIBUTING.md](CONTRIBUTING.md#releasing)).
+- The repository has [SECURITY.md](SECURITY.md) (private reports, and what checks each promise),
+  issue and pull request templates, and [ROADMAP.md](ROADMAP.md) with the weekend releases.
+
+### Fixed
+
+- CI is green again on macOS and Windows: tests that compared screen text broken by the terminal
+  inside a long temporary path (macOS and Windows temp folders) now compare it without white space;
+  the Codex hooks test expects `commandWindows` on Windows; a test that copied a folder with
+  diacritics now uses the helpers' plain copy; a test that pretends Linux with a Windows vault path
+  skips itself on Windows.
+- **A test that depended on the machine**: the test of the pre-commit hook with an old Node.js
+  first on the `PATH` expects the refusal only where no Node.js 22 or newer waits in a usual place,
+  since the hook rightly uses that one (the CI runners have one in `/usr/local/bin`).
+
 ## 0.1.3 (2026-09-30)
 
 You can now see that the memory works while it stays in the background: one line at a session

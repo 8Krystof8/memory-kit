@@ -174,6 +174,19 @@ The system section of `AGENTS.md` (between `<!-- kit:start` and `<!-- kit:end --
 
 ## Releasing
 
+memory-kit ships every weekend, on Saturday or Sunday ([ROADMAP.md](ROADMAP.md)). Three rules keep
+`main` trustworthy:
+
+- **`main` only ever holds released versions.** Nobody pushes to it. Work goes to `dev` (through a
+  pull request, or directly by the maintainer), and a release is a pull request from `dev` to
+  `main`.
+- **A release needs green CI** on Linux, macOS and Windows with Node.js 22 and 24. A test that fails
+  on one platform is fixed or, when the platform cannot run it, skipped with its reason; it is never
+  left red.
+- **A version number is used once.** `system/VERSION` on `dev` is the version in progress from its
+  first change on; merging the release pull request tags it (`release.yml`) and publishes the
+  GitHub Release with that version's `CHANGELOG.md` section.
+
 `upgrade` trusts `system/kit.json`: it refuses a kit whose files do not match it, and it replaces a
 vault file only when its content is one a release shipped (`system/kit-history.json`). The full
 checklist is in [docs/upgrading.md](docs/upgrading.md#releasing-a-new-version-maintainers). In
@@ -203,6 +216,7 @@ set (`git config core.hooksPath .githooks`).
 
 ## Pull requests
 
+- Pull requests go to `dev`; `main` only gets releases.
 - One topic per pull request; small commits with plain messages.
 - Checklist:
   - [ ] `node --test "system/tests/**/*.test.mjs"` passes

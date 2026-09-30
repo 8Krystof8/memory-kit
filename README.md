@@ -124,6 +124,21 @@ and local sectors stay hidden. `node system/memory.mjs connect --list` shows whi
 connected. Where each app keeps its settings, and what to do when it does not work:
 [docs/integrations/mcp.md](docs/integrations/mcp.md).
 
+## What each AI tool gets
+
+"Measured" means the kit does or records it itself; "best-effort" means an instruction that the
+agent may follow or skip.
+
+| | Claude Code | Codex | Gemini CLI | Cursor | apps over MCP |
+|---|---|---|---|---|---|
+| the rules and the search protocol | `CLAUDE.md` → `AGENTS.md` | `AGENTS.md` | `GEMINI.md` → `AGENTS.md` | `AGENTS.md` | `memory_start` |
+| the start view at a session start | a hook (measured) | the agent runs `start` (best-effort); a hook in code projects | the agent runs `start` (best-effort), or an [optional hook](docs/integrations/gemini-cli.md) | the agent runs `start` (best-effort) | the agent calls `memory_start` (best-effort) |
+| your line at a session start (measured) | yes | no: Codex shows no hook messages; failures and a newer version reach you through the agent | no | no | no |
+| the 📎 line under answers (best-effort) | rule 11 | rule 11 | rule 11 | rule 11 | the server's instructions |
+| the activity log (measured) | yes | yes | yes | yes, as "CLI" | yes, with the app's name |
+| memory for code projects ([docs/projects.md](docs/projects.md)) | yes | yes | no | no | no |
+| the error lookup after a failed command | yes | no | no | no | no |
+
 ## Memory for your code projects
 
 Working on code? The memory can keep notes for the repositories you choose, outside the code
@@ -285,10 +300,12 @@ The output above is shortened.)
 
 ## Is it working?
 
-The memory works in the background, and it shows that it does in three places.
+The memory works in the background, and it shows that it does in three places. Two of them are
+**measured**: the kit writes them itself. One is **best-effort**: an instruction the agent may
+follow or not. Which AI tool gets what is in [What each AI tool gets](#what-each-ai-tool-gets).
 
-**At every session start in Claude Code**, one line from memory-kit that the agent does not have to
-read (it is a message of the hook, not part of the agent's context):
+**At every session start in Claude Code** (measured), one line from memory-kit that the agent does
+not have to read (it is a message of the hook, not part of the agent's context):
 
 ```text
 memory-kit: memory loaded · 34 notes · 5 sectors
@@ -299,18 +316,20 @@ project (dev)`. When the memory did not load, the line gives the reason and tell
 `doctor`, so a broken memory no longer looks like a working one. `"feedback": {"notice": false}`
 in `memory.json` turns the line off.
 
-**Under an answer that used your notes**, the agent adds one line that names them, and after it
-saved something, one that names the new note:
+**Under an answer that used your notes** (best-effort), the agent adds one line that names them,
+and after it saved something, one that names the new note:
 
 ```text
 📎 memory: [[fixed-price-packages]], [[harbor-bakery]]
 📎 saved: [[2026-09-29-harbor-bakery-wants-a-loyalty-card]]
 ```
 
-The rule is step 11 of the search rules and is also in the instructions of the MCP server. It is an
-instruction to the agent, so treat it as a habit, not a guarantee. For a record, use the next part.
+The rule is step 11 of the search rules and is also in the instructions of the MCP server. It is only
+an instruction: an agent may leave the line out, or write one without having read a note, so
+neither its presence nor its absence proves anything. The record is the next part.
 
-**Any time**, `activity` shows what the agents did with the memory on this computer:
+**Any time** (measured), `activity` shows what the agents did with the memory on this computer:
+
 
 ```text
 $ node system/memory.mjs activity
@@ -495,9 +514,12 @@ Version 0.1.0 was phase 1: the structure, checks, generated views, search, templ
 setup, adapters and CI. Version 0.1.1 adds `upgrade`, `doctor`, the MCP server with `connect`, the
 JavaScript API, JSON schemas and support for Windows and macOS. Version 0.1.2 adds memory for code
 projects: hooks for Claude Code and Codex, a `dev` sector per repository outside the code, and
-`remember`. The nightly cleanup by a cheap
-model, a local model for private sectors, a remote MCP server and embeddings are on the
-[roadmap](docs/maintenance.md#roadmap-not-built-yet). Their safety rules are already written down.
+`remember`. Version 0.1.3 shows that the memory works (the line at the session start, `activity`)
+and tells you of new versions.
+
+New versions come every weekend, and `main` only ever holds released versions: the work happens on
+`dev`, and a release is a pull request whose CI is green on Linux, macOS and Windows. What comes
+next is in [ROADMAP.md](ROADMAP.md); how to report a security problem, in [SECURITY.md](SECURITY.md).
 
 ## License
 

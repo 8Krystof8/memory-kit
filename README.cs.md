@@ -146,6 +146,21 @@ zůstávají skryté. Příkaz `node system/memory.mjs connect --list` ukáže, 
 připojené. Kde má která aplikace nastavení a co dělat, když něco nefunguje, najdeš
 v [docs/integrations/mcp.md](docs/integrations/mcp.md) (anglicky).
 
+## Co dostane který nástroj
+
+„Změřeno“ znamená, že to kit dělá nebo zapisuje sám; „bez záruky“ je pokyn, který agent může, ale
+nemusí dodržet.
+
+| | Claude Code | Codex | Gemini CLI | Cursor | aplikace přes MCP |
+|---|---|---|---|---|---|
+| pravidla a postup hledání | `CLAUDE.md` → `AGENTS.md` | `AGENTS.md` | `GEMINI.md` → `AGENTS.md` | `AGENTS.md` | `memory_start` |
+| start paměti na začátku relace | hook (změřeno) | agent spustí `start` (bez záruky); v projektech s kódem hook | agent spustí `start` (bez záruky), nebo [volitelný hook](docs/integrations/gemini-cli.md) | agent spustí `start` (bez záruky) | agent zavolá `memory_start` (bez záruky) |
+| tvůj řádek na začátku relace (změřeno) | ano | ne: Codex zprávy hooků neukazuje; chyby a novou verzi ti předá agent | ne | ne | ne |
+| řádek 📎 pod odpověďmi (bez záruky) | pravidlo 11 | pravidlo 11 | pravidlo 11 | pravidlo 11 | instrukce serveru |
+| záznam aktivity (změřeno) | ano | ano | ano | ano, jako „CLI“ | ano, se jménem aplikace |
+| paměť pro projekty s kódem ([docs/projects.md](docs/projects.md)) | ano | ano | ne | ne | ne |
+| vyhledání chyby po neúspěšném příkazu | ano | ne | ne | ne | ne |
+
 ## Paměť pro projekty s kódem
 
 Programuješ? Paměť si umí vést poznámky k repozitářům, které si vybereš, mimo repo s kódem a nikdy
@@ -278,7 +293,7 @@ Kanonické anglické názvy fungují vždy, český balíček k nim přidává a
 | `sync [--no-push]` | `synchronizuj` | `git pull --rebase`, konflikty jen v generovaných souborech vyřeší sám, pushne; nikdy force a nikdy necommituje (necommitnuté změny ho zastaví i s příkazy, které je commitnou); v režimu `local` nic nedělá |
 | `eval [--file cesta]` | `eval --soubor` | spustí tvoje kontrolní otázky a vypíše hit@3 |
 | `doctor [--json] [--fix]` | `doktor [--oprav]` | zkontroluje nastavení: Node, memory.json, soubory kitu, git hooky, kořeny, připojené aplikace; ke každému problému řekne, jak ho opravit |
-| `upgrade [--yes] [--dry-run] [--from zdroj] [--rollback]` · `upgrade --check` | `aktualizuj --ano --nanecisto --odkud --vratit` · `aktualizuj --check` | aktualizuje kit na nejnovější verzi: nejdřív ukáže plán, udělá zálohu, ověří výsledek a při chybě vrátí vše zpět; `--rollback` aktualizaci vrátí; `--check` jen řekne, jestli vyšla novější verze ([Nové verze](#nove-verze)) |
+| `upgrade [--yes] [--dry-run] [--from zdroj] [--rollback]` · `upgrade --check` | `aktualizuj --ano --nanecisto --odkud --vratit` · `aktualizuj --check` | aktualizuje kit na nejnovější verzi: nejdřív ukáže plán, udělá zálohu, ověří výsledek a při chybě vrátí vše zpět; `--rollback` aktualizaci vrátí; `--check` jen řekne, jestli vyšla novější verze ([Nové verze](#nové-verze)) |
 | `connect <aplikace> [--name n] [--read-only] [--remove]` · `connect --list` | `pripoj --jmeno --jen-cteni --odebrat` · `pripoj --seznam` | přidá paměť do nastavení MCP v AI aplikaci (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI a další) |
 | `connect claude-code\|codex --projects [--remove]` | `pripoj claude-code --projects` | nainstaluje hooky pro projekty s kódem, které přidáš; nic se samo nepřidá ani nepushne ([docs/projects.md](docs/projects.md)) |
 | `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision\|fact]` | `zapamatuj "text" --typ gotcha` | zapíše řádek do paměti projektu (v přidaném repu s kódem), do inboxu lokálního kořene (v jiném repozitáři) nebo do `inbox/` |
@@ -308,9 +323,11 @@ pocházejí z vymyšleného testovacího vaultu (studio „Linden Studio“, „
 
 ## Funguje to?
 
-Paměť běží na pozadí, ale na třech místech ukazuje, že funguje.
+Paměť běží na pozadí, ale na třech místech ukazuje, že funguje. Dvě z nich jsou **změřená**: zapisuje
+je kit sám. Jedno je **bez záruky**: pokyn, který agent může, ale nemusí dodržet. Co dostane který
+AI nástroj, je v části [Co dostane který nástroj](#co-dostane-který-nástroj).
 
-**Na začátku každé relace v Claude Code** jeden řádek od memory-kit, který agent nemusí číst (je to
+**Na začátku každé relace v Claude Code** (změřeno) jeden řádek od memory-kit, který agent nemusí číst (je to
 zpráva hooku, ne součást kontextu agenta):
 
 ```text
@@ -321,7 +338,7 @@ V projektu s kódem a [hooky pro projekty](docs/projects.md) zní `paměť tohot
 (dev)`. Když se paměť nenačte, řádek řekne proč a pošle tě na `doctor`, takže rozbitá paměť už
 nevypadá jako funkční. Vypneš ho přes `"feedback": {"notice": false}` v `memory.json`.
 
-**Pod odpovědí, kterou ovlivnily tvoje poznámky**, agent přidá řádek, který je jmenuje, a po
+**Pod odpovědí, kterou ovlivnily tvoje poznámky** (bez záruky), agent přidá řádek, který je jmenuje, a po
 uložení řádek s novou poznámkou:
 
 ```text
@@ -329,10 +346,11 @@ uložení řádek s novou poznámkou:
 📎 uloženo: [[2026-09-29-pekarna-chce-vernostni-kartu]]
 ```
 
-Je to krok 11 pravidel hledání a stojí i v instrukcích MCP serveru. Je to pokyn pro agenta, tedy
-zvyk, ne záruka. Záznam ti dá až další část.
+Je to krok 11 pravidel hledání a stojí i v instrukcích MCP serveru. Je to jen pokyn: agent ho může
+vynechat, nebo řádek napsat, i když žádnou poznámku nečetl, takže jeho přítomnost ani absence nic
+nedokazuje. Záznam dává až další část.
 
-**Kdykoli** ukáže `aktivita`, co agenti na tomto počítači s pamětí dělali:
+**Kdykoli** (změřeno) ukáže `aktivita`, co agenti na tomto počítači s pamětí dělali:
 
 ```text
 $ node system/memory.mjs aktivita
@@ -357,7 +375,7 @@ jako data.
 
 **Co memory-kit nikdy nedělá:** sám od sebe nekomunikuje se sítí. Online jde jen git, a jen tam,
 kde o to požádáš: `sync` stáhne a pošle repozitář tvé paměti (automatická synchronizace jen
-když ji zapneš), `upgrade` stáhne kit z jeho zdroje a [kontrola nové verze](#nove-verze) přečte
+když ji zapneš), `upgrade` stáhne kit z jeho zdroje a [kontrola nové verze](#nové-verze) přečte
 tagy verzí kitu (když ji spustíš, nebo jednou denně, když si to zapneš). Žádná telemetrie.
 [`system/tests/unit/network.test.mjs`](system/tests/unit/network.test.mjs) to dokazuje při každém
 běhu CI: žádný modul kitu neimportuje síťový modul, nevolá `fetch` ani nespouští stahovací
@@ -478,9 +496,13 @@ Podrobná dokumentace je anglicky:
 Verze 0.1.0 byla první fáze: struktura, kontroly, generované pohledy, hledání, šablony, sektory,
 nastavení, adaptéry a CI. Verze 0.1.1 přidává `upgrade`, `doctor`, MCP server s příkazem `connect`,
 JavaScriptové API, JSON schémata a podporu Windows a macOS. Verze 0.1.2 přidává paměť pro projekty
-s kódem: hooky pro Claude Code a Codex, sektor `dev` pro každý repozitář mimo kód a `remember`. Noční úklid levným modelem, lokální
-model pro soukromé sektory, vzdálený MCP server a embeddingy jsou
-v [plánu](docs/maintenance.md#roadmap-not-built-yet). Jejich bezpečnostní pravidla jsou už sepsaná.
+s kódem: hooky pro Claude Code a Codex, sektor `dev` pro každý repozitář mimo kód a `remember`.
+Verze 0.1.3 ukazuje, že paměť funguje (řádek na začátku relace, `aktivita`), a dává vědět o nových
+verzích.
+
+Nové verze vycházejí každý víkend a v `main` jsou jen vydané verze: práce běží na `dev` a vydání je
+pull request, jehož CI je zelené na Linuxu, macOS i Windows. Co přijde dál, je v
+[ROADMAP.md](ROADMAP.md) (anglicky); jak nahlásit bezpečnostní problém, v [SECURITY.md](SECURITY.md).
 
 ## Licence
 
