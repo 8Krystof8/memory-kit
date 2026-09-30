@@ -9,7 +9,7 @@ which kit-owned files changed.
 
 Nothing yet.
 
-## 0.1.3 (not released yet)
+## 0.1.3 (2026-09-30)
 
 You can now see that the memory works while it stays in the background: one line at a session
 start in Claude Code, a 📎 line under an answer that notes shaped, and `activity` for what the

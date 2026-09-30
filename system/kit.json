@@ -200,7 +200,7 @@
       "group": "code"
     },
     "system/lib/commands/project.mjs": {
-      "sha256": "0761da6d140025b2dc28512bb678fb212e88ed34623cac44f1ad537bed28a4ee",
+      "sha256": "6b34163d2122115e2c024b9d374bd5579c760bf5d0e996017f0a66bc6f47f7c1",
       "group": "code"
     },
     "system/lib/commands/remember.mjs": {
@@ -956,7 +956,7 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "4131c0f2899a3f3cfb2af00d15349e59679333530ccecd291cffed3dbad61481",
+      "sha256": "892eb899f40b4f79467678274d3abff824c678cfeb7aa68ef56b0d6eeb7b8b57",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {
