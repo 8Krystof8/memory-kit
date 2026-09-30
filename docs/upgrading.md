@@ -51,7 +51,9 @@ Four ways, and you can use several; the README's
   the vault and write issues, nothing else. Off: `"updates": {"github": false}` in `memory.json`.
   `upgrade` never ships this file (it is not in `system/kit.json`), because a changed workflow
   makes the next push need a token with the `workflow` scope; an older memory adds it once on
-  GitHub (Add file → Create new file), which needs no such token.
+  GitHub, which needs no such token: from 0.1.4 on, `doctor` and `setup` → New versions print a
+  link that opens GitHub's editor with the file filled in (the kit's copy in
+  `system/templates/github/`), so one click on Commit changes adds it.
 - **A line at the session start** (off by default). With `"updates": {"check": true}` the session
   start runs `upgrade --check` in the background at most once a day, never in CI and never with
   `NO_UPDATE_NOTIFIER` set; Claude Code then shows a newer version once a day next to the line

@@ -28,8 +28,13 @@ export const CHECK_IDS = Object.freeze([
   'git.attributes', 'roots', 'generated.fresh', 'platform', 'mcp.clients', 'projects.hooks',
 ]);
 
-/** Repairs `doctor --fix` may apply: git config core.hooksPath, and the hook file's bytes and mode. */
-export const REPAIRS = Object.freeze(['hooks_path', 'hook_file']);
+/**
+ * Repairs `doctor --fix` may apply: git config core.hooksPath, the hook file's bytes and mode, and
+ * --format claude-hook in the Claude Code start hook of .claude/settings.json (withHookFormat).
+ */
+export const REPAIRS = Object.freeze(['hooks_path', 'hook_file', 'claude_hook']);
+
+export const CLAUDE_SETTINGS_REL = '.claude/settings.json';
 
 export const HOOK_REL = '.githooks/pre-commit';
 const DEFAULT_NODE = '22.5.0';
@@ -56,9 +61,11 @@ export const DEFAULTS = Object.freeze({
   'doctor.fix': 'fix: {fix}',
   'doctor.fixed.hooks_path': 'fixed: git config core.hooksPath .githooks',
   'doctor.fixed.hook_file': 'fixed: .githooks/pre-commit now has LF line endings and is executable',
+  'doctor.fixed.claude_hook': 'fixed: the SessionStart hook in .claude/settings.json now runs start --format claude-hook (commit the file)',
   'doctor.backup': 'the previous file is kept in {path}',
   'doctor.fix_failed': 'could not fix {what}: {detail}',
   'doctor.fix_outside': 'it links to {target}, outside the memory, and doctor --fix changes nothing there',
+  'doctor.fix_by_hand': 'doctor --fix changes {file} only when it is a plain UTF-8 JSON file whose start hook it can change without touching anything else; change it by hand',
   'doctor.more': '{list} and {n} more',
   'doctor.not_checked': 'not checked: {reason}',
   'doctor.reason.config': 'memory.json cannot be loaded (see config.memory_json)',
@@ -123,6 +130,9 @@ export const DEFAULTS = Object.freeze({
   'doctor.updates.newer_fix': 'node system/memory.mjs upgrade (it shows what is new and asks before it changes anything)',
   'doctor.updates.current': 'memory-kit {version} is the newest known (checked {when}); new versions: {channels}',
   'doctor.updates.unchecked': 'memory-kit {version}, not checked for a newer one yet (node system/memory.mjs upgrade --check); new versions: {channels}',
+  'doctor.updates.workflow_fix': 'add the workflow with one click: this link opens GitHub with .github/workflows/memory-kit-updates.yml filled in, then press Commit changes (or turn the issue off: "updates": {"github": false} in memory.json): {url}',
+  'doctor.updates.workflow_copy_fix': 'on github.com, in your memory\'s repository: Add file → Create new file, name it .github/workflows/memory-kit-updates.yml, paste the file from {url} and press Commit changes (or turn the issue off: "updates": {"github": false} in memory.json)',
+  'doctor.updates.workflow_plain_fix': 'on github.com, in your memory\'s repository: Add file → Create new file, name it .github/workflows/memory-kit-updates.yml and paste the file of the same name from the kit (or turn the issue off: "updates": {"github": false} in memory.json)',
   'doctor.lock.found': 'the upgrade {from} → {to} (started {started}) did not finish; upgrade refuses to run until it is undone',
   'doctor.lock.invalid': '{file} was left by an interrupted upgrade and cannot be read',
   'doctor.lock.invalid_fix': 'node system/memory.mjs upgrade --rollback --force (this only removes the lock)',
@@ -163,6 +173,10 @@ export const DEFAULTS = Object.freeze({
   'doctor.adapters.update_fix': 'update Claude Code (claude update), or install Git for Windows (git-scm.com), whose Git Bash runs the hook',
   'doctor.adapters.matcher': 'the SessionStart hook skips {sources}, so those sessions start without the memory',
   'doctor.adapters.matcher_fix': 'set its "matcher" to "startup|resume|clear|compact"',
+  'doctor.adapters.no_format': 'the SessionStart hook runs start without --format claude-hook (the hook of memory-kit 0.1.2 and older), so Claude Code loads the memory but shows no line about it at the session start',
+  'doctor.adapters.format_fix': '{command} (or add --format claude-hook after start in line {line} of {file})',
+  'doctor.adapters.format_line_fix': 'add --format claude-hook after start in line {line} of {file}',
+  'doctor.adapters.format_args_fix': 'add "--format", "claude-hook" after "start" in the "args" of line {line} of {file}',
 
   'doctor.git.ok': 'git repository · branch {branch} · remote {remote}',
   'doctor.git.ok_local': 'git repository · branch {branch} · mode local, so nothing is pushed',
@@ -736,13 +750,22 @@ async function checkUpgradeLock(c) {
 async function checkUpdates(c) {
   const updates = await need(c, 'updates.mjs');
   const status = updates.updateStatus(c.cfg ?? c.root);
-  const channels = updates.channelList({ t: c.t }, status);
+  const channels = updates.channelList({ t: c.t }, status, { short: true });
   const when = status.checked ? `${status.checked.slice(0, 16).replace('T', ' ')} UTC` : '';
   const version = status.installed ?? c.version ?? '?';
-  if (status.available) {
-    return combine([problem('warn', say(c.t, 'doctor.updates.newer', { latest: status.latest, version, when, channels }), say(c.t, 'doctor.updates.newer_fix'))]);
+  const key = status.available ? 'doctor.updates.newer' : status.checked ? 'doctor.updates.current' : 'doctor.updates.unchecked';
+  const message = say(c.t, key, { latest: status.latest, version, when, channels });
+  const fixes = [];
+  if (status.available) fixes.push(say(c.t, 'doctor.updates.newer_fix'));
+  // A vault made before 0.1.3 lacks the workflow of the issue, and upgrade never adds a workflow.
+  if (status.channels.github === 'missing') {
+    const link = typeof updates.workflowLinkOf === 'function' ? updates.workflowLinkOf(c.root) : null;
+    const copy = updates.workflowUrlOf(updates.sourceOf(c.root));
+    if (link) fixes.push(say(c.t, 'doctor.updates.workflow_fix', { url: link }));
+    else fixes.push(say(c.t, copy ? 'doctor.updates.workflow_copy_fix' : 'doctor.updates.workflow_plain_fix', { url: copy ?? '' }));
   }
-  return ok(say(c.t, status.checked ? 'doctor.updates.current' : 'doctor.updates.unchecked', { version, when, channels }));
+  if (!fixes.length) return ok(message);
+  return { status: 'warn', message, fix: fixes.join('; '), repair: [] };
 }
 
 // The setup block of a kit that is not set up yet sits inside the kit section; init removes it.
@@ -775,7 +798,23 @@ async function checkAgentsBlock(c) {
   return ok(say(c.t, 'doctor.agents.ok', { version }));
 }
 
-/** The SessionStart hooks of a Claude Code settings object that run system/memory.mjs start. */
+/** The value of --format in the arguments of a start hook, or null without one. */
+function startFormat(args, command) {
+  if (args.length) {
+    const i = args.indexOf('--format');
+    if (i !== -1) return args[i + 1] ?? '';
+    const eq = args.find((a) => a.startsWith('--format='));
+    return eq === undefined ? null : eq.slice('--format='.length);
+  }
+  const m = /(?:^|\s)--format(?:=|\s+)["']?([\w-]*)/.exec(command);
+  return m ? m[1] : null;
+}
+
+/**
+ * The SessionStart hooks of a Claude Code settings object that run system/memory.mjs start:
+ * [{matcher, exec, bare, format}], format being the value of --format or null (a hook of 0.1.2 or
+ * older, which gives Claude Code the view but no line for the owner).
+ */
 export function sessionStartHooks(settings) {
   const out = [];
   const groups = settings?.hooks?.SessionStart;
@@ -789,10 +828,70 @@ export function sessionStartHooks(settings) {
       const shell = !exec && /system[\\/]memory\.mjs/.test(command) && /(?:^|\s)start(?:\s|$|["'])/.test(command);
       if (!exec && !shell) continue;
       // `${CLAUDE_PROJECT_DIR}` is substituted by Claude Code; a bare `$CLAUDE_PROJECT_DIR` needs a POSIX shell.
-      out.push({ matcher: typeof g.matcher === 'string' ? g.matcher : '', exec, bare: shell && command.includes('$CLAUDE_PROJECT_DIR') });
+      out.push({
+        matcher: typeof g.matcher === 'string' ? g.matcher : '', exec, bare: shell && command.includes('$CLAUDE_PROJECT_DIR'),
+        format: startFormat(exec ? args : [], command),
+      });
     }
   }
   return out;
+}
+
+// `start` after the kit's script in a shell command, where --format claude-hook goes.
+const START_WORD = /(system[\\/]memory\.mjs["']?\s+start)(?=\s|$)/;
+
+/**
+ * The text of a .claude/settings.json whose start hooks in shell form without --format run
+ * `start --format claude-hook` (the hook of 0.1.3), changed only inside those JSON strings, so every
+ * other byte stays; the text itself when no hook needs it; null when it cannot be done that way:
+ * no valid JSON (comments), a hook in exec form without --format, or a command written with other
+ * escapes. The result parses to the old settings with only those commands changed.
+ */
+export function withHookFormat(text) {
+  const bom = text.startsWith('\uFEFF') ? '\uFEFF' : '';
+  const body = text.slice(bom.length);
+  let settings;
+  try {
+    settings = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  const old = sessionStartHooks(settings).filter((h) => h.format === null);
+  if (!old.length) return text;
+  if (old.some((h) => h.exec)) return null;
+  const expected = structuredClone(settings);
+  const changes = new Map();
+  for (const g of expected.hooks.SessionStart) {
+    for (const h of Array.isArray(g?.hooks) ? g.hooks : []) {
+      if (!isObj(h) || typeof h.command !== 'string' || Array.isArray(h.args)) continue;
+      const [one] = sessionStartHooks({ hooks: { SessionStart: [{ hooks: [h] }] } });
+      if (!one || one.format !== null) continue;
+      const next = h.command.replace(START_WORD, '$1 --format claude-hook');
+      if (next === h.command) return null;
+      changes.set(h.command, next);
+      h.command = next;
+    }
+  }
+  let out = body;
+  for (const [from, to] of changes) {
+    const literal = JSON.stringify(from);
+    if (!out.includes(literal)) return null;
+    out = out.split(literal).join(JSON.stringify(to));
+  }
+  try {
+    if (JSON.stringify(JSON.parse(out)) !== JSON.stringify(expected)) return null;
+  } catch {
+    return null;
+  }
+  return bom + out;
+}
+
+/** The 1-based line of text where needle first appears, else of the first line naming the kit's script. */
+function lineOf(text, needle) {
+  const lines = text.split(/\r?\n/);
+  let i = needle ? lines.findIndex((l) => l.includes(needle)) : -1;
+  if (i === -1) i = lines.findIndex((l) => /system[\\/]memory\.mjs/.test(l));
+  return i + 1;
 }
 
 /** The session sources (startup, resume, clear, compact) no hook matcher covers. */
@@ -836,6 +935,29 @@ function hookForm(c, hooks) {
   }
   if (hooks.some((h) => !h.bare)) return problem('warn', say(c.t, 'doctor.adapters.braced_old', { version }), say(c.t, 'doctor.adapters.update_fix'));
   return problem('warn', say(c.t, 'doctor.adapters.bare_var'), say(c.t, 'doctor.adapters.braced_fix'));
+}
+
+/**
+ * The warning for a start hook without --format (0.1.2 or older, kept by upgrade because the owner
+ * changed the file): it names the line, and --fix adds the format when withHookFormat can.
+ */
+function oldStartHook(c, text, settings) {
+  const hookOf = (h) => sessionStartHooks({ hooks: { SessionStart: [{ hooks: [h] }] } })[0];
+  const hook = settings.hooks.SessionStart.flatMap((g) => (Array.isArray(g?.hooks) ? g.hooks : [])).find(hookOf);
+  const exec = hook ? hookOf(hook).exec : false;
+  const line = lineOf(text, !exec && typeof hook?.command === 'string' ? JSON.stringify(hook.command) : null);
+  const vars = { line, file: CLAUDE_SETTINGS_REL };
+  const byHand = say(c.t, exec ? 'doctor.adapters.format_args_fix' : 'doctor.adapters.format_line_fix', vars);
+  let link = false;
+  try {
+    link = fs.lstatSync(inVault(c, CLAUDE_SETTINGS_REL)).isSymbolicLink();
+  } catch {
+    link = true;
+  }
+  const next = link ? null : withHookFormat(text);
+  if (next === null || next === text) return problem('warn', say(c.t, 'doctor.adapters.no_format'), byHand);
+  const command = vaultHasDoctor(c) ? 'node system/memory.mjs doctor --fix' : runnerCommand(c, ['doctor', '--fix']);
+  return problem('warn', say(c.t, 'doctor.adapters.no_format'), say(c.t, 'doctor.adapters.format_fix', { command, ...vars }), ['claude_hook']);
 }
 
 async function checkAdapters(c) {
@@ -883,6 +1005,7 @@ async function checkAdapters(c) {
           if (missing.length) {
             problems.push(problem('warn', say(c.t, 'doctor.adapters.matcher', { sources: missing.join(', ') }), say(c.t, 'doctor.adapters.matcher_fix')));
           }
+          if (!form && hooks.every((h) => h.format === null)) problems.push(oldStartHook(c, text, settings));
           if (problems.length === before) fine.push(say(c.t, 'doctor.adapters.claude_hook'));
         }
       }

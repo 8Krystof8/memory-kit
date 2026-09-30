@@ -12,7 +12,7 @@ import { commandNode } from '../../lib/nodepath.mjs';
 import { createUI } from '../../lib/tui.mjs';
 import { guessLang, runSetup, runWizard } from '../../lib/wizard.mjs';
 import { KEY, escapes, fakeTerminal, screen } from '../fake-terminal.mjs';
-import { TODAY, agentHome, copyKit, hashGenerated, readFile, removeTmpDirs, runCli, runInit, tmpDir } from '../helpers.mjs';
+import { KIT_ROOT, TODAY, agentHome, copyKit, hashGenerated, readFile, removeTmpDirs, runCli, runInit, tmpDir } from '../helpers.mjs';
 
 after(removeTmpDirs);
 
@@ -293,7 +293,7 @@ describe('the extras menu: new versions', () => {
     assert.ok(!joined.includes('memory-kit-updates.yml'), 'no workflow advice without a repository on GitHub');
   });
 
-  test('a memory on GitHub without the workflow: how to add it on github.com; No keeps the check off', { skip: !HAS_GIT && 'git is missing' }, async () => {
+  test('a memory on GitHub without the workflow: the link that fills it in on GitHub; No keeps the check off', { skip: !HAS_GIT && 'git is missing' }, async () => {
     const { root, cfg } = await initializedVault('setup-updates-gh');
     // A memory made before 0.1.3: the template gave it no workflow, and upgrade never adds one.
     fs.rmSync(path.join(root, '.github', 'workflows', 'memory-kit-updates.yml'));
@@ -306,9 +306,14 @@ describe('the extras menu: new versions', () => {
     assert.equal(code, 0, shown);
     // Wrapped lines (a bullet's go on further in) read as one text.
     const joined = shown.replace(/\n│ +(?![◇▲✓●■])/g, ' ').replace(/ {2,}/g, ' ');
-    assert.match(joined, /no issue on GitHub yet: add \.github\/workflows\/memory-kit-updates\.yml/);
-    assert.match(joined, /Add file → Create new file, name it \.github\/workflows\/memory-kit-updates\.yml/);
-    assert.ok(shown.includes('https://github.com/8Krystof8/memory-kit/blob/main/.github/workflows/memory-kit-updates.yml'), shown);
+    assert.match(joined, /New versions now: no issue on GitHub yet: the workflow is missing · no daily check/);
+    assert.match(joined, /this link opens GitHub with \.github\/workflows\/memory-kit-updates\.yml filled in; press Commit changes:/);
+    // The link is printed whole, on one line, so a terminal can open it.
+    const link = term.output().match(/https:\/\/github\.com\/linden\/memory\/new\/[^\s\x1b]+/)?.[0];
+    assert.ok(link, shown);
+    const url = new URL(link);
+    assert.equal(url.searchParams.get('filename'), '.github/workflows/memory-kit-updates.yml');
+    assert.equal(url.searchParams.get('value'), readFile(KIT_ROOT, 'system/templates/github/memory-kit-updates.yml'));
     assert.match(joined, /No daily check\./);
     assert.equal(JSON.parse(readFile(root, 'memory.json')).updates.check, false);
   });

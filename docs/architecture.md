@@ -1377,7 +1377,9 @@ data, not instructions.
 ```
 `--format claude-hook` (from 0.1.3) prints the view as `additionalContext` and the owner's line
 (10.4) as `systemMessage`; with `feedback.notice` false it prints the plain view, as `start` did
-before. `doctor` accepts the hook with and without the format.
+before. A hook without `--format` (0.1.2 and older, which `upgrade` keeps in a file the owner
+changed) still loads the memory; `doctor` warns about it and names its line, and `doctor --fix`
+adds the format (10.7).
 Shell form, the placeholder braced and the path in double quotes: sh, bash and Git Bash expand it
 on every Claude Code version, spaces in the path included, and Claude Code 2.1.198 and newer rewrite
 the braced placeholder for PowerShell (Windows without Git Bash). The exec form (`"command": "node"`
@@ -1468,8 +1470,9 @@ node system/memory.mjs activity [--days 7] [--json]
 with the agent's JSON on stdin, and always exits 0.
 `setup` is interactive: in a set-up vault it opens the extras menu of the setup wizard (connect AI
 apps, memory for coding projects, a health check, and from 0.1.3 new versions: what is known, the
-channels, the daily check on or off in memory.json, and the steps that add the workflow of the
-issue to an older vault on GitHub), in one that is not set up the whole wizard of
+channels, the daily check on or off in memory.json, and for an older vault on GitHub without the
+workflow of the issue the link that fills it in on GitHub (`updates.workflowLinkOf`, from 0.1.4),
+else the steps that add it), in one that is not set up the whole wizard of
 init; without a terminal it names the plain commands and exits 2 (`--interactive` runs it anyway
 with every default, and sets a vault up only with `--yes`).
 Default check mode is strict. Everything accepts `--root <path>` (handled by memory.mjs). Every
@@ -1742,10 +1745,10 @@ null), in this order:
 | `config.data_version` | memory.json `version` vs `DATA_VERSION` and kit.json `data_version` |
 | `kit.version` | `system/VERSION` and kit.json agree; for a missing or unreadable kit.json the fix is the running kit's `upgrade --root <vault>` when the vault's VERSION is older than that kit, `git checkout -- system/kit.json` only when the last commit has the file, else a copy from the kit |
 | `kit.integrity` | `integrityReport`: missing, changed (and whether the bytes are another release's) and unknown kit files |
-| `kit.updates` | (0.1.3) from files on this computer only, never online (`lib/updates.mjs` `updateStatus`): the last answer of `upgrade --check` in `.memory-kit/updates.json` (`doctor.updates.unchecked`, `doctor.updates.current`, or a warning `doctor.updates.newer` whose fix is `upgrade`), and the channels that tell the owner of a new version (an issue on GitHub: on, off, or the workflow missing in a vault whose origin is on GitHub; the daily check on or off) |
+| `kit.updates` | (0.1.3) from files on this computer only, never online (`lib/updates.mjs` `updateStatus`): the last answer of `upgrade --check` in `.memory-kit/updates.json` (`doctor.updates.unchecked`, `doctor.updates.current`, or a warning `doctor.updates.newer` whose fix is `upgrade`), and the channels that tell the owner of a new version (an issue on GitHub: on, off (`updates.github` false, with or without the file), or the workflow missing in a vault whose origin is on GitHub; the daily check on or off). From 0.1.4 a missing workflow is a warning whose fix is the link of `updates.workflowLinkOf`: GitHub's new-file page of the vault's repository and current branch (else `main`), `…/new/<branch>?filename=.github/workflows/memory-kit-updates.yml&value=<the kit's copy, URL-encoded>`, at most 8000 characters (GitHub answers 9 KB with 414); without such a link (an origin URL it cannot read, no copy) the fix names the steps on github.com |
 | `kit.upgrade_lock` | `.memory-kit/upgrade.lock` (`lib/upgrade.mjs` `lockState`): an upgrade still at work (`running`) is a warning with no fix; one that did not finish fails, and its fix is the recovery tool of its backup, `node .memory-kit/backups/<id>/tool/rollback.mjs` (absolute when another kit checks the vault with `--root`), else `upgrade --rollback`, or `--rollback --force` when the backup is gone |
 | `agents.block` | kit markers present once and in order, marker version = VERSION, block equals the language's template (the setup block and CRLF ignored) |
-| `adapters` | CLAUDE.md and GEMINI.md import AGENTS.md (for the agents in memory.json `agents`); `.claude/settings.json` has a SessionStart hook that runs `system/memory.mjs start` (a shell command, or `args` in exec form); a warning when no such hook would run here: a bare `$CLAUDE_PROJECT_DIR` on Windows without Git Bash (`IO.gitBash`), `args` below Claude Code 2.1.139, the braced shell form under PowerShell below 2.1.198 (`claude --version` is asked only when the answer matters; the fix is the braced shell form, or updating Claude Code), or when the matchers leave out startup, resume, clear or compact |
+| `adapters` | CLAUDE.md and GEMINI.md import AGENTS.md (for the agents in memory.json `agents`); `.claude/settings.json` has a SessionStart hook that runs `system/memory.mjs start` (a shell command, or `args` in exec form); a warning when no such hook would run here: a bare `$CLAUDE_PROJECT_DIR` on Windows without Git Bash (`IO.gitBash`), `args` below Claude Code 2.1.139, the braced shell form under PowerShell below 2.1.198 (`claude --version` is asked only when the answer matters; the fix is the braced shell form, or updating Claude Code), or when the matchers leave out startup, resume, clear or compact; (0.1.4) a warning when every such hook runs `start` without `--format` (the hook of 0.1.2 and older): the fix names its line (`doctor.adapters.format_line_fix`, `format_args_fix` for the exec form) and offers the repair `claude_hook` when `withHookFormat` can make it |
 | `git.repo` | git installed; the vault is the top of its own repository; no rebase or merge in progress; a remote unless mode local; once `.memory-kit/` exists, git ignores it (warn) and tracks no file in it (fail) |
 | `git.hooks_path` | `core.hooksPath` is `.githooks` |
 | `git.pre_commit` | the hook exists, starts with `#!/bin/sh`, has no BOM or CRLF, is executable (POSIX) and stored with mode 100755, runs `check --pre-commit`; on POSIX also which Node.js a git app started outside a terminal would use: a `memorykit.node` pin that is missing or too old warns; without a pin, as the hook picks it, the first Node.js 22 or newer on the app's `PATH` or in the usual places counts, a too old one on the app's `PATH` warns that commits fail, and none, or a too old one only in a usual place, warns that commits go unchecked |
@@ -1760,7 +1763,7 @@ A check that cannot run (for example `roots` when memory.json does not load) is 
 `not checked: <reason>` and is marked `·` in human output; the others are marked `✓`, `!` and `✗`
 with the fix indented below. Each kit module is loaded inside its own check, so a damaged module
 fails only that check. `--json` prints only `{kit, root, checks, summary: {ok, warn, fail}}`
-(`doctor-result.schema.json`; `kit` is the VERSION string or null). `--fix` applies only two
+(`doctor-result.schema.json`; `kit` is the VERSION string or null). `--fix` applies only three
 mechanical repairs and then checks again. It sets `core.hooksPath` to `.githooks` when it is unset
 (never over another value). It repairs `.githooks/pre-commit` byte by byte, with no decoding
 (`hookBytes`): a leading UTF-8 BOM goes, and each CR LF pair or lone CR becomes LF; every other
@@ -1771,7 +1774,14 @@ are written through `fsafe.writeAtomic` with the old mode plus the exec bits. Wh
 bit is missing, it only adds the exec bits (`chmod`, same bytes and inode; nothing on Windows). A
 symlinked hook stays a link: the file it leads to is repaired when that file is inside the vault;
 otherwise `git.pre_commit` offers no repair, names that file in its fix
-(`doctor.hook.outside_fix`), and `applyRepairs` refuses (`doctor.fix_outside`). The `fixed:` line
+(`doctor.hook.outside_fix`), and `applyRepairs` refuses (`doctor.fix_outside`). (0.1.4) It adds
+` --format claude-hook` after `start` in each shell-form start hook of `.claude/settings.json`
+that has no `--format` (`withHookFormat`): only inside those JSON string literals, found as
+`JSON.stringify` writes them, so every other byte stays (a BOM, CRLF, the owner's settings); it
+refuses (`doctor.fix_by_hand`) a symbolic link, bytes that are not UTF-8, JSON with comments, a
+hook in exec form without `--format`, a command written with other escapes, and any result that
+does not parse to the old settings with only those commands changed. The old file is copied first,
+as above, and the new text keeps its mode. The `fixed:` line
 of each repair is followed by `doctor.backup` with the copy's path; with `--json` both go to
 stderr. Without `--fix` doctor writes nothing. When the vault's kit has no doctor (it is not the
 running kit and has no `system/lib/commands/doctor.mjs`, as in 0.1.0), the `doctor --fix` hints of
@@ -2285,7 +2295,9 @@ with the `workflow` scope, which the usual `gh` login lacks (`installers.test.mj
 
 `.github/workflows/memory-kit-updates.yml` (from 0.1.3; not in `system/kit.json`, so `upgrade` never
 ships it, like `release.yml`; a vault made from the template has it, an older one adds it on
-GitHub): schedule `41 3 * * *` and manual runs, permissions `contents: read`, `issues: write`. In a
+GitHub, from 0.1.4 through the link `doctor` and `setup` print, built from the kit's byte-identical
+copy `system/templates/github/memory-kit-updates.yml`, which is a kit file that `upgrade` brings;
+`kit.test.mjs` holds the two equal): schedule `41 3 * * *` and manual runs, permissions `contents: read`, `issues: write`. In a
 set-up vault (`"initialized": true`) with `updates.github` not false it runs the vault's own
 `upgrade --check --json` (never a kit fetched in CI; no answer, also from a kit older than 0.1.3,
 ends the step with exit 0), and with `gh`: a newer kit and no open issue labelled `memory-kit` → the
@@ -2392,8 +2404,10 @@ From 0.1.1:
 32. **`connect` writes absolute paths** of node and the vault: apps started from a GUI often lack
     the shell's `PATH`. A config file with comments is never rewritten (the entry to paste is
     printed), because a JSON rewrite would drop the owner's comments.
-33. **`doctor` is read-only and runs without a valid config.** `--fix` does only the two mechanical
-    repairs that cannot lose data (an unset `core.hooksPath`, the hook file's bytes and mode).
+33. **`doctor` is read-only and runs without a valid config.** `--fix` does only the three mechanical
+    repairs that cannot lose data (an unset `core.hooksPath`, the hook file's bytes and mode, and
+    from 0.1.4 `--format claude-hook` inside the JSON string of an old start hook, with a copy of
+    the old file).
 34. **The SessionStart hook is a shell command with a braced, quoted placeholder**
     (`node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start`), not the exec form: Claude Code before
     2.1.139 ignores `args`, while this form runs in sh, bash and Git Bash on every version and in
@@ -2436,7 +2450,7 @@ From 0.1.1:
     `memory-kit-updates.yml` (in every vault made from the template from 0.1.3 on: GitHub runs it
     and announces issues by e-mail and in its app, and the computer sends nothing; `upgrade` never
     ships it, because pushing a changed workflow needs the `workflow` scope, so an older vault adds
-    it once on GitHub; it runs the vault's own CLI, never a kit fetched in CI, which could read the
+    it once on GitHub, from 0.1.4 with one click on the link `doctor` prints; it runs the vault's own CLI, never a kit fetched in CI, which could read the
     private notes), a daily check at the session start that names a newer version
     in the owner's line (off by default, because it goes online; it follows the habits of `gh` and
     npm: once a day, in the background, never in CI, `NO_UPDATE_NOTIFIER` honoured), `upgrade

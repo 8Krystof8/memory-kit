@@ -15,6 +15,21 @@ Planned for the weekend of 10 and 11 October 2026. From this version on, `main` 
 released versions: the work happens on `dev`, and a release is a pull request from `dev` whose CI
 is green on Linux, macOS and Windows.
 
+### Added
+
+- **An older memory gets the link that adds the update workflow**: a memory on GitHub made before
+  0.1.3 has no `.github/workflows/memory-kit-updates.yml`, and `upgrade` never adds a workflow, so
+  it never heard of a new version by an issue. `doctor` now warns about it and prints a link that
+  opens GitHub's editor with the file already filled in: one click on Commit changes adds it, with
+  no token with the `workflow` scope. `setup` → New versions prints the same link. The kit keeps a
+  copy of the workflow in `system/templates/github/`, which `upgrade` brings to every memory.
+- **`doctor` finds the start hook of 0.1.2, and `doctor --fix` repairs it**: when you had changed
+  `.claude/settings.json`, `upgrade` to 0.1.3 kept your file with the old hook, which loads the
+  memory but shows no line at the session start. `doctor` now warns and names the line, and
+  `doctor --fix` adds `--format claude-hook` inside that one JSON string and nowhere else (a copy
+  of the old file goes to `.memory-kit/backups/doctor/`). A file with comments or a hook in exec
+  form is left to you, with the line to change.
+
 ### Changed
 
 - **The README says which AI tool gets what**: one table for Claude Code, Codex, Gemini CLI,
@@ -25,6 +40,8 @@ is green on Linux, macOS and Windows.
   platform, and a version number is used once ([CONTRIBUTING.md](CONTRIBUTING.md#releasing)).
 - The repository has [SECURITY.md](SECURITY.md) (private reports, and what checks each promise),
   issue and pull request templates, and [ROADMAP.md](ROADMAP.md) with the weekend releases.
+- `"updates": {"github": false}` in `memory.json` now always reads as off, also in a memory without
+  the workflow file, which `activity`, `doctor` and `setup` listed as missing.
 
 ### Fixed
 
@@ -36,6 +53,24 @@ is green on Linux, macOS and Windows.
 - **A test that depended on the machine**: the test of the pre-commit hook with an old Node.js
   first on the `PATH` expects the refusal only where no Node.js 22 or newer waits in a usual place,
   since the hook rightly uses that one (the CI runners have one in `/usr/local/bin`).
+
+### Upgrading
+
+Nothing to do by hand. After `upgrade`, run `node system/memory.mjs doctor`: in a memory made
+before 0.1.3 it prints the link that adds the update workflow on GitHub, and when your
+`.claude/settings.json` kept the start hook of 0.1.2, `doctor --fix` adds `--format claude-hook`
+to it. Commit the changed file.
+
+### Kit files
+
+New: `system/templates/github/memory-kit-updates.yml`, a copy of the update workflow for the link
+of `doctor` and `setup`. Changed: `system/VERSION`, `system/lib/{doctor,updates,wizard}.mjs`,
+`system/lib/commands/doctor.mjs`, `system/lang/cs/pack.json`, the version in the system section of
+`AGENTS.md` and `system/templates/{en,cs}/kit/agents-system.md`, the tests
+`system/tests/unit/{doctor,hooksetup,kit,updates,wizard}.test.mjs` and
+`system/tests/integration/projects.test.mjs`, `README.md`, `README.cs.md`, `docs/architecture.md`,
+`docs/upgrading.md`. The template's `.github/workflows/memory-kit-updates.yml` names the link in
+its comment. Removed: nothing.
 
 ## 0.1.3 (2026-09-30)
 

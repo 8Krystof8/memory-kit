@@ -384,9 +384,11 @@ memory-kit doctor · kit 0.1.1 · /home/you/my-memory
 ```
 
 (The output above is shortened.) `doctor` also works when `memory.json` is broken, and it changes
-nothing. `doctor --fix` repairs the two things that are safe to repair by itself: an unset git
-hook path, and a pre-commit hook file with the wrong line endings or without its executable bit
-(when it changes the file's content, it keeps a copy of the old one).
+nothing. `doctor --fix` repairs the three things that are safe to repair by itself: an unset git
+hook path, a pre-commit hook file with the wrong line endings or without its executable bit, and
+a Claude Code start hook of 0.1.2 or older in `.claude/settings.json`, which loads the memory but
+shows no line at the session start (when it changes a file's content, it keeps a copy of the old
+one).
 `doctor --json` prints the report for scripts.
 
 ## Update to a new version
@@ -438,7 +440,9 @@ and checks.
 `upgrade` never adds or changes a workflow file: pushing one needs a token with the `workflow`
 scope, which the usual `gh` login does not have, so the next `sync` would fail. A memory made from
 0.1.3 on has the workflow from the template. In an older one, add it once on GitHub, which needs no
-such token: open your memory's repository, Add file → Create new file, name it
+such token: from 0.1.4 on, `node system/memory.mjs doctor` (and `setup` → New versions) prints a
+link that opens GitHub's editor with the file already filled in, so you only press Commit changes.
+By hand: open your memory's repository, Add file → Create new file, name it
 `.github/workflows/memory-kit-updates.yml`, paste [this file](.github/workflows/memory-kit-updates.yml)
 and commit. It answers after the upgrade to 0.1.3.
 

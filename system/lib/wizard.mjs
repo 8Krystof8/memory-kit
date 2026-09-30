@@ -136,6 +136,7 @@ export const WIZARD_DEFAULTS = {
   'setup.updates.failed': 'memory.json could not be changed: {detail}',
   'setup.updates.unavailable': 'New versions are not available in this version of memory-kit.',
   'setup.updates.workflow': 'An issue on GitHub when a new version is out: in your memory\'s repository on github.com, Add file → Create new file, name it .github/workflows/memory-kit-updates.yml and paste the file from:',
+  'setup.updates.workflow_link': 'An issue on GitHub when a new version is out: this link opens GitHub with .github/workflows/memory-kit-updates.yml filled in; press Commit changes:',
   'setup.updates.watch': 'Or on GitHub: Watch → Custom → Releases at {url}',
 };
 
@@ -594,7 +595,8 @@ async function healthCheck(ctx) {
 /**
  * New versions: what the memory knows (lib/updates.mjs, from files on this computer), the channels
  * that tell the owner, the daily check to switch on or off, and how an older vault on GitHub gets
- * the workflow of the issue. → false (the menu shows "off") while the daily check is off.
+ * the workflow of the issue: the link that fills it in on GitHub (workflowLinkOf), else where to
+ * copy it from. → false (the menu shows "off") while the daily check is off.
  */
 async function newVersions(ctx) {
   const { ui, t, root } = ctx;
@@ -611,7 +613,7 @@ async function newVersions(ctx) {
   const status = u.updateStatus(root);
   const key = status.available ? 'setup.updates.newer' : status.checked ? 'setup.updates.current' : 'setup.updates.unknown';
   ui.message(t(key, { version: status.installed ?? '?', latest: status.latest ?? '' }), 'dim');
-  ui.message(t('setup.updates.channels', { list: u.channelList({ t }, status) }), 'dim');
+  ui.message(t('setup.updates.channels', { list: u.channelList({ t }, status, { short: true }) }), 'dim');
   const check = await ui.confirm({ message: t('setup.updates.question'), initialValue: status.channels.check });
   try {
     u.setUpdateCheck(root, check);
@@ -620,8 +622,12 @@ async function newVersions(ctx) {
     ui.error(t('setup.updates.failed', { detail: err?.message ?? String(err) }));
   }
   const source = u.sourceOf(root);
+  const link = status.channels.github === 'missing' && typeof u.workflowLinkOf === 'function' ? u.workflowLinkOf(root) : null;
   const workflow = u.workflowUrlOf(source);
-  if (status.channels.github === 'missing' && workflow) {
+  if (link) {
+    ui.message(t('setup.updates.workflow_link'), undefined, { bullet: true });
+    ui.command(link);
+  } else if (status.channels.github === 'missing' && workflow) {
     ui.message(t('setup.updates.workflow'), undefined, { bullet: true });
     ui.command(workflow);
   }

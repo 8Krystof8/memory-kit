@@ -171,6 +171,11 @@ describe('templates (9.7)', () => {
       assert.ok(!read(`system/templates/${lang}/kit/sector.md`).includes('```'), 'no query blocks in manifests');
     });
   }
+
+  test('the kit keeps a copy of the update workflow, byte for byte, for the link doctor gives an older memory', () => {
+    // upgrade never ships a workflow, but it ships system/templates/, so every vault has the copy.
+    assert.equal(read('system/templates/github/memory-kit-updates.yml'), read('.github/workflows/memory-kit-updates.yml'));
+  });
 });
 
 describe('editor-neutral git defaults (9.8)', () => {

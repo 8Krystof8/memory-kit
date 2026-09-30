@@ -5,13 +5,15 @@
 // Claude Code or Codex runs it, in an empty temporary folder. Runs also when
 // memory.json or a pack cannot be loaded (cfg is then null; messages come from the packs when
 // they load, else English). --fix repairs only what is mechanical and loses nothing: it sets
-// core.hooksPath when it is unset, and removes a BOM and CR bytes from .githooks/pre-commit and
-// makes it executable, byte by byte (the old file goes to .memory-kit/backups/doctor/ first).
+// core.hooksPath when it is unset, removes a BOM and CR bytes from .githooks/pre-commit and makes
+// it executable, byte by byte, and adds --format claude-hook to a start hook of 0.1.2 or older in
+// .claude/settings.json, inside that JSON string only (the old file goes to
+// .memory-kit/backups/doctor/ first).
 // Exit 0 without a failed check, 1 with one, 2 on a usage error.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOOK_REL, diagnose, formatReport, hookFile, say } from '../doctor.mjs';
+import { CLAUDE_SETTINGS_REL, HOOK_REL, diagnose, formatReport, hookFile, say, withHookFormat } from '../doctor.mjs';
 import { writeAtomic } from '../fsafe.mjs';
 import { git, interpolate, parseCli, usageError } from '../util.mjs';
 
@@ -141,9 +143,37 @@ function repairHookFile(root, { t, now }) {
 }
 
 /**
- * Applies the repairs diagnose() offered: 'hooks_path' (git config core.hooksPath .githooks)
- * and 'hook_file' (see repairHookFile). opts: { t, now } (the clock for backup names).
- * Returns [{ name, ok, detail, backup }] (backup: the path of the old file's copy, or null).
+ * Adds --format claude-hook to the start hooks of .claude/settings.json that have no --format
+ * (withHookFormat: only inside those JSON strings). A symbolic link, bytes that are not UTF-8, or
+ * a file withHookFormat cannot change that way are left alone (an error). The old file is copied
+ * to .memory-kit/backups/doctor/ first and keeps its mode. Returns the backup's path or null.
+ */
+function repairClaudeHook(root, { t, now }) {
+  const file = path.join(root, ...CLAUDE_SETTINGS_REL.split('/'));
+  const refuse = () => new Error(say(t, 'doctor.fix_by_hand', { file: CLAUDE_SETTINGS_REL }));
+  const st = fs.lstatSync(file);
+  if (!st.isFile()) throw refuse();
+  const bytes = fs.readFileSync(file);
+  const before = bytes.toString('utf8');
+  if (!Buffer.from(before, 'utf8').equals(bytes)) throw refuse();
+  const after = withHookFormat(before);
+  if (after === null) throw refuse();
+  if (after === before) return null;
+  const backup = backupFile(root, file, now);
+  try {
+    ensureIgnored(root);
+  } catch {
+    /* a nicety: the backup works without it */
+  }
+  writeAtomic(file, after, { mode: st.mode & 0o777 });
+  return backup;
+}
+
+/**
+ * Applies the repairs diagnose() offered: 'hooks_path' (git config core.hooksPath .githooks),
+ * 'hook_file' (see repairHookFile) and 'claude_hook' (see repairClaudeHook). opts: { t, now }
+ * (the clock for backup names). Returns [{ name, ok, detail, backup }] (backup: the path of the
+ * old file's copy, or null).
  */
 export function applyRepairs(root, repairs, { t = null, now = new Date() } = {}) {
   const done = [];
@@ -155,6 +185,8 @@ export function applyRepairs(root, repairs, { t = null, now = new Date() } = {})
         if (!res.ok) throw new Error(res.stderr.trim() || `git exit ${res.code}`);
       } else if (name === 'hook_file') {
         backup = repairHookFile(root, { t, now });
+      } else if (name === 'claude_hook') {
+        backup = repairClaudeHook(root, { t, now });
       } else {
         continue;
       }
@@ -166,7 +198,7 @@ export function applyRepairs(root, repairs, { t = null, now = new Date() } = {})
   return done;
 }
 
-const WHAT = { hooks_path: 'core.hooksPath', hook_file: HOOK_REL };
+const WHAT = { hooks_path: 'core.hooksPath', hook_file: HOOK_REL, claude_hook: CLAUDE_SETTINGS_REL };
 
 export async function run(argv, cfg, ctx = {}) {
   const parsed = parseCli(argv, {

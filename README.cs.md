@@ -391,9 +391,11 @@ node system/memory.mjs doctor
 
 Zkontroluje Node.js, `memory.json`, soubory kitu, git hooky, soukromou složku, generované pohledy
 a připojené aplikace. Každý řádek je jedna kontrola a u každého problému je příkaz, který ho
-opraví. `doctor` funguje i s rozbitým `memory.json` a nic nemění. `doctor --fix` sám opraví dvě
-věci, u kterých je to bezpečné: nenastavenou cestu ke git hookům a soubor hooku před commitem se
-špatnými konci řádků nebo bez práva ke spuštění (když mění obsah souboru, původní si schová).
+opraví. `doctor` funguje i s rozbitým `memory.json` a nic nemění. `doctor --fix` sám opraví tři
+věci, u kterých je to bezpečné: nenastavenou cestu ke git hookům, soubor hooku před commitem se
+špatnými konci řádků nebo bez práva ke spuštění a start hook Claude Code z verze 0.1.2 nebo starší
+v `.claude/settings.json`, který paměť načte, ale na začátku relace neukáže žádný řádek (když mění
+obsah souboru, původní si schová).
 `doctor --json` vypíše zprávu pro skripty. V české paměti funguje i `doktor`.
 
 ## Aktualizace na novou verzi
@@ -445,7 +447,9 @@ kontrolami.
 `upgrade` nikdy nepřidá ani nezmění soubor workflow: push takového souboru potřebuje token
 s oprávněním `workflow`, které běžné přihlášení přes `gh` nemá, a další `sync` by selhal. Paměť
 založená od verze 0.1.3 má workflow ze šablony. Ve starší ho jednou přidej na GitHubu, kde žádný
-zvláštní token nepotřebuješ: otevři repozitář své paměti, Add file → Create new file, pojmenuj ho
+zvláštní token nepotřebuješ: od verze 0.1.4 vypíše `node system/memory.mjs doktor` (a `nastaveni` →
+Nové verze) odkaz, který otevře editor GitHubu s už vyplněným souborem, takže jen stiskneš Commit
+changes. Ručně: otevři repozitář své paměti, Add file → Create new file, pojmenuj ho
 `.github/workflows/memory-kit-updates.yml`, vlož [tento soubor](.github/workflows/memory-kit-updates.yml)
 a commitni. Odpovídat začne po aktualizaci na 0.1.3.
 
