@@ -572,6 +572,8 @@ function memoryJson(plan, initialized) {
     agents: plan.agents,
     budgets: raw.budgets && typeof raw.budgets === 'object' ? raw.budgets : {},
     search: raw.search && typeof raw.search === 'object' ? raw.search : { log: false, n: 5 },
+    feedback: raw.feedback && typeof raw.feedback === 'object' ? raw.feedback : { notice: true, log: true },
+    updates: raw.updates && typeof raw.updates === 'object' ? raw.updates : { check: false, github: true },
     eval: raw.eval && typeof raw.eval === 'object' ? raw.eval : { golden: 'system/tests/golden.json', min: 0.9 },
     cleanup: { ...(raw.cleanup && typeof raw.cleanup === 'object' ? raw.cleanup : {}), provider: 'none' },
   };

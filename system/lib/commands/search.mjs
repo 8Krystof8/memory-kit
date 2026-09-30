@@ -1,10 +1,12 @@
 // `memory search`: ranked search, the accent-safe rg regex and the duplicate check
-// (docs/architecture.md, sections 10.2 and 13).
+// (docs/architecture.md, sections 10.2 and 13). A ranked search is a line of the activity log
+// (lib/activity.mjs: the count and the first main-root hits, never the query).
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { performance } from 'node:perf_hooks';
+import { agentFromEnv, logActivity } from '../activity.mjs';
 import { loadVault, localFolderNotes, withoutNotes } from '../vault.mjs';
 import {
   buildIndex,
@@ -135,6 +137,11 @@ async function printSearch(words, opts, values, cfg) {
 
   if (cfg?.search?.log) logSearch(cfg, values.today ?? todayLocal(), words, res);
   print(values.json ? JSON.stringify(res, null, 2) : formatResults(res, cfg, { secs }));
+  logActivity(cfg, {
+    via: 'cli', op: 'search', agent: agentFromEnv(), n: res.total,
+    notes: res.results.filter((r) => !r.local).map((r) => r.rel),
+    local: res.results.filter((r) => r.local).length + (res.localHits ?? 0),
+  });
   return 0;
 }
 

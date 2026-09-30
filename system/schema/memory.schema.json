@@ -86,6 +86,46 @@
         "n": 5
       }
     },
+    "feedback": {
+      "description": "What the kit shows the owner about its own work (docs/architecture.md, section 10.10).",
+      "type": "object",
+      "properties": {
+        "notice": {
+          "description": "At a session start in Claude Code, one line for the owner: the memory loaded (with its size) or why it did not.",
+          "type": "boolean",
+          "default": true
+        },
+        "log": {
+          "description": "Record what the agents do with the memory in .memory-kit/logs/activity.jsonl on this computer (never committed; no query text), which the activity command summarizes.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "default": {
+        "notice": true,
+        "log": true
+      }
+    },
+    "updates": {
+      "description": "How the owner hears of a newer memory-kit (docs/architecture.md, section 10.6). Nothing about the owner or the notes is sent: a check only reads the version tags of the kit's source.",
+      "type": "object",
+      "properties": {
+        "check": {
+          "description": "At a session start, at most once a day and in the background, ask the kit's source for its newest version; a newer one is named in the owner's line. Off by default: the kit then never goes online by itself.",
+          "type": "boolean",
+          "default": false
+        },
+        "github": {
+          "description": "The workflow .github/workflows/memory-kit-updates.yml of a vault on GitHub opens one issue when a newer memory-kit is out, and closes it after the upgrade.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "default": {
+        "check": false,
+        "github": true
+      }
+    },
     "eval": {
       "description": "Settings of eval (the golden questions).",
       "type": "object",

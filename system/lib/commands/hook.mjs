@@ -11,9 +11,11 @@
 //                  nothing more for Claude Code (the vault has its own start hook), the start
 //                  view for Codex. Outside any git repository: nothing more. In a known project:
 //                  the brief and the start view narrowed to the project and the core sector (its
-//                  commands and paths name the vault absolutely: the agent is in the code). In a
-//                  new repository: a one-time hint for the user naming `project add` and
-//                  `project ignore` (or the sector is made when projects.auto_add is on).
+//                  commands and paths name the vault absolutely: the agent is in the code), and
+//                  for Claude Code one line for the user that the memory loaded (memory.json
+//                  feedback.notice). In a new repository: a one-time hint for the user naming
+//                  `project add` and `project ignore` (or the sector is made when
+//                  projects.auto_add is on). Every view given is a line of the activity log.
 //   stop           once per session in a known project, when the code changed and the handoff did
 //                  not: ask the agent to record handoff, gotchas and dead ends (JSON or nothing);
 //                  never in a Claude Code run without a person (claude -p, the Agent SDK)
@@ -34,7 +36,9 @@ import {
   devLines, noteAbs, sectorExists, hintMarker, repoHash, readSession, writeSession, pruneSessions, sessionsDir, safeId,
   takeAutosyncLock, autosyncLockFile, vaultCommand, keepWorkDirOut, baselineOf, codeChanged, otherSessions,
 } from '../projects.mjs';
+import { logActivity } from '../activity.mjs';
 import { hookSummary, logHook } from '../hooklog.mjs';
+import { checkInBackground, updateLine } from '../updates.mjs';
 import { readHookInput, lookupCandidate, isProbe } from '../hookinput.mjs';
 import { writeAtomic } from '../fsafe.mjs';
 import { WORK_DIR, ensureWorkDirIgnored, todayLocal, workDirGit } from '../util.mjs';
@@ -147,6 +151,8 @@ function hintOnce(cfg, agent, ident) {
 
 async function sessionStart(cfg, agent, input, entry) {
   pruneSessions(cfg);
+  // memory.json "updates": {"check": true}: the daily check of a newer kit, in the background.
+  checkInBackground(cfg);
   const notices = freshWarnings(cfg);
   try {
     return await sessionView(cfg, agent, input, entry, notices);
@@ -169,7 +175,10 @@ async function sessionView(cfg, agent, input, entry, notices) {
     // Claude Code runs the vault's own start hook there; Codex has none, so the view comes from here.
     if (agent === 'codex' && (vault || ident)) {
       const { renderStartView } = await import('../startview.mjs');
-      return emit(cfg, agent, { notices, context: (await renderStartView(cfg, {})).text });
+      const context = (await renderStartView(cfg, {})).text;
+      logActivity(cfg, { via: 'hook', op: 'start', agent });
+      const update = updateLine(cfg, { command: vaultCommand(cfg) });
+      return emit(cfg, agent, { notices: update ? [update, ...notices] : notices, context });
     }
     return emit(cfg, agent, { notices });
   }
@@ -196,13 +205,18 @@ async function sessionView(cfg, agent, input, entry, notices) {
   const base = same ? { head: prev.head, dirty: prev.dirty, ...(Object.hasOwn(prev, 'fp') ? { fp: prev.fp } : {}), ...(prev.started ? { started: prev.started } : {}) }
     : g.ok ? baselineOf(g) : {};
   writeSession(cfg, sid, { top: ident.top, sector: found.id, store: found.store, ...base, day: todayLocal() });
-  const { renderStartView } = await import('../startview.mjs');
+  const { buildStartView, startNotice } = await import('../startview.mjs');
   const core = coreSector(cfg);
   // The agent works in the code repository: the view names the vault's command and paths absolutely.
   const command = vaultCommand(cfg);
-  const view = await renderStartView(cfg, { sectors: [found.id, ...(core && core !== found.id ? [core] : [])], project: { command } });
+  const built = await buildStartView(cfg, { sectors: [found.id, ...(core && core !== found.id ? [core] : [])], project: { command } });
   const brief = projectBrief(cfg, found.id, ident, command, { git: g });
-  return emit(cfg, agent, { notices, context: `${brief}\n${view.text}` });
+  logActivity(cfg, { via: 'hook', op: 'start', agent, project: found.id });
+  // Codex shows no systemMessage: a line that only says "loaded" is not worth asking the agent to
+  // relay; a newer kit (once a day) is.
+  const loaded = agent === 'claude-code' ? startNotice(cfg, built, { command, project: found.id }) : null;
+  const update = updateLine(cfg, { command });
+  return emit(cfg, agent, { notices: [loaded, update, ...notices].filter(Boolean), context: `${brief}\n${built.view.text}` });
 }
 
 /**
@@ -268,7 +282,7 @@ function firstLookup(cfg, sid, tool, text) {
   return true;
 }
 
-function toolFailure(cfg, input, entry) {
+function toolFailure(cfg, input, entry, agent) {
   // Cheap filters first: most failures (grep without a match, failing tests) end here.
   if (!projectSettings(cfg).error_lookup) return '';
   const candidate = lookupCandidate(input);
@@ -288,6 +302,7 @@ function toolFailure(cfg, input, entry) {
   if (!firstLookup(cfg, sid, input.tool_name, text)) return '';
   entry.lookup = true;
   const hits = lookupError(cfg, sector, text, { lines, max: MAX_CONTEXT_LINES - 1 });
+  logActivity(cfg, { via: 'hook', op: 'lookup', agent, project: sector, n: hits.length });
   if (!hits.length) return '';
   const out = [say(cfg, 'hook.lookup')];
   let size = out[0].length;
@@ -466,7 +481,7 @@ export async function run(argv, cfg, ctx = {}) {
     let out = '';
     if (event === 'session-start') out = await sessionStart(cfg, agent, input, entry);
     else if (event === 'stop') out = stop(cfg, input, agent);
-    else if (event === 'tool-failure') out = toolFailure(cfg, input, entry);
+    else if (event === 'tool-failure') out = toolFailure(cfg, input, entry, agent);
     else if (event === 'session-end') sessionEnd(cfg, agent);
     if (out) process.stdout.write(out.endsWith('\n') ? out : `${out}\n`);
   } catch (err) {

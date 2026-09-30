@@ -6,7 +6,8 @@
 //   summary → confirm → apply (spinner, one line per step) → extras → next steps → outro.
 // The extras menu is also what `setup` opens in a vault that is set up already: connect AI apps
 // (commands/connect.mjs), memory for coding projects (installProjects of lib/hooksetup.mjs, used
-// only when that version of the kit exports it) and a compact health check (doctor --json).
+// only when that version of the kit exports it), a compact health check (doctor --json) and new
+// versions (lib/updates.mjs: what is known, the channels, the daily check on or off).
 // A flag given to init is the answer: its question is not asked (the installers ask the mode
 // themselves and pass --mode). --sectors takes presets and custom ids (a :github or :local suffix
 // settles that sector's privacy); --agents all is every tool. Only a sector kept off git in mode
@@ -28,7 +29,7 @@ import { vaultCommand } from './projects.mjs';
 import * as init from '../init.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const MENU = ['connect', 'projects', 'doctor'];
+const MENU = ['connect', 'projects', 'doctor', 'updates'];
 const MAX_PROBLEMS = 3;
 
 // English texts of the wizard and of `setup`; packs translate them under the same keys.
@@ -123,6 +124,19 @@ export const WIZARD_DEFAULTS = {
   'setup.doctor.summary': 'Health check: {counts}',
   'setup.doctor.more': '{n} more: node system/memory.mjs doctor',
   'setup.doctor.failed': 'doctor could not run: {detail}',
+  'setup.menu.updates': 'New versions',
+  'setup.menu.updates_hint': 'how you hear of a new memory-kit',
+  'setup.updates.newer': 'This memory has memory-kit {version}; {latest} is out: node system/memory.mjs upgrade',
+  'setup.updates.current': 'This memory has memory-kit {version}, the newest known.',
+  'setup.updates.unknown': 'This memory has memory-kit {version}; nobody looked for a newer one yet.',
+  'setup.updates.channels': 'New versions now: {list}',
+  'setup.updates.question': 'Look for a new version once a day at the session start? (one question to the kit\'s source about its version tags, nothing about you)',
+  'setup.updates.on': 'The daily check is on ("updates": {"check": true} in memory.json).',
+  'setup.updates.off': 'No daily check.',
+  'setup.updates.failed': 'memory.json could not be changed: {detail}',
+  'setup.updates.unavailable': 'New versions are not available in this version of memory-kit.',
+  'setup.updates.workflow': 'An issue on GitHub when a new version is out: in your memory\'s repository on github.com, Add file → Create new file, name it .github/workflows/memory-kit-updates.yml and paste the file from:',
+  'setup.updates.watch': 'Or on GitHub: Watch → Custom → Releases at {url}',
 };
 
 function interpolate(template, vars = {}) {
@@ -577,7 +591,46 @@ async function healthCheck(ctx) {
   if (problems.length > MAX_PROBLEMS) ui.message(t('setup.doctor.more', { n: problems.length - MAX_PROBLEMS }), 'dim');
 }
 
-const ACTIONS = { connect: connectApps, projects: codingProjects, doctor: healthCheck };
+/**
+ * New versions: what the memory knows (lib/updates.mjs, from files on this computer), the channels
+ * that tell the owner, the daily check to switch on or off, and how an older vault on GitHub gets
+ * the workflow of the issue. → false (the menu shows "off") while the daily check is off.
+ */
+async function newVersions(ctx) {
+  const { ui, t, root } = ctx;
+  let u;
+  try {
+    u = await import(pathToFileURL(path.join(HERE, 'updates.mjs')).href);
+  } catch {
+    u = null;
+  }
+  if (typeof u?.updateStatus !== 'function') {
+    ui.warn(t('setup.updates.unavailable'));
+    return false;
+  }
+  const status = u.updateStatus(root);
+  const key = status.available ? 'setup.updates.newer' : status.checked ? 'setup.updates.current' : 'setup.updates.unknown';
+  ui.message(t(key, { version: status.installed ?? '?', latest: status.latest ?? '' }), 'dim');
+  ui.message(t('setup.updates.channels', { list: u.channelList({ t }, status) }), 'dim');
+  const check = await ui.confirm({ message: t('setup.updates.question'), initialValue: status.channels.check });
+  try {
+    u.setUpdateCheck(root, check);
+    ui.info(t(check ? 'setup.updates.on' : 'setup.updates.off'));
+  } catch (err) {
+    ui.error(t('setup.updates.failed', { detail: err?.message ?? String(err) }));
+  }
+  const source = u.sourceOf(root);
+  const workflow = u.workflowUrlOf(source);
+  if (status.channels.github === 'missing' && workflow) {
+    ui.message(t('setup.updates.workflow'), undefined, { bullet: true });
+    ui.command(workflow);
+  }
+  const pages = u.releasesOf(source);
+  if (pages) ui.message(t('setup.updates.watch', { url: pages.page }), 'dim');
+  return check ? undefined : false;
+}
+
+const ACTIONS = { connect: connectApps, projects: codingProjects, doctor: healthCheck, updates: newVersions };
 
 /** The extras menu, until Finish. Without a terminal it finishes at once. */
 async function extrasMenu(ctx) {

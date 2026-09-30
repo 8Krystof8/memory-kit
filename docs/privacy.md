@@ -179,6 +179,18 @@ Commits that are only local can be amended before you push.
 - The search log is off (`"search": { "log": false }`), because queries can be personal. When you
   turn it on, it writes to `system/usage/search.log`, which is committed with the vault.
 - Search builds its index in memory and never writes it to disk or git.
+- The activity log (`.memory-kit/logs/activity.jsonl`, shown by `activity`) is on, because it never
+  leaves this computer: one line per session start, search, note opened, save and error lookup,
+  with the agent or app that did it. It holds no query text and no note text, names only notes of
+  `github` sectors and only counts the notes of `local` ones. `"feedback": {"log": false}` in
+  `memory.json` turns it off.
+- memory-kit never talks to the network by itself and sends no telemetry. Only git goes online,
+  where you ask for it: `sync` (and autosync, when you turn it on), `upgrade`, and the check for a
+  newer kit (`upgrade --check`, or once a day with `"updates": {"check": true}`, off by default).
+  That check is one `git ls-remote` of the kit's source: GitHub sees that your computer asked for
+  the kit's tags, and nothing else. The issue about a new version comes from your vault's own CI on
+  GitHub, not from your computer. `system/tests/unit/network.test.mjs` checks the code for it on
+  every CI run.
 - `.memory-kit/` holds the backups of `upgrade` and `connect` on this computer. It is never
   committed (`.gitignore`, and `.git/info/exclude` in upgraded vaults). A `connect` backup of an
   app's settings may hold other servers' keys, so on macOS and Linux only you can read it.

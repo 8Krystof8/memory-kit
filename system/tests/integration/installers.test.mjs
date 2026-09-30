@@ -646,7 +646,7 @@ describe('install.sh', { skip: !SH ? 'install.sh is for macOS and Linux' : !HAS_
         [/Which sectors/, '\r'],
         [/Which AI tools/, '\r'],
         [/Set up the memory now\?/, '\r'],
-        [/Anything else\?/, `${ESC}B${ESC}B${ESC}B\r`], // Finish
+        [/Anything else\?/, `${ESC}B${ESC}B${ESC}B${ESC}B\r`], // Finish
       ],
     });
     assert.equal(res.code, 0, res.stdout);

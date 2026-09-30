@@ -8,7 +8,7 @@ loads the start file, a subagent for broad questions, and the pre-commit check t
 | file | what it does |
 |---|---|
 | `CLAUDE.md` | `@AGENTS.md` (imports the shared rules) plus two lines only for Claude Code |
-| `.claude/settings.json` | a SessionStart hook with matcher `startup\|resume\|clear\|compact` and the command `node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start` (see below why it has this form) |
+| `.claude/settings.json` | a SessionStart hook with matcher `startup\|resume\|clear\|compact` and the command `node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start --format claude-hook` (see below why it has this form) |
 | `.claude/agents/memory-searcher.md` | a subagent for broad questions: tools Read, Grep, Glob and Bash; returns at most 1,500 tokens with `path:line` citations |
 | `.agents/skills/memory/SKILL.md` | a skill in the open Agent Skills format: run `start`, follow "How to search", read `AGENTS.md` before writing |
 | `.claude/skills/memory/SKILL.md` | the same skill, byte for byte, where Claude Code looks for project skills (a test keeps the two copies equal) |
@@ -17,8 +17,15 @@ loads the start file, a subagent for broad questions, and the pre-commit check t
 The hook is a shell command with the placeholder in braces and the path in double quotes:
 
 ```json
-"command": "node \"${CLAUDE_PROJECT_DIR}/system/memory.mjs\" start"
+"command": "node \"${CLAUDE_PROJECT_DIR}/system/memory.mjs\" start --format claude-hook"
 ```
+
+`--format claude-hook` hands Claude Code the start file for the agent and one line for you, which
+Claude Code shows as the hook's message: `memory-kit: memory loaded · 34 notes · 5 sectors`, or,
+when the memory did not load, the reason and `doctor`. The line costs the agent no context.
+`"feedback": {"notice": false}` in `memory.json` turns it off, and the hook then prints the start
+file alone, as a plain `start` does. A hook that runs `start` without the format (the kit's hook
+before 0.1.3, or one you wrote yourself) still works; you only do not get the line.
 
 It runs on every Claude Code version under sh, bash and Git Bash, also with spaces in the path,
 and under PowerShell from Claude Code 2.1.198 on, which rewrites the braced placeholder for
@@ -39,7 +46,10 @@ after compaction, the hook prints the start file. Its output is at most 9,500 by
 output over 10,000 characters only as a short preview. The search rules are in context from the first message on. `AGENTS.md` is
 imported through `CLAUDE.md`.
 
-If you do not see the start file, run `node system/memory.mjs start` yourself, or ask Claude to.
+If you do not see the line `memory-kit: memory loaded …` at the start, run `node system/memory.mjs
+start` yourself, or ask Claude to, and then `node system/memory.mjs doctor`. What the agents did
+with the memory later is in `node system/memory.mjs activity`
+([Is it working?](../../README.md#is-it-working)).
 
 ## Case 2: you work in another project, memory is a second folder
 

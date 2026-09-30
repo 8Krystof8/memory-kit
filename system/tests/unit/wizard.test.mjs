@@ -46,7 +46,7 @@ describe('the wizard sets up a vault like init does', () => {
       KEY.enter, // private folder: the default
       KEY.enter, // AI tools: the detected one
       KEY.enter, // set up now? yes
-      `${down(3)}${KEY.enter}`, // extras: finish
+      `${down(4)}${KEY.enter}`, // extras: finish
     );
     const code = await runWizard({
       root, ui, env: { LANG: 'en_US.UTF-8' }, opts: { today: TODAY, 'allow-ephemeral': true }, detect: () => ['claude-code'],
@@ -80,7 +80,7 @@ describe('the wizard sets up a vault like init does', () => {
       `${down(1)}${KEY.enter}`, // Zdraví: keep it in the private GitHub repository
       KEY.enter, // AI tools: the detected ones
       'y', // set up now
-      `${down(3)}${KEY.enter}`, // finish
+      `${down(4)}${KEY.enter}`, // finish
     );
     const code = await runWizard({
       root, ui, env: { LANG: 'cs_CZ.UTF-8' }, opts: { today: TODAY }, detect: () => ['claude-code', 'codex'],
@@ -104,7 +104,7 @@ describe('the wizard sets up a vault like init does', () => {
     const root = freshVault('wiz-flags');
     const { ui, term } = terminal();
     // language, what to do with notes (the only decision the flags leave open), set up now, finish
-    term.keys(KEY.enter, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`);
+    term.keys(KEY.enter, KEY.enter, KEY.enter, `${down(4)}${KEY.enter}`);
     const flags = { mode: 'github', sectors: 'core,work,projekt,health:github,notes:local', agents: 'all', 'private-root': '../elsewhere' };
     const code = await runWizard({
       root, ui, env: { LANG: 'en_US.UTF-8' }, opts: { ...flags, today: TODAY, 'allow-ephemeral': true }, detect: () => ['claude-code'],
@@ -137,7 +137,7 @@ describe('the wizard sets up a vault like init does', () => {
     const root = freshVault('wiz-private');
     const { ui, term } = terminal();
     // language, mode, sectors, AI tools, set up now, finish: the private folder was given
-    term.keys(KEY.enter, KEY.enter, KEY.enter, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`);
+    term.keys(KEY.enter, KEY.enter, KEY.enter, KEY.enter, KEY.enter, `${down(4)}${KEY.enter}`);
     const code = await runWizard({
       root, ui, env: { LANG: 'en_US.UTF-8' }, opts: { 'private-root': '../elsewhere', today: TODAY, 'allow-ephemeral': true }, detect: () => ['codex'],
     });
@@ -154,7 +154,7 @@ describe('the wizard sets up a vault like init does', () => {
     const root = freshVault('wiz-git');
     assert.equal(spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: root, windowsHide: true }).status, 0);
     const { ui, term } = terminal({ columns: 40 });
-    term.keys(KEY.enter, KEY.enter, KEY.enter, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`);
+    term.keys(KEY.enter, KEY.enter, KEY.enter, KEY.enter, KEY.enter, `${down(4)}${KEY.enter}`);
     const code = await runWizard({ root, ui, env: { LANG: 'en_US.UTF-8' }, opts: { today: TODAY }, detect: () => ['codex'] });
     const shown = screen(term.output());
     assert.equal(code, 0, shown);
@@ -220,7 +220,7 @@ describe('the wizard sets up a vault like init does', () => {
   test('as the installers call it (--mode given): the mode is never asked again', async () => {
     const root = freshVault('wiz-installer');
     const { ui, term } = terminal();
-    term.keys(KEY.enter, KEY.enter, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`); // language, sectors, AI tools, set up now, finish
+    term.keys(KEY.enter, KEY.enter, KEY.enter, KEY.enter, `${down(4)}${KEY.enter}`); // language, sectors, AI tools, set up now, finish
     const code = await runWizard({ root, ui, env: { LANG: 'en_US.UTF-8' }, opts: { mode: 'github', today: TODAY }, detect: () => ['codex'] });
     const shown = screen(term.output());
     assert.equal(code, 0, shown);
@@ -259,11 +259,66 @@ describe('the wizard sets up a vault like init does', () => {
   });
 });
 
+describe('the extras menu: new versions', () => {
+  const gitIn = (root, args) => spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true });
+  const HAS_GIT = spawnSync('git', ['--version'], { windowsHide: true }).status === 0;
+
+  test('a memory made from the template has the workflow: the issue channel is on', { skip: !HAS_GIT && 'git is missing' }, async () => {
+    const { root, cfg } = await initializedVault('setup-updates-new');
+    gitIn(root, ['init', '-q']);
+    gitIn(root, ['remote', 'add', 'origin', 'https://github.com/linden/memory.git']);
+    const { ui, term } = terminal();
+    term.keys(`${down(3)}${KEY.enter}`, KEY.enter, `${down(4)}${KEY.enter}`);
+    const code = await runSetup({ root, cfg, ui });
+    const joined = screen(term.output()).replace(/\n│ {2}(?![◇▲✓●■])/g, ' ');
+    assert.equal(code, 0, joined);
+    assert.match(joined, /New versions now: an issue on GitHub · no daily check/);
+    assert.ok(!joined.includes('Create new file'), 'nothing to add');
+  });
+
+  test('what is known, the channels, and the daily check switched on in memory.json', async () => {
+    const { root, cfg } = await initializedVault('setup-updates');
+    const { ui, term } = terminal();
+    term.keys(`${down(3)}${KEY.enter}`, 'y', `${down(4)}${KEY.enter}`); // New versions, yes, Finish
+    const code = await runSetup({ root, cfg, ui });
+    const shown = screen(term.output());
+    assert.equal(code, 0, shown);
+    const joined = shown.replace(/\n│ {2}(?![◇▲✓●■])/g, ' ');
+    assert.match(joined, /This memory has memory-kit \d+\.\d+\.\d+; nobody looked for a newer one yet\./);
+    assert.match(joined, /New versions now: no daily check \("updates": \{"check": true\} turns it on\)/);
+    assert.match(joined, /Look for a new version once a day at the session start\?/);
+    assert.match(joined, /The daily check is on \("updates": \{"check": true\} in memory\.json\)\./);
+    assert.match(joined, /Or on GitHub: Watch → Custom → Releases at https:\/\/github\.com\/8Krystof8\/memory-kit\/releases/);
+    assert.equal(JSON.parse(readFile(root, 'memory.json')).updates.check, true);
+    assert.ok(!joined.includes('memory-kit-updates.yml'), 'no workflow advice without a repository on GitHub');
+  });
+
+  test('a memory on GitHub without the workflow: how to add it on github.com; No keeps the check off', { skip: !HAS_GIT && 'git is missing' }, async () => {
+    const { root, cfg } = await initializedVault('setup-updates-gh');
+    // A memory made before 0.1.3: the template gave it no workflow, and upgrade never adds one.
+    fs.rmSync(path.join(root, '.github', 'workflows', 'memory-kit-updates.yml'));
+    gitIn(root, ['init', '-q']);
+    gitIn(root, ['remote', 'add', 'origin', 'git@github.com:linden/memory.git']);
+    const { ui, term } = terminal();
+    term.keys(`${down(3)}${KEY.enter}`, 'n', `${down(4)}${KEY.enter}`);
+    const code = await runSetup({ root, cfg, ui });
+    const shown = screen(term.output());
+    assert.equal(code, 0, shown);
+    // Wrapped lines (a bullet's go on further in) read as one text.
+    const joined = shown.replace(/\n│ +(?![◇▲✓●■])/g, ' ').replace(/ {2,}/g, ' ');
+    assert.match(joined, /no issue on GitHub yet: add \.github\/workflows\/memory-kit-updates\.yml/);
+    assert.match(joined, /Add file → Create new file, name it \.github\/workflows\/memory-kit-updates\.yml/);
+    assert.ok(shown.includes('https://github.com/8Krystof8/memory-kit/blob/main/.github/workflows/memory-kit-updates.yml'), shown);
+    assert.match(joined, /No daily check\./);
+    assert.equal(JSON.parse(readFile(root, 'memory.json')).updates.check, false);
+  });
+});
+
 describe('the extras menu (setup in a vault that is set up)', () => {
   test('memory for coding projects: not available when hooksetup has no installProjects', async () => {
     const { root, cfg } = await initializedVault('setup-noproj');
     const { ui, term } = terminal();
-    term.keys(`${down(1)}${KEY.enter}`, `${down(3)}${KEY.enter}`);
+    term.keys(`${down(1)}${KEY.enter}`, `${down(4)}${KEY.enter}`);
     const code = await runSetup({ root, cfg, ui, loadHooks: async () => ({}) });
     const shown = screen(term.output());
     assert.equal(code, 0, shown);
@@ -285,7 +340,7 @@ describe('the extras menu (setup in a vault that is set up)', () => {
       },
     };
     const { ui, term } = terminal();
-    term.keys(`${down(1)}${KEY.enter}`, 'y', KEY.enter, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`);
+    term.keys(`${down(1)}${KEY.enter}`, 'y', KEY.enter, KEY.enter, KEY.enter, `${down(4)}${KEY.enter}`);
     const code = await runSetup({ root, cfg, ui, loadHooks: async () => hooks, hasRemote: () => true, hookOptions: { home: '/home/test' } });
     const shown = screen(term.output());
     assert.equal(code, 0, shown);
@@ -308,7 +363,7 @@ describe('the extras menu (setup in a vault that is set up)', () => {
     term.keys(
       `${down(1)}${KEY.enter}`, KEY.enter, // projects: switch on? No (the default)
       `${down(1)}${KEY.enter}`, 'y', KEY.enter, KEY.enter, // projects again: yes, defaults, no push question
-      `${down(3)}${KEY.enter}`, // finish
+      `${down(4)}${KEY.enter}`, // finish
     );
     const code = await runSetup({ root, cfg, ui, loadHooks: async () => hooks, hasRemote: () => false });
     assert.equal(code, 0);
@@ -319,7 +374,7 @@ describe('the extras menu (setup in a vault that is set up)', () => {
   });
 
   // setup → Memory for coding projects → Yes, No, Yes (no remote) → Finish
-  const PROJECTS_ON = [`${down(1)}${KEY.enter}`, 'y', KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`];
+  const PROJECTS_ON = [`${down(1)}${KEY.enter}`, 'y', KEY.enter, KEY.enter, `${down(4)}${KEY.enter}`];
   const SNIPPET = '{\n  "hooks": {\n    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node \\"/home/test/Moje paměť/system/memory.mjs\\" hook" }] }]\n  }\n}';
 
   test('memory for coding projects: a refused install is shown as failed, with its fix, never as installed', async () => {
@@ -401,7 +456,7 @@ describe('the extras menu (setup in a vault that is set up)', () => {
       `${down(1)}${KEY.enter}`, KEY.enter, // projects: keep
       `${down(1)}${KEY.enter}`, `${down(1)}${KEY.enter}`, KEY.enter, KEY.enter, KEY.enter, // projects: change, Enter keeps each answer
       `${down(1)}${KEY.enter}`, `${down(2)}${KEY.enter}`, // projects: switch off
-      `${down(3)}${KEY.enter}`, // finish
+      `${down(4)}${KEY.enter}`, // finish
     );
     const code = await runSetup({ root, cfg, ui, loadHooks: async () => hooks, hasRemote: () => true });
     const shown = screen(term.output());
@@ -450,12 +505,12 @@ describe('the extras menu (setup in a vault that is set up)', () => {
 
       // Keep it: the hooks are current, nothing is written.
       const text = fs.readFileSync(h.settings, 'utf8');
-      const kept = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, KEY.enter, `${down(3)}${KEY.enter}`]);
+      const kept = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, KEY.enter, `${down(4)}${KEY.enter}`]);
       assert.ok(kept.text.includes(`◇  The hooks in ${h.settings} are current`), kept.shown);
       assert.ok(!kept.shown.includes('Start a new Claude Code session'), 'nothing changed, so no new session is needed');
       assert.equal(fs.readFileSync(h.settings, 'utf8'), text);
 
-      const off = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(2)}${KEY.enter}`, `${down(3)}${KEY.enter}`]);
+      const off = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(2)}${KEY.enter}`, `${down(4)}${KEY.enter}`]);
       assert.equal(off.code, 0, off.shown);
       assert.ok(off.text.includes(`◇  Memory for coding projects is off; the hooks are out of ${h.settings} backup of the old file: `), off.shown);
       assert.equal(settingsOf(h).hooks, undefined);
@@ -468,9 +523,9 @@ describe('the extras menu (setup in a vault that is set up)', () => {
       const { installProjects } = await import('../../lib/hooksetup.mjs');
       await installProjects(root, { agent: 'codex', env: h.env, home: h.home });
       // On already (through Codex): change, keep both answers.
-      const on = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(1)}${KEY.enter}`, KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`]);
+      const on = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(1)}${KEY.enter}`, KEY.enter, KEY.enter, `${down(4)}${KEY.enter}`]);
       assert.ok(on.text.includes(`◇  Hooks are in ${h.settings}`), on.shown);
-      const off = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(2)}${KEY.enter}`, `${down(3)}${KEY.enter}`]);
+      const off = await run(root, cfg, h, [`${down(1)}${KEY.enter}`, `${down(2)}${KEY.enter}`, `${down(4)}${KEY.enter}`]);
       assert.ok(off.text.includes(`▲  The hooks are out of ${h.settings}, but Codex still has memory hooks for this memory, so memory for coding projects stays on`), off.shown);
       assert.ok(!off.text.includes('Memory for coding projects is off'), off.shown);
       assert.equal(projectsOf(root).enabled, true);
@@ -495,7 +550,7 @@ describe('the extras menu (setup in a vault that is set up)', () => {
       assert.equal(spawnSync('git', ['remote', 'add', 'origin', 'https://github.com/me/memory.git'], { cwd: local, windowsHide: true }).status, 0);
       const { loadConfig } = await import('../../lib/config.mjs');
       const h2 = agentHome('setup-real-local-home');
-      const push = await run(local, loadConfig(local), h2, [`${down(1)}${KEY.enter}`, 'y', KEY.enter, KEY.enter, 'y', `${down(3)}${KEY.enter}`]);
+      const push = await run(local, loadConfig(local), h2, [`${down(1)}${KEY.enter}`, 'y', KEY.enter, KEY.enter, 'y', `${down(4)}${KEY.enter}`]);
       assert.equal(push.term.pending(), 0, 'the push question was asked');
       assert.ok(push.text.includes('■  The hooks could not be installed: --autosync needs a memory that syncs through git, but memory.json "mode" is local, so nothing was changed fix: connect without --autosync; the memory stays on this computer ◇'), push.shown);
       assert.ok(!fs.existsSync(h2.settings));
@@ -533,7 +588,7 @@ describe('the extras menu (setup in a vault that is set up)', () => {
       ],
     };
     const { ui, term } = terminal();
-    term.keys(`${down(2)}${KEY.enter}`, `${down(3)}${KEY.enter}`);
+    term.keys(`${down(2)}${KEY.enter}`, `${down(4)}${KEY.enter}`);
     const code = await runSetup({ root, cfg, ui, runDoctor: async () => report });
     const shown = screen(term.output());
     assert.equal(code, 0, shown);
@@ -546,7 +601,7 @@ describe('the extras menu (setup in a vault that is set up)', () => {
   test('health check against the real doctor of the vault', async () => {
     const { root, cfg } = await initializedVault('setup-doctor-real');
     const { ui, term } = terminal();
-    term.keys(`${down(2)}${KEY.enter}`, `${down(3)}${KEY.enter}`);
+    term.keys(`${down(2)}${KEY.enter}`, `${down(4)}${KEY.enter}`);
     assert.equal(await runSetup({ root, cfg, ui }), 0);
     assert.match(screen(term.output()), /[◇▲■] {2}Health check: ✓ \d+ {2}! \d+ {2}✗ \d+\n/);
   });
@@ -565,7 +620,7 @@ describe('the extras menu (setup in a vault that is set up)', () => {
       return { ok: true, messages: [{ key: 'connect.added', vars: { client: 'Cursor', name: 'memory-kit', path: '/x/mcp.json' } }] };
     };
     const { ui, term } = terminal();
-    term.keys(KEY.enter, KEY.enter, `${down(2)}${KEY.enter}`);
+    term.keys(KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`);
     const code = await runSetup({ root, cfg, ui, inspectClients: () => rows, connectClient });
     const shown = screen(term.output());
     assert.equal(code, 0, shown);
@@ -593,7 +648,7 @@ describe('connect AI apps: a snippet to paste', () => {
       messages: [{ key: 'connect.comments.top', vars: { path: '/home/jan/.config/zed/settings.json', key: 'context_servers' } }, { raw: snippet }],
     });
     const { ui, term } = terminal({ columns: 40 });
-    term.keys(KEY.enter, KEY.enter, `${down(2)}${KEY.enter}`);
+    term.keys(KEY.enter, KEY.enter, `${down(3)}${KEY.enter}`);
     assert.equal(await runSetup({ root, cfg, ui, inspectClients: () => rows, connectClient }), 0);
     const shown = screen(term.output());
     assert.ok(shown.includes(`\n${snippet}\n`), shown);

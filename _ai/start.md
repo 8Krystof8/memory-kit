@@ -1,4 +1,4 @@
-memory-kit v1 · source bd44de56aca0 · content c3d4e39ff45f · as-of 2026-09-23 · DO NOT EDIT
+memory-kit v1 · source bbe807500a65 · content 41468682651d · as-of 2026-09-23 · DO NOT EDIT
 # Memory: start
 0 notes · 1 sectors · as of 2026-09-23
 
@@ -13,6 +13,7 @@ memory-kit v1 · source bd44de56aca0 · content c3d4e39ff45f · as-of 2026-09-23
 8. When about 70% of hits point to one place, stop searching and work.
 9. After 3 rephrasings and `git log -S 'text'`, say "not in memory". Never guess.
 10. Broad questions ("everything about X"): use the memory-searcher subagent.
+11. End an answer that notes shaped with one line: `📎 memory: [[name]], [[name]]`; after a write: `📎 saved: [[name]]`.
 
 ## Writing and safety
 - Before the first write read AGENTS.md. Never delete; replace or archive.
@@ -24,4 +25,4 @@ memory-kit v1 · source bd44de56aca0 · content c3d4e39ff45f · as-of 2026-09-23
 |---|---|---|---|---|
 | core | Your profile, how to work with you, people, tools, memory. | Who the owner is, preferences, people in several sectors. | 0 | – |
 
-Waiting for you: 0 (waiting.md) · Inbox: 0 · kit 0.1.2
+Waiting for you: 0 (waiting.md) · Inbox: 0 · kit 0.1.3

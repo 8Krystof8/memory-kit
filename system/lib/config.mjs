@@ -234,6 +234,7 @@ export const CODE_DEFAULTS = Object.freeze({
   'sync.pushed': 'pushed',
   'sync.failed': 'git {step} failed: {detail}',
   'sync.too_many': 'rebase did not finish after {n} rounds; resolve it by hand.',
+  'sync.uncommitted': 'sync pulls and pushes, but it does not commit, and {n} files have uncommitted changes ({files}). Commit them first, then sync again:\n  node system/memory.mjs check\n  git add -A\n  git commit -m "Memory: notes"\n  node system/memory.mjs sync',
 });
 
 /** Reads and parses system/lang/<code>/pack.json. */
@@ -461,6 +462,18 @@ export function loadConfig(root, { lang: langOverride } = {}) {
     warnings.push('eval.min must be a number 0–1; using 0.9');
     evalMin = 0.9;
   }
+  const feedback = {};
+  for (const name of ['notice', 'log']) {
+    const value = obj(raw.feedback)[name];
+    if (value !== undefined && typeof value !== 'boolean') warnings.push(`feedback.${name} must be true or false; using true`);
+    feedback[name] = value !== false;
+  }
+  const updates = {};
+  for (const [name, dflt] of [['check', false], ['github', true]]) {
+    const value = obj(raw.updates)[name];
+    if (value !== undefined && typeof value !== 'boolean') warnings.push(`updates.${name} must be true or false; using ${dflt}`);
+    updates[name] = typeof value === 'boolean' ? value : dflt;
+  }
   const provider = str(obj(raw.cleanup).provider) ?? 'none';
   if (provider !== 'none') warnings.push(`cleanup.provider "${provider}" is not available in this version; treated as none`);
 
@@ -521,6 +534,8 @@ export function loadConfig(root, { lang: langOverride } = {}) {
     startSafety: pickList('start_safety'),
     budgets,
     search: { log: obj(raw.search).log === true, n: searchN },
+    feedback,
+    updates,
     eval: { golden, min: evalMin },
     cleanup: { provider: 'none' },
     profile: files.profile,

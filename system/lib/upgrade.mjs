@@ -1131,6 +1131,8 @@ export function rollbackUpgrade(root, { id, force = false, dryRun = false, env =
 function childEnv() {
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('MEMORY_KIT_UPGRADE_')) delete env[key];
+  // A check run, not a use of the memory: it leaves no line in the activity log.
+  env.MEMORY_KIT_PROBE = '1';
   return env;
 }
 

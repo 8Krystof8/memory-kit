@@ -77,6 +77,29 @@ describe('sync', { skip: !HAS_GIT && 'git is not installed' }, () => {
     assert.match(local.stdout, /no git remote/);
   });
 
+  test('uncommitted changes stop it before git does, with the commands that commit them; untracked files do not', () => {
+    const { env, a } = twoMachines();
+    const head = git(a, env, 'rev-parse', 'HEAD');
+    writeFile(a, 'sectors/work/pricing.md', `${readFile(a, 'sectors/work/pricing.md')}- [fact] 2026-09-20: Not committed yet.\n`);
+    const res = runCli(a, ['sync', '--today', TODAY], { env });
+    assert.equal(res.code, 1);
+    assert.equal(res.stdout, '');
+    assert.equal(res.stderr, [
+      'sync pulls and pushes, but it does not commit, and 1 files have uncommitted changes (sectors/work/pricing.md). Commit them first, then sync again:',
+      '  node system/memory.mjs check',
+      '  git add -A',
+      '  git commit -m "Memory: notes"',
+      '  node system/memory.mjs sync',
+      '',
+    ].join('\n'));
+    assert.equal(git(a, env, 'rev-parse', 'HEAD'), head, 'nothing committed, pulled or pushed');
+    git(a, env, 'checkout', '--', 'sectors/work/pricing.md');
+    writeFile(a, 'inbox/2026-09-20-new-idea.md', '# idea\n');
+    const untracked = runCli(a, ['sync', '--today', TODAY], { env });
+    assert.equal(untracked.code, 0, untracked.stderr);
+    assert.match(untracked.stdout, /pushed/);
+  });
+
   test('a conflict only in _ai/ is regenerated and pushed', () => {
     const { env, a, b } = twoMachines();
     change(a, env, 'sectors/work/pricing.md', '- [fact] 2026-09-20: Machine A was here.');

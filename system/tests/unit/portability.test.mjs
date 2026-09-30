@@ -867,16 +867,19 @@ describe('the pre-commit hook finds node outside PATH', { skip: !GIT_BIN && 'nee
 // (`args`) came in 2.1.139; older versions drop `args` and run a bare `node` on the hook input.
 
 describe('the Claude Code SessionStart hook', { skip: !HAS_SH && 'needs sh' }, () => {
-  test('its command prints the start file under sh, with the hook input on stdin and a space in the path', () => {
+  test('its command prints the start file and the owner\'s notice under sh, with the hook input on stdin and a space in the path', () => {
     const settings = JSON.parse(readFile(KIT_ROOT, '.claude/settings.json'));
     const hook = settings.hooks.SessionStart[0].hooks[0];
     assert.equal(hook.args, undefined);
     const fx = fixtureVault('en');
     const root = path.join(tmpDir('claude hook'), 'my vault');
     fs.cpSync(fx.root, root, { recursive: true });
-    const expected = runCli(root, ['start']);
+    const expected = runCli(root, ['start', '--format', 'claude-hook']);
     assert.equal(expected.code, 0, expected.stderr);
-    assert.ok(expected.stdout.length > 0);
+    const plain = runCli(root, ['start']);
+    const parsed = JSON.parse(expected.stdout);
+    assert.match(parsed.systemMessage, /^memory-kit: memory loaded · \d+ notes · \d+ sectors$/);
+    assert.equal(parsed.hookSpecificOutput.additionalContext, plain.stdout);
     const input = JSON.stringify({ session_id: 'abc', transcript_path: '/x/y.jsonl', cwd: root, hook_event_name: 'SessionStart', source: 'startup' });
     const res = spawnSync('sh', ['-c', hook.command], {
       cwd: tmpDir('claude-cwd'),

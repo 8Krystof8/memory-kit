@@ -1,4 +1,4 @@
-<!-- kit:start v0.1.2 · systémová část: spravuje ji memory-kit, při aktualizaci se nahradí -->
+<!-- kit:start v0.1.3 · systémová část: spravuje ji memory-kit, při aktualizaci se nahradí -->
 # Paměť: pravidla pro AI agenty
 Toto repo je dlouhodobá paměť: jediným zdrojem pravdy jsou poznámky v markdownu s YAML hlavičkou.
 Lidé ji čtou v jakémkoli editoru markdownu nebo na GitHubu, začínají vygenerovaným `domu.md`; agenti přes
@@ -25,6 +25,7 @@ Lidé ji čtou v jakémkoli editoru markdownu nebo na GitHubu, začínají vygen
 8. Když se asi 70 % zásahů sejde na jednom místě, přestaň hledat a pracuj.
 9. Po 3 přeformulováních a `git log -S 'text'` řekni „v paměti to není“. Nikdy neodhaduj.
 10. Široký dotaz („co všechno víme o X“): subagent memory-searcher.
+11. Odpověď, kterou ovlivnily poznámky, zakonči řádkem `📎 z paměti: [[nazev]], [[nazev]]`; po zápisu `📎 uloženo: [[nazev]]`.
 <!-- search:end -->
 
 ## Zápis

@@ -3,8 +3,11 @@
 // stderr. --read-only drops memory_inbox; --local lets notes of local roots leave the server.
 // memory.json is read per tool call, so the server starts (and reports problems) even when the
 // vault changes or is broken while it runs. MEMORY_SECTORS narrows start and search like the CLI.
+// Each successful tool call is a line of the activity log (lib/activity.mjs), unless memory.json
+// feedback.log is false then.
 
 import fs from 'node:fs';
+import { logActivity } from '../activity.mjs';
 import { serveStdio } from '../mcp.mjs';
 import { parseCli, splitList, usageError } from '../util.mjs';
 
@@ -55,6 +58,7 @@ export async function run(argv, cfg, ctx) {
       local,
       sectors: splitList(process.env.MEMORY_SECTORS),
       version,
+      onActivity: (entry) => logActivity(root, entry),
     });
   } finally {
     if (ownWrite) out.write = original;

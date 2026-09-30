@@ -24,8 +24,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** Every check, in the order doctor runs and prints them. */
 export const CHECK_IDS = Object.freeze([
   'node.version', 'node.fts5', 'config.memory_json', 'config.data_version', 'kit.version', 'kit.integrity',
-  'kit.upgrade_lock', 'agents.block', 'adapters', 'git.repo', 'git.hooks_path', 'git.pre_commit', 'git.attributes',
-  'roots', 'generated.fresh', 'platform', 'mcp.clients', 'projects.hooks',
+  'kit.upgrade_lock', 'kit.updates', 'agents.block', 'adapters', 'git.repo', 'git.hooks_path', 'git.pre_commit',
+  'git.attributes', 'roots', 'generated.fresh', 'platform', 'mcp.clients', 'projects.hooks',
 ]);
 
 /** Repairs `doctor --fix` may apply: git config core.hooksPath, and the hook file's bytes and mode. */
@@ -119,6 +119,10 @@ export const DEFAULTS = Object.freeze({
   'doctor.integrity.unknown_fix': 'delete them unless you added them yourself',
 
   'doctor.lock.ok': 'no unfinished upgrade',
+  'doctor.updates.newer': 'memory-kit {latest} is out, this vault has {version} (checked {when}); new versions: {channels}',
+  'doctor.updates.newer_fix': 'node system/memory.mjs upgrade (it shows what is new and asks before it changes anything)',
+  'doctor.updates.current': 'memory-kit {version} is the newest known (checked {when}); new versions: {channels}',
+  'doctor.updates.unchecked': 'memory-kit {version}, not checked for a newer one yet (node system/memory.mjs upgrade --check); new versions: {channels}',
   'doctor.lock.found': 'the upgrade {from} → {to} (started {started}) did not finish; upgrade refuses to run until it is undone',
   'doctor.lock.invalid': '{file} was left by an interrupted upgrade and cannot be read',
   'doctor.lock.invalid_fix': 'node system/memory.mjs upgrade --rollback --force (this only removes the lock)',
@@ -151,9 +155,9 @@ export const DEFAULTS = Object.freeze({
   'doctor.adapters.settings_missing': '.claude/settings.json is missing, so Claude Code sessions do not start with the memory',
   'doctor.adapters.settings_invalid': '.claude/settings.json is not valid JSON: {detail}',
   'doctor.adapters.no_hook': '.claude/settings.json has no SessionStart hook that runs system/memory.mjs start',
-  'doctor.adapters.hook_fix': 'add the SessionStart hook of the kit to .claude/settings.json: "command": "node \\"${CLAUDE_PROJECT_DIR}/system/memory.mjs\\" start"',
+  'doctor.adapters.hook_fix': 'add the SessionStart hook of the kit to .claude/settings.json: "command": "node \\"${CLAUDE_PROJECT_DIR}/system/memory.mjs\\" start --format claude-hook"',
   'doctor.adapters.bare_var': 'the SessionStart hook uses $CLAUDE_PROJECT_DIR without braces, which breaks when Claude Code runs hooks in PowerShell (Windows without Git Bash)',
-  'doctor.adapters.braced_fix': 'use the braced form: "command": "node \\"${CLAUDE_PROJECT_DIR}/system/memory.mjs\\" start"',
+  'doctor.adapters.braced_fix': 'use the braced form: "command": "node \\"${CLAUDE_PROJECT_DIR}/system/memory.mjs\\" start --format claude-hook"',
   'doctor.adapters.exec_old': 'the SessionStart hook uses "args" (exec form), which Claude Code {version} ignores (it needs 2.1.139 or newer), so its sessions start without the memory',
   'doctor.adapters.braced_old': 'Claude Code {version} runs hooks in PowerShell here (no Git Bash), which fills in ${CLAUDE_PROJECT_DIR} only from 2.1.198 on, so its sessions start without the memory',
   'doctor.adapters.update_fix': 'update Claude Code (claude update), or install Git for Windows (git-scm.com), whose Git Bash runs the hook',
@@ -723,6 +727,22 @@ async function checkUpgradeLock(c) {
     fix = say(c.t, 'doctor.lock.force_fix', { backup: backup ?? '–' });
   }
   return combine([problem('fail', message, fix)]);
+}
+
+/**
+ * Whether a newer kit is known and how the owner hears of one, from files on this computer only
+ * (lib/updates.mjs: the last check, memory.json, the workflow file, the origin); never online.
+ */
+async function checkUpdates(c) {
+  const updates = await need(c, 'updates.mjs');
+  const status = updates.updateStatus(c.cfg ?? c.root);
+  const channels = updates.channelList({ t: c.t }, status);
+  const when = status.checked ? `${status.checked.slice(0, 16).replace('T', ' ')} UTC` : '';
+  const version = status.installed ?? c.version ?? '?';
+  if (status.available) {
+    return combine([problem('warn', say(c.t, 'doctor.updates.newer', { latest: status.latest, version, when, channels }), say(c.t, 'doctor.updates.newer_fix'))]);
+  }
+  return ok(say(c.t, status.checked ? 'doctor.updates.current' : 'doctor.updates.unchecked', { version, when, channels }));
 }
 
 // The setup block of a kit that is not set up yet sits inside the kit section; init removes it.
@@ -1437,6 +1457,7 @@ const CHECKS = {
   'kit.version': checkKitVersion,
   'kit.integrity': checkIntegrity,
   'kit.upgrade_lock': checkUpgradeLock,
+  'kit.updates': checkUpdates,
   'agents.block': checkAgentsBlock,
   adapters: checkAdapters,
   'git.repo': checkGitRepo,

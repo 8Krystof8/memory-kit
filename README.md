@@ -246,28 +246,29 @@ besides Node.
 
 | command | what it does |
 |---|---|
-| `start [--sectors a,b] [--format text\|gemini-hook\|json]` | prints the start view (what the SessionStart hook shows); `gemini-hook` and `json` are for hooks and programs |
+| `start [--sectors a,b] [--format text\|claude-hook\|gemini-hook\|json]` | prints the start view (what the SessionStart hook shows); `claude-hook`, `gemini-hook` and `json` are for hooks and programs |
 | `search "query" [--sector s] [--type t] [--status s\|any] [--n 5] [--all] [--local] [--json]` | full-text search, one line per result with a snippet; local sectors only counted unless `--local` |
 | `search --rg "words"` | prints an accent-safe regex for `rg -i` |
 | `search --duplicates "title" ["description"]` | finds an existing note before you add a new one |
 | `new <type> <sector>/<name> [--description "…"]` | creates a note from its template with the required keys |
 | `sector add\|sleep\|wake\|off\|list [<id>]` | manages sectors; every change regenerates the views |
 | `check [--generate] [--strict\|--lenient]` | validates the vault; `--generate` first normalizes notes (LF, NFC) and rebuilds `home.md`, `_ai/` and `.ignore` |
-| `sync [--no-push]` | `git pull --rebase`, resolves conflicts that touch only generated files, pushes; never forces; does nothing in mode `local` |
+| `sync [--no-push]` | `git pull --rebase`, resolves conflicts that touch only generated files, pushes; never forces and never commits (uncommitted changes stop it with the commands that commit them); does nothing in mode `local` |
 | `eval [--file path]` | runs your golden questions and prints hit@3 |
 | `doctor [--json] [--fix]` | checks the setup: Node, memory.json, kit files, git hooks, roots, connected apps; says how to fix each problem |
-| `upgrade [--yes] [--rollback]` | updates the kit to the newest version: shows the plan first, keeps a backup, verifies, rolls back on failure |
+| `upgrade [--yes] [--rollback]` · `upgrade --check` | updates the kit to the newest version: shows the plan first, keeps a backup, verifies, rolls back on failure; `--check` only says whether a newer version is out ([Hear of new versions](#hear-of-new-versions)) |
 | `connect <app>` · `connect --list` | adds the memory to an AI app's MCP settings (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI and more) |
 | `connect claude-code\|codex --projects [--remove]` | installs the hooks for the code projects you add; nothing is added or pushed by itself ([docs/projects.md](docs/projects.md)) |
 | `remember "text" [--type gotcha\|dead-end\|todo\|run\|convention\|decision\|fact]` | records one line in the project's memory (inside an added code repository), in the local root's inbox (inside another repository) or in `inbox/` |
 | `project add\|remove\|ignore\|unignore\|list\|status [--json]` | run inside a code repository: gives it a memory, unlinks it, silences the hint, lists the projects, shows its state |
-| `setup` | the setup wizard in a terminal: sets up a new memory, or connects AI apps, memory for coding projects and a health check |
+| `setup` | the setup wizard in a terminal: sets up a new memory, or connects AI apps, memory for coding projects, a health check and how you hear of new versions |
 | `mcp [--read-only] [--local]` | the MCP server the apps start (stdio); you do not run it yourself |
+| `activity [--days 7] [--json]` | what the agents did with the memory on this computer: last use, counts, who, the notes used most ([Is it working?](#is-it-working)) |
 
 Every command also accepts the canonical English names. A language pack adds aliases: in Czech,
 `hledej` means `search`, `kontrola` means `check`, `novy` means `new`, `sektor` means `sector`,
-`doktor` means `doctor`, `aktualizuj` means `upgrade`, `pripoj` means `connect` and `zapamatuj`
-means `remember`.
+`doktor` means `doctor`, `aktualizuj` means `upgrade`, `pripoj` means `connect`, `zapamatuj`
+means `remember` and `aktivita` means `activity`.
 Exit codes: 0 ok, 1 a problem was found, 2 a usage error, 3 an internal error.
 
 ```text
@@ -281,6 +282,65 @@ $ node system/memory.mjs search "hourly billing"
 
 (The examples in these docs use the fictional test vault of a design studio called "Linden Studio".
 The output above is shortened.)
+
+## Is it working?
+
+The memory works in the background, and it shows that it does in three places.
+
+**At every session start in Claude Code**, one line from memory-kit that the agent does not have to
+read (it is a message of the hook, not part of the agent's context):
+
+```text
+memory-kit: memory loaded · 34 notes · 5 sectors
+```
+
+In a code project with the [project hooks](docs/projects.md) it says `memory loaded for this
+project (dev)`. When the memory did not load, the line gives the reason and tells you to run
+`doctor`, so a broken memory no longer looks like a working one. `"feedback": {"notice": false}`
+in `memory.json` turns the line off.
+
+**Under an answer that used your notes**, the agent adds one line that names them, and after it
+saved something, one that names the new note:
+
+```text
+📎 memory: [[fixed-price-packages]], [[harbor-bakery]]
+📎 saved: [[2026-09-29-harbor-bakery-wants-a-loyalty-card]]
+```
+
+The rule is step 11 of the search rules and is also in the instructions of the MCP server. It is an
+instruction to the agent, so treat it as a habit, not a guarantee. For a record, use the next part.
+
+**Any time**, `activity` shows what the agents did with the memory on this computer:
+
+```text
+$ node system/memory.mjs activity
+Memory activity on this computer · last 7 days
+Last use: 4 min ago · Claude Code · saved · inbox/2026-09-29-harbor-bakery-wants-a-loyalty-card.md
+Today: session starts 3 · searches 5 · notes read 2 · saved 1
+Last 7 days: session starts 11 · searches 23 · notes read 9 · saved 3
+Who: Claude Code 38 · claude-ai (MCP) 11 · Codex 2
+Notes used most: sectors/work/clients/harbor-bakery.md 6 · sectors/work/decisions/2026-06-02-fixed-price-packages.md 4
+Latest:
+- 4 min ago · Claude Code · saved · inbox/2026-09-29-harbor-bakery-wants-a-loyalty-card.md
+- 6 min ago · Claude Code · search · 10 results · sectors/work/clients/harbor-bakery.md
+- 9 min ago · Claude Code · session start
+The log stays on this computer (.memory-kit/logs/activity.jsonl; never committed, no query text). Turn it off: "feedback": {"log": false} in memory.json
+```
+
+(The output above is shortened.) The log behind it gets one line per session start, search, note
+opened, save and error lookup, from the CLI, the project hooks and the MCP server. It stays in
+`.memory-kit/` on this computer, which is never committed. It holds no query text and no note
+text, and it never names a note of a local sector (those are only counted). `activity --json`
+prints the same as data.
+
+**What memory-kit never does:** it never talks to the network by itself. Only git goes online, and
+only where you ask for it: `sync` pulls and pushes your memory's own repository (autosync runs it
+only when you turn it on), `upgrade` downloads the kit from its source, and the
+[update check](#hear-of-new-versions) reads the kit's version tags (when you run it, or once a day
+when you turn that on). There is no telemetry.
+[`system/tests/unit/network.test.mjs`](system/tests/unit/network.test.mjs) proves it on every CI
+run: no module of the kit imports a network module, calls `fetch` or starts a download tool, and
+git gets `pull`, `push`, `clone` and `ls-remote` only in those places.
 
 ## Health check
 
@@ -339,6 +399,29 @@ in the backup before it restores.
 A vault made from 0.1.0 has no `upgrade` command yet. The new kit upgrades it once from outside;
 the three commands are in [docs/upgrading.md](docs/upgrading.md#upgrading-a-vault-made-from-010).
 After that the command above is enough.
+
+## Hear of new versions
+
+The memory runs in the background, so nobody runs `upgrade` just in case. Pick one or more of
+these ways to hear of a new version:
+
+| way | how | on by default |
+|---|---|---|
+| an issue in your memory's repository | the nightly workflow [`.github/workflows/memory-kit-updates.yml`](.github/workflows/memory-kit-updates.yml) opens one issue, "memory-kit 0.1.4 is available", with what is new and the command; GitHub tells you by e-mail and in its app, and the workflow closes the issue after your upgrade. Your computer sends nothing. Off: `"updates": {"github": false}` in `memory.json` | yes, in a memory on GitHub made from 0.1.3 on (an older one adds the file once, see below) |
+| a line at the session start | `"updates": {"check": true}` in `memory.json`: once a day, in the background, the session start asks the kit's source for its newest version, and Claude Code then shows `memory-kit: version 0.1.4 is out (this memory has 0.1.3) …` once a day (Codex gets it through the agent). Never in CI; `NO_UPDATE_NOTIFIER=1` turns it off for every tool | no, because it goes online |
+| by hand | `node system/memory.mjs upgrade --check` says whether a newer version is out, and nothing more; `activity` and `doctor` show what the last check found and which of these ways are on, and `setup` → New versions switches the daily check on or off | – |
+| on GitHub | on [the kit's page](https://github.com/8Krystof8/memory-kit): Watch → Custom → Releases, or the feed [releases.atom](https://github.com/8Krystof8/memory-kit/releases.atom) in any feed reader | – |
+
+A check only reads the kit's version tags (one `git ls-remote`); it downloads nothing and sends
+nothing about you or your notes. The upgrade itself stays on your computer, with its plan, backup
+and checks.
+
+`upgrade` never adds or changes a workflow file: pushing one needs a token with the `workflow`
+scope, which the usual `gh` login does not have, so the next `sync` would fail. A memory made from
+0.1.3 on has the workflow from the template. In an older one, add it once on GitHub, which needs no
+such token: open your memory's repository, Add file → Create new file, name it
+`.github/workflows/memory-kit-updates.yml`, paste [this file](.github/workflows/memory-kit-updates.yml)
+and commit. It answers after the upgrade to 0.1.3.
 
 ## For developers
 
