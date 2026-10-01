@@ -27,7 +27,8 @@ server 10.9 (user guides: docs/api.md, docs/integrations/mcp.md).
   `system/tests/unit/network.test.mjs` proves it: no module imports a built-in that opens a
   connection, calls a network API of the runtime or starts a download tool, and git gets `pull`
   and `push` only in `commands/sync.mjs`, `clone` only in `lib/upgrade.mjs` and `ls-remote` only
-  in `lib/updates.mjs`. Built-ins only:
+  in `lib/updates.mjs`. The graph page (10.11) is opened from the disk and listens on no port; its
+  Content Security Policy lets it load nothing but its own data file and send nothing. Built-ins only:
   `node:fs`, `node:path`, `node:os`, `node:crypto`, `node:child_process` (git, rg), `node:util`
   (`parseArgs`), `node:sqlite` (optional, see 13.6), `node:test`, `node:assert`.
 - `node:sqlite` prints an `ExperimentalWarning`. Any module that imports it must first install a
@@ -1023,6 +1024,13 @@ export function releasesOf(source, version?): {page, tag} | null   // a GitHub s
 export function updateSettings(cfgOrRoot): {check, github}
 export function readUpdates(root), writeUpdates(root, data), checkDue(cfg, {env, now}),
   checkInBackground(cfg, {env, now, start}), updateLine(cfg, {command, now, mark}), issueText(cfg, {latest, installed, source})
+// lib/graph.mjs (core, 0.1.5): the graph of the memory and its page (10.11); reads files only
+export const GRAPH_FORMAT /* 1 */, GRAPH_DIR /* .memory-kit/graph */, PAGE_FILE, DATA_FILE, EDGE_KINDS, UI_DEFAULTS, LIVE_REFRESH_MS
+export function buildGraph(cfg, {local, now, activity}?): Graph   // deterministic for the same files, log and clock
+export function graphHash(graph): string        // 12 hex chars of the graph without `generated`
+export function dataScript(graph, {labels, live}?): string        // memoryGraph({...}); for graph-data.js
+export function pageHtml({templateDir}?): string                  // the page with its CSP hashes
+export function graphDir(cfg, {local}?): string | null, uiLabels(cfg): object, writeGraphFiles(cfg, dir, graph, {labels, live}?)
 // lib/fsafe.mjs (core): writeAtomic, copyAtomic, renameRetry, unlinkRetry, removeTree, retrySync
 // lib/kit.mjs (core): KIT_FILE, HISTORY_FILE, compareVersions, hashText, hashFile, groupOf,
 //   listKitFiles, buildManifest, loadManifest, loadHistory, knownHashes, integrityReport
@@ -1464,6 +1472,7 @@ node system/memory.mjs project remove|ignore|unignore|list|status [--json]
 node system/memory.mjs hook claude-code|codex session-start|stop|tool-failure|session-end
 node system/memory.mjs setup [--interactive] [--yes]
 node system/memory.mjs activity [--days 7] [--json]
+node system/memory.mjs graph [--local] [--live] [--no-open] [--out <dir>] [--json]
 ```
 `remember`, `project` and `hook` are the memory for coding projects ([projects.md](projects.md)):
 `project` runs inside the code repository; `hook` is what the hooks of `connect … --projects` run,
@@ -1918,6 +1927,70 @@ holds the newest 8 entries of the period. Empty log: `activity.never` and, while
 `{days, entries, last, today, period, who, notes, latest, log: {on, off, file}, hooks: {last, failures}, updates: {installed, latest, checked, available, channels: {github, check}}}`
 (`today` and `period` count every op, `off` is null, `"off"` or `"not_set_up"`). Always exit 0,
 except a bad flag (2).
+
+### 10.11 graph
+`graph [--local] [--live] [--no-open] [--out <dir>] [--json]` (cs `graf`, `--lokalni`, `--zive`,
+`--neotvirat`, `--slozka`; 0.1.5) shows the memory in the browser as a graph, like the graph view of
+Obsidian. `lib/graph.mjs` `buildGraph(cfg, {local, now, activity})` reads the vault with `loadVault`
+(without `--local` the local roots are not even read) and returns
+`{v: 1, generated, lang, vault, local, kinds, sectors, types, statuses, nodes, links, recent, stats}`:
+- `nodes`: every note except export files and misplaced local ones,
+  `{id, name, title, type, status, sector, area, local, archived, missing, description, lead,
+  updated, rel, used, last}`, sorted by `id` (the rel path; `<root>:<rel>` in a local root).
+  `description` is cut to 240 characters and `lead` to 320. A link target that no note has becomes
+  a node with `missing: true` and the id `missing:<target>`. A target with another extension than
+  `.md` is an attachment and neither.
+- `links`: `[from, to, kind]` (node and kind indexes), sorted, one per pair and kind. The kinds and
+  their weights, in this order: part_of 1, replaces 1, concerns 0.8, see_also 0.6, sector 0.5,
+  link 0.4, used 0.3, changed 0.3, in 0.15. They come from the relations of `## Related` (a
+  relation the table lacks counts as see_also), `replaces` and `replaced_by` (the edge goes from
+  the newer note), a journal's `used` and `changed`, wiki and Markdown links (none where a typed
+  edge already joins the pair), a note to its sector's manifest (`in`; a journal entry to each of
+  its `sectors`) and a manifest to the manifests of its `links` (`sector`).
+- `used` and `last`: the uses of each main-root note in the activity log (10.10: reads, the first
+  hit of a search, saves); `recent`: the uses of the last 24 hours, newest 60, their notes as node
+  indexes.
+The same files, log and clock give the same graph; `graphHash` leaves `generated` out.
+
+`graph` writes `index.html` and `graph-data.js` into `<main root>/.memory-kit/graph/`. With
+`--local` it writes into `.memory-kit/graph/` of the first local root that exists, so no local note
+lands in the main root; with none, it exits 2 (`graph.no_local_root`). `--out` takes any folder.
+`index.html` is `system/templates/graph/page.html` with `style.css`, `layout.js` and `app.js`
+inlined, written only when its bytes change. `graph-data.js` is
+`memoryGraph({...graph, hash, live, refresh, labels})`, where `labels` are the page's words
+(`graph.ui.*`) in the vault's language. The page's Content Security Policy is `default-src 'none'`,
+the inline script and style by their sha256, scripts from `'self' file:` (the data file),
+`worker-src blob:` (the layout worker made from the page's own text), `img-src data: blob:`,
+`connect-src 'none'`, `font-src 'none'`, `base-uri 'none'` and `form-action 'none'`, so it can read
+nothing but its data file and send nothing. `graph` then opens the page with the system's opener,
+without a shell (`xdg-open`, `open`, `explorer.exe`). It never does so with `CI` set or on Linux
+without `DISPLAY` or `WAYLAND_DISPLAY`, and it prints the file, plus its `file://` URL when it did
+not open it. `--json` prints the graph and writes nothing.
+
+`--live` keeps running. It watches the vault's areas in each root it read, the main root (the hubs)
+and `.memory-kit/logs/` (`fs.watch`, recursive where the platform has it). It rebuilds 300 ms after
+a change and at least every 10 s, and rewrites `graph-data.js` when the hash changed, printing one
+`graph.update` line each time. While `live` is true the open page loads `graph-data.js?t=…` again
+every `refresh` ms (1500), so the graph grows and the notes an agent used in the last minutes glow;
+nothing listens on a port. Ctrl+C (SIGINT, SIGTERM) writes the data once more with `live: false`
+and exits 0. Tests stop it with `MEMORY_KIT_GRAPH_LIVE_MS`.
+
+The page (`system/templates/graph/`) has these parts:
+- A layout worker (`layout.js`) with d3-force semantics: velocity decay 0.4, alpha cooling over
+  300 ticks, Barnes–Hut repulsion over a quadtree (theta 0.9, distanceMin 30), link springs whose
+  strength follows the weight and 1 / the smaller degree, gravity toward the middle, and a
+  collision pass on a typed spatial hash so that dots never overlap.
+- Drawing: WebGL2 instanced lines and dots, or Canvas 2D without WebGL2 (also with `#2d` in the
+  address); labels on a Canvas 2D layer, from a dot radius of 2–10 px on screen, without overlaps.
+- Filters (notes without links, journal, inbox, archive, sectors as nodes, missing notes), colour
+  by sector, type or status with a legend, sliders for the display and the forces, and search.
+- A panel per note with its links both ways, and the local graph around it to depth 1–3.
+- Settings and positions kept in `localStorage`, and the keys `/`, `F`, `Esc`.
+Text from the notes only ever goes into `textContent` or onto a canvas.
+
+Measured on 2026-10-01 (Node 26, one core): the layout takes 9 ms per tick for 10 000 notes and
+30 000 links (2.7 s until it settles) and 53 ms per tick for 50 000. Firefox 157 loaded and drew
+the page of 10 000 notes in 53 ms.
 
 ---
 
@@ -2467,7 +2540,8 @@ Only the owner edits a file. Files marked (+) are additions inside the module's 
 | module | files |
 |---|---|
 | core | `system/memory.mjs`, `system/lib/config.mjs`, `system/lib/frontmatter.mjs`, `system/lib/vault.mjs`, `system/lib/check.mjs`, `system/lib/generate.mjs`, `system/lib/fingerprint.mjs`, `system/lib/secrets.mjs`, `system/lib/commands/{start,check,new,sector,sync}.mjs`, `system/VERSION`, (+) `system/lib/util.mjs`; from 0.1.1 `system/api.mjs` (public JS API), `system/lib/{fsafe,startview,kit,upgrade,migrations,schema,doctor,mcp,clients,jsonc}.mjs`, `system/lib/commands/{doctor,upgrade,connect,mcp}.mjs`, from 0.1.3 `system/lib/activity.mjs`,
-`system/lib/updates.mjs` and `system/lib/commands/activity.mjs`, `system/schema/*.schema.json`, `system/migrations/index.mjs`, `system/tools/release.mjs`, `system/kit.json`, `system/kit-history.json` |
+`system/lib/updates.mjs` and `system/lib/commands/activity.mjs`, from 0.1.5 `system/lib/graph.mjs`,
+`system/lib/commands/graph.mjs` and `system/templates/graph/*`, `system/schema/*.schema.json`, `system/migrations/index.mjs`, `system/tools/release.mjs`, `system/kit.json`, `system/kit-history.json` |
 | search | `system/lib/text.mjs`, `system/lib/search.mjs`, `system/lib/commands/search.mjs`, `system/lang/cs/stemmer.mjs`, `system/lang/cs/base-stemmer.mjs`, `system/lang/en/stemmer.mjs`, `system/lang/en/base-stemmer.mjs` (or a shared `system/lang/snowball-base.mjs`), `system/lang/LICENSE-snowball.txt` |
 | packs | `system/lang/{en,cs}/pack.json`, `system/templates/{en,cs}/*.md` (as `system/templates/{en,cs}/notes/*.md` and (+) `system/templates/{en,cs}/kit/*`), `system/init.mjs`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.agents/skills/memory/SKILL.md`, `.claude/agents/memory-searcher.md`, `.claude/settings.json`, `.githooks/pre-commit`, `.gitignore`, `.gitattributes`, `memory.json`, `home.md`, `state.md`, `waiting.md`, `sectors/core/_core.md`, `inbox/.gitkeep`, `journal/.gitkeep`, `archive/.gitkeep`, `attachments/.gitkeep` |
 | tests | `system/tests/**` (incl. `golden.json`, fixtures, helpers), `system/lib/eval.mjs`, `system/lib/commands/eval.mjs`, `.github/workflows/ci.yml` |
