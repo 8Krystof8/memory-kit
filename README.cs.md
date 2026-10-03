@@ -75,8 +75,9 @@ ručně:
    GitHubu, aplikaci pro git nebo tak, že to řekneš agentovi ([docs/phone.md](docs/phone.md), anglicky).
 
 **Nastavení v cloudové session** (Claude Code na webu, Codex v cloudu): zvol režim `github` bez
-lokálních sektorů. Cloudový kontejner s koncem session zmizí, soukromá složka by se ztratila, a proto
-ji `init` odmítne. Lokální sektory přidej později na svém počítači.
+lokálních sektorů. Cloudový kontejner s koncem session zmizí a soukromá složka by se ztratila. `init`
+ji odmítne jen tam, kde to pozná (Claude Code na webu, GitHub Codespaces, Gitpod); Codex v cloudu
+nepozná, tam je volba na tobě. Lokální sektory přidej později na svém počítači.
 
 **Bez GitHubu:** na stránce kitu zvol Code → Download ZIP. Rozbal ho, otevři složku v lokálním
 agentovi, řekni „nastav paměť“ a zvol režim `local`. Podrobnosti jsou v [docs/modes.md](docs/modes.md).
@@ -154,7 +155,7 @@ nemusí dodržet.
 | | Claude Code | Codex | Gemini CLI | Cursor | aplikace přes MCP |
 |---|---|---|---|---|---|
 | pravidla a postup hledání | `CLAUDE.md` → `AGENTS.md` | `AGENTS.md` | `GEMINI.md` → `AGENTS.md` | `AGENTS.md` | `memory_start` |
-| start paměti na začátku relace | hook (změřeno) | agent spustí `start` (bez záruky); v projektech s kódem hook | agent spustí `start` (bez záruky), nebo [volitelný hook](docs/integrations/gemini-cli.md) | agent spustí `start` (bez záruky) | agent zavolá `memory_start` (bez záruky) |
+| start paměti na začátku relace | hook (změřeno) | agent spustí `start` (bez záruky), nebo [volitelný hook](docs/integrations/codex.md#optional-load-the-start-file-with-a-hook); v projektech s kódem hook | agent spustí `start` (bez záruky), nebo [volitelný hook](docs/integrations/gemini-cli.md) | agent spustí `start` (bez záruky) | agent zavolá `memory_start` (bez záruky) |
 | tvůj řádek na začátku relace (změřeno) | ano | ne: Codex zprávy hooků neukazuje; chyby a novou verzi ti předá agent | ne | ne | ne |
 | řádek 📎 pod odpověďmi (bez záruky) | pravidlo 11 | pravidlo 11 | pravidlo 11 | pravidlo 11 | instrukce serveru |
 | záznam aktivity (změřeno) | ano | ano | ano | ano, jako „CLI“ | ano, se jménem aplikace |
@@ -404,12 +405,14 @@ Kit aktualizuje jeden příkaz:
 
 ```sh
 node system/memory.mjs upgrade
-node system/memory.mjs upgrade --yes
 ```
 
-První příkaz stáhne nejnovější kit a vypíše, co by se změnilo. Zatím se nic nemění. Druhý změny
-provede. Pak commitni dvěma příkazy, které `upgrade` vypíše (`git add -A` a potom
-`git commit -m "…"`). V české paměti funguje i `aktualizuj` a `--ano`.
+Stáhne nejnovější kit, ukáže, co by se změnilo a co je nového, a než cokoli změní, zeptá se. Kde
+se zeptat nemůže (AI agent, skript nebo paměť ještě na verzi 0.1.1), plán jen vypíše a nic
+nezmění; provede ho až `node system/memory.mjs upgrade --yes`. Pak spusť tři příkazy, které
+`upgrade` vypíše: `node system/memory.mjs doctor` (ukáže, co zbývá na tobě, třeba odkaz, který
+přidá workflow s aktualizacemi), `git add -A` a `git commit -m "…"`. V české paměti funguje i
+`aktualizuj` a `--ano`.
 
 Co aktualizace slibuje:
 
@@ -451,7 +454,7 @@ zvláštní token nepotřebuješ: od verze 0.1.4 vypíše `node system/memory.mj
 Nové verze) odkaz, který otevře editor GitHubu s už vyplněným souborem, takže jen stiskneš Commit
 changes. Ručně: otevři repozitář své paměti, Add file → Create new file, pojmenuj ho
 `.github/workflows/memory-kit-updates.yml`, vlož [tento soubor](.github/workflows/memory-kit-updates.yml)
-a commitni. Odpovídat začne po aktualizaci na 0.1.3.
+a commitni. Odpovídat začne, až bude mít tvoje paměť verzi 0.1.3 nebo novější.
 
 ## Pro vývojáře
 
@@ -488,12 +491,14 @@ Podrobná dokumentace je anglicky:
 | jak funguje hledání, čeština, kontrolní otázky | [docs/search.md](docs/search.md) |
 | údržba, kontroly, rozpočty, řešení potíží, plán | [docs/maintenance.md](docs/maintenance.md) |
 | aktualizace kitu, zálohy, vrácení, vydávání verzí | [docs/upgrading.md](docs/upgrading.md) |
+| instalátory, průvodce nastavením, odinstalace | [docs/install.md](docs/install.md) |
 | paměť pro projekty s kódem: hooky, sektor dev, `remember` | [docs/projects.md](docs/projects.md) |
 | AI aplikace přes MCP: každá aplikace, její soubor s nastavením, řešení potíží | [docs/integrations/mcp.md](docs/integrations/mcp.md) |
 | Claude Code · Codex · Gemini CLI · Cursor · ChatGPT · aplikace Claude | [docs/integrations/](docs/integrations/) |
 | JavaScriptové API, výstup JSON a schémata, nástroje MCP | [docs/api.md](docs/api.md) |
 | technická smlouva implementace | [docs/architecture.md](docs/architecture.md) |
 | jak přispět, jak přidat jazyk | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| změny | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Stav
 
@@ -502,7 +507,9 @@ nastavení, adaptéry a CI. Verze 0.1.1 přidává `upgrade`, `doctor`, MCP serv
 JavaScriptové API, JSON schémata a podporu Windows a macOS. Verze 0.1.2 přidává paměť pro projekty
 s kódem: hooky pro Claude Code a Codex, sektor `dev` pro každý repozitář mimo kód a `remember`.
 Verze 0.1.3 ukazuje, že paměť funguje (řádek na začátku relace, `aktivita`), a dává vědět o nových
-verzích.
+verzích. Verze 0.1.4 ji zpevňuje: CI je zelené na Linuxu, macOS i Windows, jedna tabulka říká, co
+který AI nástroj dostane, a `doktor` pomůže starší paměti dohnat zbytek (odkaz, který na GitHubu
+přidá workflow s novými verzemi, a oprava start hooku z verze 0.1.2).
 
 Nové verze vycházejí každý víkend a v `main` jsou jen vydané verze: práce běží na `dev` a vydání je
 pull request, jehož CI je zelené na Linuxu, macOS i Windows. Co přijde dál, je v

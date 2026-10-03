@@ -515,6 +515,9 @@ describe('upgrading this kit to a newer one', { concurrency: 4 }, () => {
     const lines = ok.stdout.split('\n').map((l) => l.trim());
     assert.ok(lines.includes('git add -A'), ok.stdout);
     assert.ok(lines.includes(`git commit -m "memory-kit ${CUR} → ${NXT}"`), ok.stdout);
+    // doctor comes first (another kit ran the upgrade, so the vault's CLI by its path), then git.
+    const doctorAt = lines.findIndex((l) => /^node \S.*memory\.mjs"? doctor$/.test(l));
+    assert.ok(doctorAt > lines.indexOf('next steps:') && doctorAt < lines.indexOf('git add -A'), ok.stdout);
     assert.ok(!ok.stdout.includes('&&'));
     const exclude = fs.readFileSync(path.join(v.root, '.git', 'info', 'exclude'), 'utf8');
     assert.ok(exclude.split('\n').includes('.memory-kit/'), exclude);

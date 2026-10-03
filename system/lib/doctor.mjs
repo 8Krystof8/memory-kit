@@ -130,7 +130,7 @@ export const DEFAULTS = Object.freeze({
   'doctor.updates.newer_fix': 'node system/memory.mjs upgrade (it shows what is new and asks before it changes anything)',
   'doctor.updates.current': 'memory-kit {version} is the newest known (checked {when}); new versions: {channels}',
   'doctor.updates.unchecked': 'memory-kit {version}, not checked for a newer one yet (node system/memory.mjs upgrade --check); new versions: {channels}',
-  'doctor.updates.workflow_fix': 'add the workflow with one click: this link opens GitHub with .github/workflows/memory-kit-updates.yml filled in, then press Commit changes (or turn the issue off: "updates": {"github": false} in memory.json): {url}',
+  'doctor.updates.workflow_fix': 'add the workflow with one click: this link opens GitHub with .github/workflows/memory-kit-updates.yml filled in (if a click opens nothing or a shorter file, copy the whole link into the browser; the file ends with the line fi), then press Commit changes (or turn the issue off: "updates": {"github": false} in memory.json): {url}',
   'doctor.updates.workflow_copy_fix': 'on github.com, in your memory\'s repository: Add file → Create new file, name it .github/workflows/memory-kit-updates.yml, paste the file from {url} and press Commit changes (or turn the issue off: "updates": {"github": false} in memory.json)',
   'doctor.updates.workflow_plain_fix': 'on github.com, in your memory\'s repository: Add file → Create new file, name it .github/workflows/memory-kit-updates.yml and paste the file of the same name from the kit (or turn the issue off: "updates": {"github": false} in memory.json)',
   'doctor.lock.found': 'the upgrade {from} → {to} (started {started}) did not finish; upgrade refuses to run until it is undone',
@@ -890,7 +890,8 @@ export function withHookFormat(text) {
 function lineOf(text, needle) {
   const lines = text.split(/\r?\n/);
   let i = needle ? lines.findIndex((l) => l.includes(needle)) : -1;
-  if (i === -1) i = lines.findIndex((l) => /system[\\/]memory\.mjs/.test(l));
+  // The raw JSON text: a separator may be written /, \/ or \\ there.
+  if (i === -1) i = lines.findIndex((l) => /system(?:\\?\/|\\\\?)memory\.mjs/.test(l));
   return i + 1;
 }
 
@@ -950,7 +951,8 @@ function oldStartHook(c, text, settings) {
   const byHand = say(c.t, exec ? 'doctor.adapters.format_args_fix' : 'doctor.adapters.format_line_fix', vars);
   let link = false;
   try {
-    link = fs.lstatSync(inVault(c, CLAUDE_SETTINGS_REL)).isSymbolicLink();
+    const file = inVault(c, CLAUDE_SETTINGS_REL);
+    link = fs.lstatSync(file).isSymbolicLink() || !insidePath(realpathLoose(c.root), fs.realpathSync.native(file));
   } catch {
     link = true;
   }

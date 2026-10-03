@@ -276,8 +276,9 @@ function printResult(out, cfg, plan, result, hints) {
     out.line(t('upgrade.verify_skipped'));
   }
   if (result.proposed.length) out.line(t('upgrade.proposed_next', { dir: plan.proposedDir }));
+  out.line(t('upgrade.next'));
+  out.line(`  ${hints.doctorAfter()}`);
   if (plan.git.repo) {
-    out.line(t('upgrade.next'));
     out.line('  git add -A');
     out.line(`  git commit -m "memory-kit ${plan.from} → ${plan.to}"`);
   }
@@ -562,6 +563,8 @@ export async function run(argv, cfg, ctx = {}) {
       parts.push('--yes');
       return parts.join(' ');
     },
+    // doctor of the new kit finds what an upgrade leaves to the owner (0.1.4: the update workflow, the old start hook).
+    doctorAfter: () => `${vaultCli ? 'node system/memory.mjs' : `node ${quote(path.join(root, 'system', 'memory.mjs'))}`} doctor`,
     rollback: (id) => {
       const cli = vaultCli ? 'node system/memory.mjs' : `node ${quote(path.join(root, 'system', 'memory.mjs'))}`;
       return `${cli} upgrade --rollback${id ? ` ${id}` : ''}`;
@@ -823,8 +826,9 @@ export function showResult(ui, cfg, plan, result, hints) {
   if (result.proposed.length) body.push(t('upgrade.proposed_next', { dir: plan.proposedDir }));
   ui.note(body, t('upgrade.ui.done_title', { to: plan.to }), { state: 'ok' });
   // Commands stay outside the box and unwrapped, so they can be copied whole.
+  ui.message(t('upgrade.next'));
+  ui.command(hints.doctorAfter());
   if (plan.git.repo) {
-    ui.message(t('upgrade.next'));
     ui.command('git add -A');
     ui.command(`git commit -m "memory-kit ${plan.from} → ${plan.to}"`);
   }

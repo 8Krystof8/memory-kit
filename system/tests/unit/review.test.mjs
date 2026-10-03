@@ -238,6 +238,23 @@ describe('init guards', () => {
     assert.ok(!/private folder/.test(ok.stdout), ok.stdout);
   });
 
+  test('in a cloud session the local-sector error does not suggest the refused --mode combined', () => {
+    const root = kit();
+    const args = ['--mode', 'github', '--lang', 'en', '--sectors', 'core,work,family', '--today', TODAY, '--dry-run'];
+    const res = runInit(root, args, { env: { CLAUDE_CODE_REMOTE: 'true' } });
+    assert.equal(res.code, 2);
+    assert.match(res.stderr, /family:github/);
+    assert.match(res.stderr, /cloud session \(CLAUDE_CODE_REMOTE=true\)/);
+    assert.ok(!/--mode combined/.test(res.stderr), res.stderr);
+    const cs = runInit(root, ['--mode', 'github', '--lang', 'cs', '--sectors', 'core,rodina', '--today', TODAY, '--dry-run'], { env: { CLAUDE_CODE_REMOTE: 'true' } });
+    assert.equal(cs.code, 2);
+    assert.match(cs.stderr, /rodina:github/);
+    assert.ok(!/--mode combined/.test(cs.stderr), cs.stderr);
+    const ephemeral = runInit(root, [...args, '--allow-ephemeral'], { env: { CLAUDE_CODE_REMOTE: 'true' } });
+    assert.equal(ephemeral.code, 2);
+    assert.match(ephemeral.stderr, /--mode combined/);
+  });
+
   test('mode local refuses a repository with a remote', { skip: !HAS_GIT && 'git is not installed' }, () => {
     const root = kit();
     const env = gitEnv();
@@ -255,6 +272,26 @@ describe('init guards', () => {
     assert.equal(res.code, 1);
     assert.match(res.stderr, /cloud session/);
     assert.equal(runInit(root, [...args, '--allow-ephemeral'], { env: { CLAUDE_CODE_REMOTE: 'true' } }).code, 0);
+  });
+
+  test('--questions prints six questions in text and JSON; a cloud session adds one line, nothing else', () => {
+    const root = kit();
+    const text = runInit(root, ['--questions']);
+    assert.equal(text.code, 0, text.stderr);
+    assert.match(text.stdout, /^Ask the user these questions/);
+    const ids = [...text.stdout.matchAll(/^\d\. (\w+) \[/gm)].map((m) => m[1]);
+    assert.deepEqual(ids, ['mode', 'lang', 'sectors', 'private_root', 'agents', 'cleanup']);
+    assert.match(text.stdout, /^   cs: /m);
+    assert.doesNotMatch(text.stdout, /cloud session/);
+    const json = JSON.parse(runInit(root, ['--questions', '--json']).stdout);
+    assert.equal(json.initialized, false);
+    assert.deepEqual(json.questions.map((q) => q.id), ids);
+    for (const q of json.questions) assert.ok(q.text.en && q.text.cs, q.id);
+    const cloud = runInit(root, ['--questions'], { env: { CLAUDE_CODE_REMOTE: 'true' } });
+    assert.equal(cloud.code, 0, cloud.stderr);
+    const lines = cloud.stdout.split('\n');
+    assert.match(lines[3], /^This looks like a cloud session \(CLAUDE_CODE_REMOTE=true\): offer only mode github/);
+    assert.equal([...lines.slice(0, 3), ...lines.slice(5)].join('\n'), text.stdout, 'only the line and its blank line differ');
   });
 
   test('an absolute private root under the home folder is stored as ~/…', () => {

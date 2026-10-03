@@ -2,6 +2,10 @@ name: Idea or feature request
 description: Something memory-kit should do, or do better.
 labels: [enhancement]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is public: never paste your own notes, note names, keys or private paths; a made-up example is enough.
   - type: textarea
     id: problem
     attributes:

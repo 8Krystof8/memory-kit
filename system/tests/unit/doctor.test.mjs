@@ -390,7 +390,8 @@ describe('config', { skip: NO_GIT }, () => {
     assert.match(human.stdout, /^✗ config\.memory_json +memory\.json is not valid JSON/m);
     assert.match(human.stdout, /^ +fix: git diff memory\.json/m);
     assert.match(human.stdout, /^· generated\.fresh +not checked/m);
-    assert.match(human.stdout, /^\d+ ok · 0 warn · 1 fail$/m);
+    // Node.js before 22.13 has no node:sqlite with FTS5: node.fts5 is then the one warning.
+    assert.match(human.stdout, new RegExp(`^\\d+ ok · ${HAS_FTS5 ? 0 : 1} warn · 1 fail$`, 'm'));
   });
 
   test('a missing memory.json and one that is not an object', async () => {
@@ -602,7 +603,7 @@ describe('new versions (kit.updates)', { skip: NO_GIT }, () => {
     let ch = (await doctorOf(v.root)).byId['kit.updates'];
     assert.equal(ch.status, 'warn');
     assert.match(ch.message, /; new versions: no issue on GitHub yet: the workflow is missing · no daily check/);
-    const prefix = 'add the workflow with one click: this link opens GitHub with .github/workflows/memory-kit-updates.yml filled in, then press Commit changes (or turn the issue off: "updates": {"github": false} in memory.json): ';
+    const prefix = 'add the workflow with one click: this link opens GitHub with .github/workflows/memory-kit-updates.yml filled in (if a click opens nothing or a shorter file, copy the whole link into the browser; the file ends with the line fi), then press Commit changes (or turn the issue off: "updates": {"github": false} in memory.json): ';
     assert.ok(ch.fix.startsWith(prefix), ch.fix);
     const link = new URL(ch.fix.slice(prefix.length));
     assert.equal(`${link.origin}${link.pathname}`, 'https://github.com/linden/memory/new/main');
@@ -809,7 +810,45 @@ describe('AGENTS.md and the agent files', { skip: NO_GIT }, () => {
     const exec = { hooks: { SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PROJECT_DIR}/system/memory.mjs', 'start'] }] }] } };
     writeJson(v.root, '.claude/settings.json', exec);
     d = await doctorOf(v.root, { io: { claudeVersion: () => '2.1.200' } });
-    assert.match(d.byId.adapters.fix, /^add "--format", "claude-hook" after "start" in the "args" of line \d+ of \.claude\/settings\.json$/);
+    assert.equal(d.byId.adapters.fix, 'add "--format", "claude-hook" after "start" in the "args" of line 11 of .claude/settings.json');
+
+    // The path written with other JSON escapes (\/ and \\) still names the real line, not line 0.
+    writeFile(v.root, '.claude/settings.json', old.replace('}/system/memory.mjs', '}\\/system\\/memory.mjs'));
+    d = await doctorOf(v.root);
+    assert.equal(d.byId.adapters.fix, `add --format claude-hook after start in line ${line} of .claude/settings.json`);
+    assert.deepEqual(d.repairs, [], 'withHookFormat refuses other escapes');
+    exec.hooks.SessionStart[0].hooks[0].args = ['C:\\vault\\system\\memory.mjs', 'start'];
+    writeJson(v.root, '.claude/settings.json', exec);
+    d = await doctorOf(v.root, { io: { claudeVersion: () => '2.1.200' } });
+    assert.equal(d.byId.adapters.fix, 'add "--format", "claude-hook" after "start" in the "args" of line 11 of .claude/settings.json');
+  });
+
+  test('adapters: doctor --fix changes no .claude/settings.json that a folder link puts outside the memory', { skip: !POSIX && 'symbolic links' }, async () => {
+    const v = clone('claudelink');
+    const old = readFile(v.root, '.claude/settings.json').replace(' start --format claude-hook"', ' start"');
+    const outside = path.join(path.dirname(v.root), 'dotfiles', 'claude');
+    fs.mkdirSync(path.dirname(outside));
+    fs.renameSync(path.join(v.root, '.claude'), outside);
+    fs.writeFileSync(path.join(outside, 'settings.json'), old);
+    fs.symlinkSync(outside, path.join(v.root, '.claude'));
+    let d = await doctorOf(v.root);
+    assert.equal(d.byId.adapters.status, 'warn');
+    assert.match(d.byId.adapters.fix, /^add --format claude-hook after start in line \d+ of \.claude\/settings\.json$/);
+    assert.deepEqual(d.repairs, []);
+    const refused = applyRepairs(v.root, ['claude_hook']);
+    assert.equal(refused[0].ok, false);
+    assert.match(refused[0].detail, /^doctor --fix changes \.claude\/settings\.json only when/);
+    assert.equal(fs.readFileSync(path.join(outside, 'settings.json'), 'utf8'), old, 'the file outside keeps its bytes');
+    assert.ok(!fs.existsSync(path.join(v.root, '.memory-kit', 'backups', 'doctor')), 'and no backup is made');
+
+    // A folder link that stays inside the memory is repaired as before.
+    fs.rmSync(path.join(v.root, '.claude'));
+    fs.renameSync(outside, path.join(v.root, 'config'));
+    fs.symlinkSync('config', path.join(v.root, '.claude'));
+    d = await doctorOf(v.root);
+    assert.deepEqual(d.repairs, ['claude_hook']);
+    assert.equal(applyRepairs(v.root, d.repairs)[0].ok, true);
+    assert.equal(readFile(v.root, 'config/settings.json'), old.replace(' start"', ' start --format claude-hook"'));
   });
 
   test('IO.gitBash finds Git Bash the way Claude Code does on Windows', () => {

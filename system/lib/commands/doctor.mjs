@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CLAUDE_SETTINGS_REL, HOOK_REL, diagnose, formatReport, hookFile, say, withHookFormat } from '../doctor.mjs';
 import { writeAtomic } from '../fsafe.mjs';
-import { git, interpolate, parseCli, usageError } from '../util.mjs';
+import { git, insidePath, interpolate, parseCli, realpathLoose, usageError } from '../util.mjs';
 
 export const usage = 'doctor [--json] [--fix] [--probe]';
 
@@ -144,15 +144,16 @@ function repairHookFile(root, { t, now }) {
 
 /**
  * Adds --format claude-hook to the start hooks of .claude/settings.json that have no --format
- * (withHookFormat: only inside those JSON strings). A symbolic link, bytes that are not UTF-8, or
- * a file withHookFormat cannot change that way are left alone (an error). The old file is copied
+ * (withHookFormat: only inside those JSON strings). A symbolic link, a file whose real path is
+ * outside the vault (a linked .claude folder), bytes that are not UTF-8, or a file withHookFormat
+ * cannot change that way are left alone (an error). The old file is copied
  * to .memory-kit/backups/doctor/ first and keeps its mode. Returns the backup's path or null.
  */
 function repairClaudeHook(root, { t, now }) {
   const file = path.join(root, ...CLAUDE_SETTINGS_REL.split('/'));
   const refuse = () => new Error(say(t, 'doctor.fix_by_hand', { file: CLAUDE_SETTINGS_REL }));
   const st = fs.lstatSync(file);
-  if (!st.isFile()) throw refuse();
+  if (!st.isFile() || !insidePath(realpathLoose(root), fs.realpathSync.native(file))) throw refuse();
   const bytes = fs.readFileSync(file);
   const before = bytes.toString('utf8');
   if (!Buffer.from(before, 'utf8').equals(bytes)) throw refuse();

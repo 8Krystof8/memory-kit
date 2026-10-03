@@ -74,9 +74,10 @@ vault's absolute path in the command, for example
 `node /Users/you/my-memory/system/memory.mjs start` (on Windows with forward slashes, such as
 `node C:/Users/you/my-memory/system/memory.mjs start`).
 
-`start --format` has three values: `text` (the default, for Codex and Claude Code), `gemini-hook`
-(one line of JSON for hooks that read `hookSpecificOutput`) and `json` (`{text, stale, initialized,
-failed}` for programs).
+`start --format` has four values: `text` (the default, for Codex), `claude-hook` (the vault's
+Claude Code hook: the start file for the agent and one line for you), `gemini-hook` (one line of
+JSON for hooks that read `hookSpecificOutput`) and `json` (`{text, stale, initialized, failed}` for
+programs).
 
 ## Codex cloud
 

@@ -13,6 +13,7 @@ import {
   UPDATES_REL, UpdateCheckError, WORKFLOW_COPY_REL, WORKFLOW_REL, channelList, checkDue, checkInBackground, githubRepo, issueText,
   latestAt, latestFromTags, readUpdates, releasesOf, updateLine, updateSettings, updateStatus, workflowLinkOf, writeUpdates,
 } from '../../lib/updates.mjs';
+import { hashText, loadManifest } from '../../lib/kit.mjs';
 import { KIT_ROOT, bareRoot, removeTmpDirs, tmpDir } from '../helpers.mjs';
 
 after(removeTmpDirs);
@@ -187,18 +188,56 @@ describe('the workflow of the issue in an older memory', { skip: !HAS_GIT && 'gi
       assert.equal(url.searchParams.get('filename'), WORKFLOW_REL);
       assert.equal(url.searchParams.get('value'), text);
     }
-    // The current branch, also one with a slash; GitHub refuses links of 9 KB (414).
+    // Without origin/HEAD or origin/main: the current branch, also one with a slash; GitHub refuses links of 9 KB (414).
     const link = workflowLinkOf(onGitHub('https://github.com/linden/memory.git', { branch: 'notes/main' }));
     assert.ok(link.startsWith('https://github.com/linden/memory/new/notes/main?filename=.github/workflows/memory-kit-updates.yml&value='), link.slice(0, 120));
     assert.ok(link.length < 8000, String(link.length));
+    // Only characters every terminal takes into a link: a raw ' ( ) * ! would cut it short.
+    assert.match(link, /^https:\/\/[A-Za-z0-9%/?=&:._~-]+$/);
+    // GitHub runs a scheduled workflow only from the default branch: origin/HEAD when a clone set it,
+    // else main when origin has one (a cloud session on a branch of its own), never the current branch.
+    const branched = onGitHub('https://github.com/linden/memory.git', { branch: 'diary/plans' });
+    gitIn(branched, ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', 't']);
+    for (const name of ['main', 'trunk']) gitIn(branched, ['update-ref', `refs/remotes/origin/${name}`, 'HEAD']);
+    const pathOf = (root) => new URL(workflowLinkOf(root)).pathname;
+    assert.equal(pathOf(branched), '/linden/memory/new/main');
+    gitIn(branched, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk']);
+    assert.equal(pathOf(branched), '/linden/memory/new/trunk');
     // No link: an origin elsewhere, none at all, no copy of the workflow, or a copy too long for a link.
     assert.equal(workflowLinkOf(onGitHub('https://example.org/linden/memory.git')), null);
     assert.equal(workflowLinkOf(onGitHub(null)), null);
     const root = onGitHub('https://github.com/linden/memory.git');
     const code = tmpDir('workflow-copy');
     assert.equal(workflowLinkOf(root, { codeRoot: code }), null);
-    fs.mkdirSync(path.dirname(path.join(code, ...WORKFLOW_COPY_REL.split('/'))), { recursive: true });
-    fs.writeFileSync(path.join(code, ...WORKFLOW_COPY_REL.split('/')), `${text}${'# ...\n'.repeat(600)}`);
+    const long = `${text}${'# ...\n'.repeat(600)}`;
+    writeCopy(code, long, hashText(long));
+    assert.equal(workflowLinkOf(root, { codeRoot: code }), null);
+  });
+
+  /** A kit at code with this copy of the workflow and this sha256 for it in kit.json. */
+  function writeCopy(code, text, sha256) {
+    const copy = path.join(code, ...WORKFLOW_COPY_REL.split('/'));
+    fs.mkdirSync(path.dirname(copy), { recursive: true });
+    fs.writeFileSync(copy, text);
+    fs.writeFileSync(path.join(code, 'system', 'kit.json'), `${JSON.stringify({ files: sha256 ? { [WORKFLOW_COPY_REL]: { sha256, group: 'code' } } : {} })}\n`);
+  }
+
+  test('the link carries only the copy the kit shipped: one changed here, or without its hash in kit.json, gets none', () => {
+    const text = fs.readFileSync(path.join(KIT_ROOT, ...WORKFLOW_COPY_REL.split('/')), 'utf8');
+    const shipped = loadManifest(KIT_ROOT).files[WORKFLOW_COPY_REL].sha256;
+    assert.equal(hashText(text), shipped, 'kit.json holds the hash of the copy');
+    const root = onGitHub('https://github.com/linden/memory.git');
+    const code = tmpDir('workflow-shipped');
+    writeCopy(code, text, shipped);
+    assert.equal(new URL(workflowLinkOf(root, { codeRoot: code })).searchParams.get('value'), text);
+    // CRLF, as a Windows checkout may have it, is the same file.
+    writeCopy(code, text.replace(/\n/g, '\r\n'), shipped);
+    assert.ok(workflowLinkOf(root, { codeRoot: code }));
+    writeCopy(code, `${text}      - run: echo planted\n`, shipped);
+    assert.equal(workflowLinkOf(root, { codeRoot: code }), null);
+    writeCopy(code, text, null);
+    assert.equal(workflowLinkOf(root, { codeRoot: code }), null);
+    fs.rmSync(path.join(code, 'system', 'kit.json'));
     assert.equal(workflowLinkOf(root, { codeRoot: code }), null);
   });
 });

@@ -39,10 +39,13 @@ Guards:
 - **local** refuses a repository that already has a git remote (for example one made with "Use this
   template"): mode local promises that nothing leaves the computer. Remove the remote
   (`git remote remove origin`) or choose github or combined. `sync` never pushes in mode local.
-- **Cloud sessions** (Claude Code on the web, Codex cloud, Codespaces): `init` refuses a private
-  folder or mode local there, because the container and everything in it disappears when the
-  session ends. Set up with mode github without local sectors, and add local sectors later on your
-  own computer (see "github → combined" below). `--allow-ephemeral` exists only for throwaway tests.
+- **Cloud sessions** (Claude Code on the web, Codex cloud, Codespaces): a private folder or mode
+  local there is lost, because the container and everything in it disappears when the session
+  ends. `init` refuses them where it can tell: Claude Code on the web (`CLAUDE_CODE_REMOTE=true`),
+  GitHub Codespaces (`CODESPACES=true`) and Gitpod (`GITPOD_WORKSPACE_ID`). It cannot recognise
+  Codex cloud, so there it is up to you. Set up with mode github without local sectors, and add
+  local sectors later on your own computer (see "github → combined" below). `--allow-ephemeral`
+  exists only for throwaway tests.
 
 Mode-specific steps:
 

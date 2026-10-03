@@ -271,6 +271,22 @@ describe('start (10.4)', () => {
     assert.ok(res.stdout.startsWith('Memory is not set up yet.'), res.stdout.slice(0, 120));
   });
 
+  test('not initialized: the setup hint waits for the user and points kit developers to CONTRIBUTING.md', () => {
+    const first = {
+      en: 'Memory is not set up yet. When the user asks to set it up, follow AGENTS.md, section Setup. Developing memory-kit itself? Skip the setup and follow CONTRIBUTING.md.',
+      cs: 'Paměť ještě není nastavená. Až tě uživatel požádá o nastavení, postupuj podle AGENTS.md, sekce Setup. Vyvíjíš samotný memory-kit? Nastavení přeskoč a řiď se CONTRIBUTING.md.',
+    };
+    for (const lang of ['en', 'cs']) {
+      const v = generatedVault(lang);
+      editJson(v.root, 'memory.json', (j) => {
+        j.initialized = false;
+      });
+      const res = runCli(v.root, ['start', '--today', TODAY]);
+      assert.equal(res.code, 0);
+      assert.equal(res.stdout.split('\n')[0], first[lang]);
+    }
+  });
+
   test('output always fits the hook budget and exits 0', () => {
     const res = runCli(fx.root, ['start']);
     assert.equal(res.code, 0);

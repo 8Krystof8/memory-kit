@@ -8,7 +8,7 @@ changes is in [CHANGELOG.md](CHANGELOG.md); how a memory gets it, in
 
 | weekend | version | theme |
 |---|---|---|
-| 10–11 October 2026 | 0.1.4 | Hardening: green CI everywhere, honest docs, updates that reach older memories |
+| 3–4 October 2026 | 0.1.4 | Hardening: green CI everywhere, honest docs, updates that reach older memories |
 | 17–18 October 2026 | 0.1.5 | Proof: a benchmark against Mem0 and the Claude Code auto memory |
 | 24–25 October 2026 | 0.2.0 | Writes: propose, validate, merge |
 | 31 October – 1 November 2026 | 0.2.1 | Several writers at once |

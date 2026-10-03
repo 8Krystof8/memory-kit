@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { localDay } from './activity.mjs';
 import { writeAtomic } from './fsafe.mjs';
 import { detectStyle, formatJson } from './jsonc.mjs';
-import { DEFAULT_SOURCE, compareVersions, loadManifest, parseVersion, readVersion } from './kit.mjs';
+import { DEFAULT_SOURCE, compareVersions, hashText, loadManifest, parseVersion, readVersion } from './kit.mjs';
 import { WORK_DIR, ensureWorkDirIgnored, interpolate } from './util.mjs';
 
 export const UPDATES_REL = '.memory-kit/updates.json';
@@ -318,22 +318,43 @@ export function workflowUrlOf(source) {
   return pages ? `${pages.page.replace(/\/releases$/, '')}/blob/main/${WORKFLOW_REL}` : null;
 }
 
+// encodeURIComponent, and also ! ' ( ) *, which it leaves raw: a terminal ends a link at them.
+const percentEncode = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+
+const ORIGIN_REFS = 'refs/remotes/origin/';
+
+/**
+ * The repository's default branch as git knows it offline, which is the only branch GitHub runs a
+ * scheduled workflow from: origin/HEAD (a clone sets it), else main when origin has one (a cloud
+ * session works on a branch of its own and has no origin/HEAD), else the current branch, else main.
+ */
+function defaultBranchOf(root) {
+  const head = gitLocal(root, ['symbolic-ref', '--quiet', `${ORIGIN_REFS}HEAD`]);
+  if (head.startsWith(ORIGIN_REFS) && head.length > ORIGIN_REFS.length) return head.slice(ORIGIN_REFS.length);
+  if (gitLocal(root, ['rev-parse', '--verify', '--quiet', `${ORIGIN_REFS}main`])) return 'main';
+  return gitLocal(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']) || 'main';
+}
+
 /**
  * A link that opens GitHub's editor for a new file in the vault's own repository, with the path and
  * the text of the update workflow filled in (…/new/<branch>?filename=…&value=…): the owner adds it
  * with "Commit changes", which needs no token with the `workflow` scope. The text is the running
- * kit's copy (WORKFLOW_COPY_REL); the branch is the vault's current one, else main. null when the
- * vault's origin is not on GitHub, the copy is missing, or the link would be longer than GitHub
- * takes. Reads git's config and one file; nothing goes online. Never throws.
+ * kit's copy (WORKFLOW_COPY_REL), only while it matches its sha256 in kit.json, percent-encoded
+ * with ! ' ( ) * included; the branch is the one GitHub runs a nightly workflow from
+ * (defaultBranchOf). null when the vault's origin is not on GitHub, the copy is missing or changed
+ * here, or the link would be longer than GitHub takes. Reads git's config, the copy and kit.json;
+ * nothing goes online. Never throws.
  */
 export function workflowLinkOf(root, { codeRoot = CODE_ROOT } = {}) {
   try {
     const repo = githubRepo(gitLocal(root, ['config', '--get', 'remote.origin.url']));
     if (!repo) return null;
     const text = fs.readFileSync(path.join(codeRoot, ...WORKFLOW_COPY_REL.split('/')), 'utf8');
-    const branch = gitLocal(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']) || 'main';
-    const where = branch.split('/').map(encodeURIComponent).join('/');
-    const url = `https://github.com/${repo.owner}/${repo.repo}/new/${where}?filename=${WORKFLOW_REL}&value=${encodeURIComponent(text)}`;
+    // Only the copy the kit shipped: one changed here (kit.integrity warns of it) gets no link.
+    if (hashText(text) !== loadManifest(codeRoot)?.files?.[WORKFLOW_COPY_REL]?.sha256) return null;
+    const branch = defaultBranchOf(root);
+    const where = branch.split('/').map(percentEncode).join('/');
+    const url = `https://github.com/${repo.owner}/${repo.repo}/new/${where}?filename=${WORKFLOW_REL}&value=${percentEncode(text)}`;
     return url.length <= MAX_LINK_LENGTH ? url : null;
   } catch {
     return null;
