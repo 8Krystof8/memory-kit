@@ -66,8 +66,8 @@ slashes, such as `node C:/Users/you/my-memory/system/memory.mjs start --format g
 build the path from `$GEMINI_PROJECT_DIR`: Gemini CLI inserts that value in quotes, and the quoting
 differs between bash and PowerShell.
 
-`start --format` has three values: `text` (the default), `gemini-hook` (this hook) and `json`
-(`{text, stale, initialized, failed}` for programs).
+`start --format` has four values: `text` (the default), `claude-hook` (the vault's Claude Code
+hook), `gemini-hook` (this hook) and `json` (`{text, stale, initialized, failed}` for programs).
 
 ## MCP: the memory in every project
 

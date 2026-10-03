@@ -23,7 +23,7 @@ memory: `node system/memory.mjs upgrade` (it shows the plan first and keeps a ba
 | promise | checked by |
 |---|---|
 | it never goes online by itself: git reaches a remote only in `sync`, `upgrade` and the update check | [`system/tests/unit/network.test.mjs`](system/tests/unit/network.test.mjs), on every CI run |
-| keys and passwords never enter a note | `check` (rule `SECRET`) in the pre-commit hook and in CI; the MCP inbox refuses them |
+| common key formats and password assignments are refused (not every secret: keys and passwords belong in a password manager) | `check` (rule `SECRET`) in the pre-commit hook and in CI; the MCP inbox refuses text that looks like a secret |
 | notes of a local sector never reach git | `check` (rule `LOCAL_IN_GIT`), [docs/privacy.md](docs/privacy.md) |
 | `.memory-kit/` (logs, backups) is never committed | `.gitignore`, `.git/info/exclude` in older clones, `doctor` (`git.repo`) |
 | an upgrade never overwrites your notes and can be undone | [docs/upgrading.md](docs/upgrading.md) and the upgrade tests |

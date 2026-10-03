@@ -73,7 +73,7 @@ export const CODE_DEFAULTS = Object.freeze({
   'start.now': 'Now (from {file})',
   'start.counts': 'Waiting for you: {waiting} ({file}) · Inbox: {inbox} · kit {version}',
   'start.stale': '(_ai/ is stale: this view was rendered on the fly; the next commit regenerates it)',
-  'start.not_initialized': 'Memory is not set up yet. Follow AGENTS.md, section Setup: ask the user, then run node system/init.mjs.',
+  'start.not_initialized': 'Memory is not set up yet. When the user asks to set it up, follow AGENTS.md, section Setup. Developing memory-kit itself? Skip the setup and follow CONTRIBUTING.md.',
   'start.value_hidden': '(value hidden)',
   'start.alerts_more': '… +{n} more: node system/memory.mjs check',
   'start.sleeping_list': 'Sleeping ({n}): {ids}',

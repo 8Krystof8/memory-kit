@@ -76,7 +76,9 @@ and asks the setup questions. To pass the answers instead, see the options at th
 
 **Setting up in a cloud session** (Claude Code on the web, Codex cloud): choose mode `github`
 without local sectors. A cloud container disappears when the session ends, so a private folder
-there would be lost; `init` refuses it. Add local sectors later on your own computer.
+there would be lost. `init` refuses it only where it can tell (Claude Code on the web, GitHub
+Codespaces, Gitpod); it cannot recognise Codex cloud, so there the choice is up to you. Add local
+sectors later on your own computer.
 
 **Without GitHub:** on the kit's page choose Code → Download ZIP. Unzip it, open the folder in a local
 agent, say "set up memory" and choose mode `local`. See [docs/modes.md](docs/modes.md).
@@ -132,7 +134,7 @@ agent may follow or skip.
 | | Claude Code | Codex | Gemini CLI | Cursor | apps over MCP |
 |---|---|---|---|---|---|
 | the rules and the search protocol | `CLAUDE.md` → `AGENTS.md` | `AGENTS.md` | `GEMINI.md` → `AGENTS.md` | `AGENTS.md` | `memory_start` |
-| the start view at a session start | a hook (measured) | the agent runs `start` (best-effort); a hook in code projects | the agent runs `start` (best-effort), or an [optional hook](docs/integrations/gemini-cli.md) | the agent runs `start` (best-effort) | the agent calls `memory_start` (best-effort) |
+| the start view at a session start | a hook (measured) | the agent runs `start` (best-effort), or an [optional hook](docs/integrations/codex.md#optional-load-the-start-file-with-a-hook); a hook in code projects | the agent runs `start` (best-effort), or an [optional hook](docs/integrations/gemini-cli.md) | the agent runs `start` (best-effort) | the agent calls `memory_start` (best-effort) |
 | your line at a session start (measured) | yes | no: Codex shows no hook messages; failures and a newer version reach you through the agent | no | no | no |
 | the 📎 line under answers (best-effort) | rule 11 | rule 11 | rule 11 | rule 11 | the server's instructions |
 | the activity log (measured) | yes | yes | yes | yes, as "CLI" | yes, with the app's name |
@@ -397,12 +399,13 @@ One command updates the kit:
 
 ```sh
 node system/memory.mjs upgrade
-node system/memory.mjs upgrade --yes
 ```
 
-The first command downloads the newest kit and prints what would change. Nothing changes yet. The
-second applies it. Then commit with the two commands `upgrade` prints (`git add -A`, then
-`git commit -m "…"`).
+It downloads the newest kit, shows what would change and what is new, and asks before it changes
+anything. Where it cannot ask (an AI agent, a script, or a memory still on 0.1.1) it only prints
+the plan and changes nothing; `node system/memory.mjs upgrade --yes` then applies it. Then run the
+three commands `upgrade` prints: `node system/memory.mjs doctor` (it shows what is left to you, such
+as the link that adds the update workflow), `git add -A` and `git commit -m "…"`.
 
 What it promises:
 
@@ -444,7 +447,7 @@ such token: from 0.1.4 on, `node system/memory.mjs doctor` (and `setup` → New 
 link that opens GitHub's editor with the file already filled in, so you only press Commit changes.
 By hand: open your memory's repository, Add file → Create new file, name it
 `.github/workflows/memory-kit-updates.yml`, paste [this file](.github/workflows/memory-kit-updates.yml)
-and commit. It answers after the upgrade to 0.1.3.
+and commit. It answers once your memory has 0.1.3 or newer.
 
 ## For developers
 
@@ -519,7 +522,9 @@ setup, adapters and CI. Version 0.1.1 adds `upgrade`, `doctor`, the MCP server w
 JavaScript API, JSON schemas and support for Windows and macOS. Version 0.1.2 adds memory for code
 projects: hooks for Claude Code and Codex, a `dev` sector per repository outside the code, and
 `remember`. Version 0.1.3 shows that the memory works (the line at the session start, `activity`)
-and tells you of new versions.
+and tells you of new versions. Version 0.1.4 hardens it: CI is green on Linux, macOS and Windows,
+one table says what each AI tool gets, and `doctor` helps an older memory catch up (a link that
+adds the update workflow on GitHub, and a fix for the start hook of 0.1.2).
 
 New versions come every weekend, and `main` only ever holds released versions: the work happens on
 `dev`, and a release is a pull request whose CI is green on Linux, macOS and Windows. What comes

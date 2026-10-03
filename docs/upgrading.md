@@ -113,10 +113,14 @@ upgraded 0.1.1 → 0.1.2 · backup 20260924-162948-0.1.1-to-0.1.2
 verified with the vault's own commands: check, start and search work
 golden questions: hit@3 1.00 before, 1.00 after
 next steps:
+  node system/memory.mjs doctor
   git add -A
   git commit -m "memory-kit 0.1.1 → 0.1.2"
 to undo it: node system/memory.mjs upgrade --rollback 20260924-162948-0.1.1-to-0.1.2
 ```
+
+`doctor` shows what an upgrade leaves to you, such as the link that adds the update workflow to a
+memory made before 0.1.3; what it changes with `--fix` goes into the same commit.
 
 When your vault already has the newest version, `upgrade` says
 `memory-kit 0.1.1 is up to date (the source has 0.1.1).` and exits 0. The same number is not
@@ -218,7 +222,7 @@ Every kit file belongs to one group. The group decides what happens to it.
 | docs | `docs/**` | replaced | kept; the new version goes to `.memory-kit/upgrade/<version>/proposed/` | added, but only when your vault has a `docs/` folder |
 | config | `.githooks/pre-commit`, `.github/workflows/ci.yml`, `.claude/settings.json`, `.agents/skills/memory/SKILL.md`, `.claude/skills/memory/SKILL.md`, `.claude/agents/memory-searcher.md`, `.gitattributes`, `GEMINI.md`, `install.sh`, `install.ps1` | replaced | kept; the new version goes to `.memory-kit/upgrade/<version>/proposed/` | skipped and reported; the pre-commit hook is always installed |
 | block | `AGENTS.md`, from the line with `<!-- kit:start` to the line with `<!-- kit:end -->` | replaced by the kit section of the new kit, in your vault's language | replaced as well: the kit section belongs to the kit | missing or doubled markers, or a file saved as UTF-16: skipped and reported |
-| never | `README*`, `LICENSE`, `CHANGELOG.md`, `CONTRIBUTING.md`, `CLAUDE.md`, `memory.json`, `.gitignore`, all notes and hubs, the home page, `_ai/`, `.ignore`, `system/cleanup/`, `system/usage/`, golden files | untouched | untouched | untouched |
+| never | `README*`, `LICENSE`, `CHANGELOG.md`, `CONTRIBUTING.md`, `ROADMAP.md`, `SECURITY.md`, `CLAUDE.md`, `memory.json`, `.gitignore`, `.github/workflows/memory-kit-updates.yml`, `.github/workflows/release.yml`, `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md`, all notes and hubs, the home page, `_ai/`, `.ignore`, `system/cleanup/`, `system/usage/`, golden files | untouched | untouched | untouched |
 
 Your text in `AGENTS.md` before `<!-- kit:start` and after `<!-- kit:end -->` stays byte for
 byte, also in a file that is not UTF-8 (a Windows code page, for example); the new kit section is
@@ -566,9 +570,14 @@ The checklist, in this order:
    node system/memory.mjs check --strict
    ```
 
-7. **Tag.** Commit, then tag the commit `v<version>` (for example `v0.1.2`) and push the tag, so
-   `upgrade --ref v0.1.2` can fetch exactly this release.
-8. **Try it.** Upgrade a copy of a vault made from the previous version, with `--from` pointing at
+7. **Try it.** Upgrade a copy of a vault made from the previous version, with `--from` pointing at
    the new kit, and check that `doctor` reports no failure afterwards.
+8. **Release.** Commit to `dev`, open the pull request from `dev` to `main` and merge it once CI
+   is green on Linux, macOS and Windows. The push to `main` runs `.github/workflows/release.yml`:
+   it tags the merge commit `v<version>` (for example `v0.1.2`), so `upgrade --ref v0.1.2` can
+   fetch exactly this release, and publishes the GitHub Release with the version's section of the
+   changelog and the SHA-256 of both installers. Do not push the tag yourself: when the tag exists
+   already, the workflow does nothing and no Release is published. Afterwards check that the tag
+   (`git ls-remote --tags origin v<version>`) and the Release are there.
 
-After the tag, change nothing in the release. The next change starts the next version at step 1.
+After the merge, change nothing in the release. The next change starts the next version at step 1.

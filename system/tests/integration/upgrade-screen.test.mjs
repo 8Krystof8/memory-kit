@@ -98,6 +98,7 @@ describe('upgrade in a terminal', { concurrency: 1 }, () => {
     assert.match(shown, new RegExp(`◇  memory-kit ${NXT.replace(/\./g, '\\.')} is installed ─+╮`));
     assert.ok(shown.includes('verified with the vault\'s own commands'), shown);
     assert.ok(shown.includes(`upgrade --rollback ${backup}`), 'the undo command names the backup');
+    assert.match(shown, /│  next steps:\n│ {4}node \S.*memory\.mjs"? doctor\n/, 'doctor is the first next step');
     assert.ok(shown.endsWith('└  Done.\n\n'), shown.slice(-100));
     assert.equal(readFile(root, 'system/VERSION').trim(), NXT);
     assert.equal(term.raw.at(-1), false, 'raw mode is off');

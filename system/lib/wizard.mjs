@@ -136,7 +136,7 @@ export const WIZARD_DEFAULTS = {
   'setup.updates.failed': 'memory.json could not be changed: {detail}',
   'setup.updates.unavailable': 'New versions are not available in this version of memory-kit.',
   'setup.updates.workflow': 'An issue on GitHub when a new version is out: in your memory\'s repository on github.com, Add file → Create new file, name it .github/workflows/memory-kit-updates.yml and paste the file from:',
-  'setup.updates.workflow_link': 'An issue on GitHub when a new version is out: this link opens GitHub with .github/workflows/memory-kit-updates.yml filled in; press Commit changes:',
+  'setup.updates.workflow_link': 'An issue on GitHub when a new version is out: this link opens GitHub with .github/workflows/memory-kit-updates.yml filled in (if a click opens nothing or a shorter file, copy the whole link into the browser; the file ends with the line fi); press Commit changes:',
   'setup.updates.watch': 'Or on GitHub: Watch → Custom → Releases at {url}',
 };
 

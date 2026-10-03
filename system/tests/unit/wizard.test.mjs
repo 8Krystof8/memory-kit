@@ -307,7 +307,7 @@ describe('the extras menu: new versions', () => {
     // Wrapped lines (a bullet's go on further in) read as one text.
     const joined = shown.replace(/\n│ +(?![◇▲✓●■])/g, ' ').replace(/ {2,}/g, ' ');
     assert.match(joined, /New versions now: no issue on GitHub yet: the workflow is missing · no daily check/);
-    assert.match(joined, /this link opens GitHub with \.github\/workflows\/memory-kit-updates\.yml filled in; press Commit changes:/);
+    assert.match(joined, /this link opens GitHub with \.github\/workflows\/memory-kit-updates\.yml filled in \(if a click opens nothing or a shorter file, copy the whole link into the browser; the file ends with the line fi\); press Commit changes:/);
     // The link is printed whole, on one line, so a terminal can open it.
     const link = term.output().match(/https:\/\/github\.com\/linden\/memory\/new\/[^\s\x1b]+/)?.[0];
     assert.ok(link, shown);

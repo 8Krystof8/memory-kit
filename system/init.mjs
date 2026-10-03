@@ -82,6 +82,7 @@ const INIT_DEFAULTS = {
   'init.questions.intro': 'Ask the user these questions in one message, in their language (defaults in brackets). Never guess answers. Then run:',
   'init.questions.ask_if': 'ask only if {condition}',
   'init.questions.private_condition': 'a sector is local or the mode is local or combined',
+  'init.questions.cloud': 'This looks like a cloud session ({signal}): offer only mode github without local sectors and skip private_root; local content is lost when the session ends.',
   'init.missing': 'missing {flags}: ask the user (questions below), then run init again',
   'init.refused_initialized': 'refused: memory is already set up (memory.json "initialized": true)',
   'init.plan.title': 'Plan:',
@@ -120,6 +121,7 @@ const INIT_DEFAULTS = {
   'init.refused_remote': 'refused: mode local promises that nothing leaves this computer, but this repository has a remote ({remotes}). Remove it (git remote remove <name>) or choose --mode github or combined.',
   'init.refused_cloud': 'refused: this looks like a cloud session ({signal}). A private folder or a local-only vault there is lost when the session ends. Here choose --mode github without local sectors; add local sectors later on your own computer (docs/modes.md). Pass --allow-ephemeral only for a throwaway test.',
   'init.github_local_sector': '--sectors: {id} keeps its notes outside git by default, which --mode github cannot do. Ask the user: --mode combined keeps it on this computer; {id}:github keeps it in the private GitHub repository.',
+  'init.github_local_sector_cloud': '--sectors: {id} keeps its notes outside git by default, which --mode github cannot do, and this cloud session ({signal}) loses local content when it ends. Ask the user: {id}:github keeps it in the private GitHub repository; or leave it out and add it later on your own computer (docs/modes.md).',
   'init.next.claude-app': 'Claude app: paste _ai/profile.md into a project\'s instructions.',
   'init.reserved': '--sectors: "{id}" is a device name Windows reserves (con, prn, aux, nul, com1 to com9, lpt1 to lpt9); choose another id',
   'init.private_root_drive': '--private-root {path} is on another drive than this repository. memory.json is shared by all your computers, so it can only hold a path relative to the repository or one inside your home folder (~/…). Choose a folder on the same drive as the repository or inside your home folder.',
@@ -296,6 +298,8 @@ const RUN_TEMPLATE = 'node system/init.mjs --mode <mode> --lang <lang> --sectors
 function formatQuestions(questions, packs, only = null) {
   const t = translator(packs, 'en');
   const lines = [t('init.questions.intro'), RUN_TEMPLATE, ''];
+  const cloud = cloudSignal();
+  if (cloud) lines.push(t('init.questions.cloud', { signal: cloud }), '');
   questions.filter((q) => !only || only.includes(q.id)).forEach((q, i) => {
     const extra = [q.flag];
     if (q.choices) extra.push(q.choices.join(', '));
@@ -317,7 +321,7 @@ function parseAgents(value) {
   return AGENTS.filter((a) => list.includes(a));
 }
 
-function parseSectors(value, packs, lang, mode, util) {
+function parseSectors(value, packs, lang, mode, util, cloud = null) {
   const pack = packs.get(lang);
   const items = splitList(value);
   if (!items.length) throw usageError('--sectors needs at least one sector');
@@ -336,7 +340,9 @@ function parseSectors(value, packs, lang, mode, util) {
     // Mode github has no private folder: a local sector there must be an explicit choice, never silent.
     if (mode === 'github' && privacy === 'local') {
       const id = preset ? preset.id : name;
-      throw usageError(translator(packs, lang)('init.github_local_sector', { id }));
+      // In a cloud session mode combined is refused too (init.refused_cloud): offer only what works there.
+      const message = cloud ? 'init.github_local_sector_cloud' : 'init.github_local_sector';
+      throw usageError(translator(packs, lang)(message, { id, signal: cloud }));
     }
     if (key === 'core' && privacy !== 'github') throw usageError('--sectors: core holds the profile and must stay github');
     const id = preset ? preset.id : name;
@@ -472,7 +478,7 @@ function buildPlan(root, raw, opts, packs, util) {
   const toPack = packs.get(lang);
   const fromPack = packs.get(fromLang);
   const t = translator(packs, lang);
-  const sectors = parseSectors(opts.sectors, packs, lang, opts.mode, util);
+  const sectors = parseSectors(opts.sectors, packs, lang, opts.mode, util, opts['allow-ephemeral'] ? null : cloudSignal());
   const agents = parseAgents(opts.agents);
   const needsPrivate = opts.mode !== 'github' || sectors.some((s) => s.privacy === 'local') || opts['private-root'] !== undefined;
   const privateRoot = needsPrivate ? resolvePrivateRoot(root, opts['private-root'] ?? defaultPrivateRoot(root), { util, t }) : null;

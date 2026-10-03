@@ -206,7 +206,9 @@ short:
 4. Add the version's section to [CHANGELOG.md](CHANGELOG.md), with the date and the kit files that
    were added, changed or removed.
 5. Run the tests, `release.mjs --check`, `check --generate` and `check --strict` at the kit root,
-   commit, and tag the commit `v<version>`.
+   commit, and merge the pull request from `dev` to `main` once CI is green. `release.yml` then
+   tags the merge commit `v<version>` and publishes the GitHub Release; never push the tag
+   yourself, or the workflow does nothing.
 
 ## Generated files in this repository
 

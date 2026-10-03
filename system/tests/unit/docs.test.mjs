@@ -94,3 +94,55 @@ describe('commands in the docs work in every supported shell', () => {
       assert.match(text, /^```sh\ncd ~\/my-memory\nnode system\/memory\.mjs connect claude-code\n```$/m);
     });
 });
+
+// docs/modes.md and the READMEs promise that init refuses local content in a cloud session. They
+// may name only the sessions init.mjs can tell (cloudSignal), or a beginner trusts a refusal that
+// never comes and loses the private folder with the container.
+describe('the docs promise the cloud refusal only where init can tell', () => {
+  const init = fs.readFileSync(abs('system/init.mjs'), 'utf8');
+  const body = init.match(/function cloudSignal\(\)\s*\{([\s\S]*?)\r?\n\}/)?.[1] ?? '';
+  const signals = [...body.matchAll(/process\.env\.([A-Z_]+)/g)].map((m) => m[1]);
+
+  test('init detects at least one cloud session', () => assert.ok(signals.length > 0));
+
+  test('docs/modes.md names every signal init checks', { skip: !fs.existsSync(abs('docs/modes.md')) && 'no docs/' }, () => {
+    const modes = fs.readFileSync(abs('docs/modes.md'), 'utf8');
+    for (const name of signals) assert.ok(modes.includes(name), `docs/modes.md names ${name}`);
+  });
+
+  test('the READMEs do not promise a refusal in Codex cloud', { skip: !isKitItself() && 'a vault owns its README' }, () => {
+    for (const rel of ['README.md', 'README.cs.md']) {
+      const text = fs.readFileSync(abs(rel), 'utf8');
+      assert.ok(/Codespaces/.test(text) && /Gitpod/.test(text), `${rel} names where init can tell`);
+    }
+  });
+});
+
+// .github/workflows/release.yml tags v<version> and publishes the GitHub Release when the release
+// pull request reaches main, and does nothing when the tag exists already. A checklist that has the
+// maintainer push the tag by hand therefore loses the Release.
+describe('the release checklist leaves the tag to release.yml', () => {
+  test('no step tags or pushes v<version> by hand', { skip: !isKitItself() && 'only the kit releases' }, () => {
+    for (const rel of ['docs/upgrading.md', 'CONTRIBUTING.md']) {
+      const text = fs.readFileSync(abs(rel), 'utf8').replace(/\s+/g, ' ');
+      const byHand = text.match(/[^.]*(?:tag the commit `v<version>`|and push the tag)[^.]*\./g) ?? [];
+      assert.deepEqual(byHand, [], rel);
+      assert.ok(text.includes('release.yml'), `${rel} names release.yml`);
+    }
+  });
+});
+
+describe('docs/install.md names what the installers refuse', () => {
+  const sources = ['install.sh', 'install.ps1', 'docs/install.md'];
+  const missing = sources.some((rel) => !fs.existsSync(abs(rel)));
+  test('every MEMORY_KIT_ALLOW_* override of install.sh and install.ps1 is in docs/install.md',
+    { skip: missing ? 'no installers or no docs/install.md here' : false }, () => {
+      const names = new Set();
+      for (const rel of ['install.sh', 'install.ps1']) {
+        for (const m of fs.readFileSync(abs(rel), 'utf8').matchAll(/MEMORY_KIT_ALLOW_[A-Z_]+/g)) names.add(m[0]);
+      }
+      assert.ok(names.size > 0);
+      const doc = fs.readFileSync(abs('docs/install.md'), 'utf8');
+      assert.deepEqual([...names].filter((name) => !doc.includes(name)).sort(), []);
+    });
+});

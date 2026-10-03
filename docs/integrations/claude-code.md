@@ -25,7 +25,9 @@ Claude Code shows as the hook's message: `memory-kit: memory loaded · 34 notes 
 when the memory did not load, the reason and `doctor`. The line costs the agent no context.
 `"feedback": {"notice": false}` in `memory.json` turns it off, and the hook then prints the start
 file alone, as a plain `start` does. A hook that runs `start` without the format (the kit's hook
-before 0.1.3, or one you wrote yourself) still works; you only do not get the line.
+before 0.1.3, or one you wrote yourself) still works; you only do not get the line. `doctor`
+warns about it and names its line, and `doctor --fix` adds the format (a file with comments or a
+hook in exec form is left to you).
 
 It runs on every Claude Code version under sh, bash and Git Bash, also with spaces in the path,
 and under PowerShell from Claude Code 2.1.198 on, which rewrites the braced placeholder for
@@ -184,7 +186,7 @@ its own memory instead, add a line to the `## Personal rules` section of `AGENTS
 | no start file at the beginning of a session | the hook did not run (a multi-repository session, or the hook is not in this project); run `node system/memory.mjs start` or use the skill |
 | the start file is shown only as a short preview | its output exceeded the hook limit; run `check` and look for `START_BUDGET` or `GEN_BUDGET` |
 | commits are not checked | `git config core.hooksPath .githooks`, or run `start` once; `node system/memory.mjs doctor` shows the cause |
-| the hook fails on Windows with a path error | the hook of 0.1.0 writes `$CLAUDE_PROJECT_DIR` without braces, which PowerShell cannot expand (Claude Code uses PowerShell when Git Bash is missing). Use the kit's current hook, `node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start`, with Claude Code 2.1.198 or newer, or install Git for Windows (`doctor` reports it under `adapters`) |
+| the hook fails on Windows with a path error | the hook of 0.1.0 writes `$CLAUDE_PROJECT_DIR` without braces, which PowerShell cannot expand (Claude Code uses PowerShell when Git Bash is missing). Use the kit's current hook, `node "${CLAUDE_PROJECT_DIR}/system/memory.mjs" start --format claude-hook`, with Claude Code 2.1.198 or newer, or install Git for Windows (`doctor` reports it under `adapters`) |
 | the hook fails with `SyntaxError: Unexpected token ':'` from `[stdin]` | the hook is in exec form (`"args"`), and Claude Code before 2.1.139 ignores `args`, so node reads the hook's input as a script. Update Claude Code, or use the shell form above |
 | Claude greps `archive/` and finds nothing | `.ignore` hides it on purpose; use `search --all` or an explicit path |
 | node reports "Cannot find module" with a `~` folder in the path | the shell passed `~` on unchanged (PowerShell on Windows before 7.6, cmd); run the command in the memory folder, or write the full path |

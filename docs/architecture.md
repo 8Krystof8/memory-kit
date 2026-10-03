@@ -1,9 +1,12 @@
 # memory-kit architecture: the implementation contract
 
-Status: describes v0.1.1: phase 1 (v0.1.0) plus `upgrade`, `doctor`, the MCP server with `connect`,
-the JS API, JSON schemas and Windows and macOS support. The code is split into five modules (core,
-search, packs, tests, docs), see section 18. When code and this file disagree, fix one of them so
-they match again. The "Decisions log" (section 17) records the choices this contract had to make.
+Status: describes v0.1.4: phase 1 (v0.1.0); from v0.1.1 `upgrade`, `doctor`, the MCP server with
+`connect`, the JS API, JSON schemas and Windows and macOS support; from v0.1.2 memory for coding
+projects (`project`, `remember`, the agent hooks) and the setup wizard; from v0.1.3 the visible
+feedback (`activity`) and the update notices; from v0.1.4 the parts marked 0.1.4. The code is
+split into five modules (core, search, packs, tests, docs), see section 18. When code and this file
+disagree, fix one of them so they match again. The "Decisions log" (section 17) records the
+choices this contract had to make.
 
 Contents: 1 Conventions · 2 Vault layout · 3 memory.json · 4 Language packs · 5 Notes and frontmatter ·
 6 Sectors · 7 Module APIs · 8 Generated files · 9 Rules files and adapters · 10 CLI and output formats ·
@@ -134,7 +137,7 @@ renames to the chosen pack.
 ```
 memory-kit/
 ├── AGENTS.md  CLAUDE.md  GEMINI.md          rules (section 9)
-├── README.md  README.cs.md  CONTRIBUTING.md  CHANGELOG.md  LICENSE
+├── README.md  README.cs.md  CONTRIBUTING.md  CHANGELOG.md  LICENSE  ROADMAP.md  SECURITY.md
 ├── install.sh  install.ps1                   one-line installers (macOS and Linux sh, Windows PowerShell)
 ├── memory.json                               "initialized": false, "lang": "en"
 ├── home.md                                   GENERATED home page for people (8.8)
@@ -148,20 +151,25 @@ memory-kit/
 │   ├── VERSION  memory.mjs  init.mjs  api.mjs (public JS API, section 7.14)
 │   ├── kit.json  kit-history.json            kit manifest and shipped hashes (written by tools/release.mjs)
 │   ├── lib/ config frontmatter vault fingerprint util fsafe text search generate startview check secrets
-│   │        eval kit upgrade migrations schema doctor mcp clients jsonc .mjs
-│   ├── lib/commands/ start check new sector sync search eval doctor upgrade connect mcp .mjs
+│   │        eval kit upgrade migrations schema doctor mcp clients jsonc lockcheck projects repofacts
+│   │        hookinput hooklog hooksetup nodepath oldnode tui wizard changelog activity updates .mjs
+│   ├── lib/commands/ start check new sector sync search eval doctor upgrade connect mcp hook project
+│   │        remember setup activity .mjs
 │   ├── lang/LICENSE-snowball.txt  lang/{en,cs}/pack.json stemmer.mjs (+ base stemmer)
 │   ├── templates/{en,cs}/notes/<type>.md     note templates (localized file names)
 │   ├── templates/{en,cs}/kit/*               non-note templates used by code (section 9.7)
+│   ├── templates/github/memory-kit-updates.yml   the kit's copy of the update workflow (15.4, from 0.1.4)
 │   ├── schema/ memory note kit search-result check-result doctor-result .schema.json
-│   ├── migrations/index.mjs                  data migrations (none in 0.1.1)
+│   ├── migrations/index.mjs                  data migrations (none up to 0.1.4)
 │   ├── tools/release.mjs                     maintainers only: rebuilds kit.json and the history
 │   ├── tools/release-notes.mjs               maintainers only: a version's CHANGELOG section (release.yml)
-│   └── tests/ golden.json unit/ integration/ fixtures/ helpers.mjs
+│   └── tests/ golden.json unit/ integration/ fixtures/ helpers.mjs fake-terminal.mjs
 ├── .agents/skills/memory/SKILL.md  .claude/skills/memory/SKILL.md (same file)
 ├── .claude/agents/memory-searcher.md  .claude/settings.json
 ├── .githooks/pre-commit  .github/workflows/ci.yml
 ├── .github/workflows/release.yml             maintainers only: tags and GitHub Releases; not upgraded
+├── .github/workflows/memory-kit-updates.yml  the update issue of a vault on GitHub (15.4, from 0.1.3); not upgraded
+├── .github/ISSUE_TEMPLATE/  .github/pull_request_template.md  .github/assets/logo.svg   kit repository; not upgraded
 └── .gitignore  .gitattributes                no editor settings: any markdown editor works (9.8)
 ```
 
@@ -470,7 +478,7 @@ people, companies or places).
 | `start.now` | `Now (from {file})` |
 | `start.counts` | `Waiting for you: {waiting} ({file}) · Inbox: {inbox} · kit {version}` |
 | `start.stale` | `(_ai/ is stale: this view was rendered on the fly; the next commit regenerates it)` |
-| `start.not_initialized` | `Memory is not set up yet. Follow AGENTS.md, section Setup: ask the user, then run node system/init.mjs.` |
+| `start.not_initialized` | `Memory is not set up yet. When the user asks to set it up, follow AGENTS.md, section Setup. Developing memory-kit itself? Skip the setup and follow CONTRIBUTING.md.` |
 | `index.title` | `Index: {sector} · {notes} notes · base {dir}/` |
 | `index.rules` / `index.linked` / `index.search` | `Sector rules` / `Linked sectors` / `Search` |
 | `index.cross` | `Cross-links` |
@@ -1725,8 +1733,10 @@ first, so parallel sessions start one check, and the session never waits for it.
   absolute paths, `.git/` or `.memory-kit/`); every write or move is recorded in the backup before
   it happens, and its result after (`wrote`). A migration rewrites or moves, never deletes. After
   each step memory.json `version` is set to its `to`. 0.1.1 ships `MIGRATIONS = []`.
-- Output: a summary per action, then the next steps as separate lines `git add -A` and
-  `git commit -m "memory-kit <from> → <to>"` (only under git). `--json`: `{runner, delegated_from,
+- Output: a summary per action, then the next steps as separate lines: `node system/memory.mjs
+  doctor` (the vault's CLI as `--rollback` names it: with the vault's absolute path when another
+  kit ran the upgrade), then `git add -A` and `git commit -m "memory-kit <from> → <to>"` (only
+  under git). `--json`: `{runner, delegated_from,
   plan, result}`. Exit 0 done or up to date, 1 refused, blocked or failed (rolled back), 2 usage,
   3 internal.
 
@@ -1745,7 +1755,7 @@ null), in this order:
 | `config.data_version` | memory.json `version` vs `DATA_VERSION` and kit.json `data_version` |
 | `kit.version` | `system/VERSION` and kit.json agree; for a missing or unreadable kit.json the fix is the running kit's `upgrade --root <vault>` when the vault's VERSION is older than that kit, `git checkout -- system/kit.json` only when the last commit has the file, else a copy from the kit |
 | `kit.integrity` | `integrityReport`: missing, changed (and whether the bytes are another release's) and unknown kit files |
-| `kit.updates` | (0.1.3) from files on this computer only, never online (`lib/updates.mjs` `updateStatus`): the last answer of `upgrade --check` in `.memory-kit/updates.json` (`doctor.updates.unchecked`, `doctor.updates.current`, or a warning `doctor.updates.newer` whose fix is `upgrade`), and the channels that tell the owner of a new version (an issue on GitHub: on, off (`updates.github` false, with or without the file), or the workflow missing in a vault whose origin is on GitHub; the daily check on or off). From 0.1.4 a missing workflow is a warning whose fix is the link of `updates.workflowLinkOf`: GitHub's new-file page of the vault's repository and current branch (else `main`), `…/new/<branch>?filename=.github/workflows/memory-kit-updates.yml&value=<the kit's copy, URL-encoded>`, at most 8000 characters (GitHub answers 9 KB with 414); without such a link (an origin URL it cannot read, no copy) the fix names the steps on github.com |
+| `kit.updates` | (0.1.3) from files on this computer only, never online (`lib/updates.mjs` `updateStatus`): the last answer of `upgrade --check` in `.memory-kit/updates.json` (`doctor.updates.unchecked`, `doctor.updates.current`, or a warning `doctor.updates.newer` whose fix is `upgrade`), and the channels that tell the owner of a new version (an issue on GitHub: on, off (`updates.github` false, with or without the file), or the workflow missing in a vault whose origin is on GitHub; the daily check on or off). From 0.1.4 a missing workflow is a warning whose fix is the link of `updates.workflowLinkOf`: GitHub's new-file page of the vault's repository on its default branch, the only one GitHub runs a scheduled workflow from (origin/HEAD when a clone set it, else `main` when origin has one, else the current branch, else `main`), `…/new/<branch>?filename=.github/workflows/memory-kit-updates.yml&value=<the kit's copy, percent-encoded, ! ' ( ) * included>`, at most 8000 characters (GitHub answers 9 KB with 414); a terminal may still not open a link this long (VS Code takes at most 2048 characters), so the fix says to copy it whole; without such a link (an origin URL it cannot read, no copy, or a copy whose sha256 is not its entry in `system/kit.json`, which `kit.integrity` reports as changed) the fix names the steps on github.com |
 | `kit.upgrade_lock` | `.memory-kit/upgrade.lock` (`lib/upgrade.mjs` `lockState`): an upgrade still at work (`running`) is a warning with no fix; one that did not finish fails, and its fix is the recovery tool of its backup, `node .memory-kit/backups/<id>/tool/rollback.mjs` (absolute when another kit checks the vault with `--root`), else `upgrade --rollback`, or `--rollback --force` when the backup is gone |
 | `agents.block` | kit markers present once and in order, marker version = VERSION, block equals the language's template (the setup block and CRLF ignored) |
 | `adapters` | CLAUDE.md and GEMINI.md import AGENTS.md (for the agents in memory.json `agents`); `.claude/settings.json` has a SessionStart hook that runs `system/memory.mjs start` (a shell command, or `args` in exec form); a warning when no such hook would run here: a bare `$CLAUDE_PROJECT_DIR` on Windows without Git Bash (`IO.gitBash`), `args` below Claude Code 2.1.139, the braced shell form under PowerShell below 2.1.198 (`claude --version` is asked only when the answer matters; the fix is the braced shell form, or updating Claude Code), or when the matchers leave out startup, resume, clear or compact; (0.1.4) a warning when every such hook runs `start` without `--format` (the hook of 0.1.2 and older): the fix names its line (`doctor.adapters.format_line_fix`, `format_args_fix` for the exec form) and offers the repair `claude_hook` when `withHookFormat` can make it |
@@ -1778,7 +1788,8 @@ otherwise `git.pre_commit` offers no repair, names that file in its fix
 ` --format claude-hook` after `start` in each shell-form start hook of `.claude/settings.json`
 that has no `--format` (`withHookFormat`): only inside those JSON string literals, found as
 `JSON.stringify` writes them, so every other byte stays (a BOM, CRLF, the owner's settings); it
-refuses (`doctor.fix_by_hand`) a symbolic link, bytes that are not UTF-8, JSON with comments, a
+refuses (`doctor.fix_by_hand`) a symbolic link, a file whose real path lies outside the vault
+(a linked `.claude` folder), bytes that are not UTF-8, JSON with comments, a
 hook in exec form without `--format`, a command written with other escapes, and any result that
 does not parse to the old settings with only those commands changed. The old file is copied first,
 as above, and the new text keeps its mode. The `fixed:` line
@@ -2134,7 +2145,9 @@ node system/init.mjs [--interactive | --no-interactive] [--root <path>]
   (`core,work,school,family:local`). `core` is always included (first sector, holds the profile).
   In mode `github` a local sector (explicit, or a preset that is local by default: family, health,
   finances) is a usage error that asks for `--mode combined` or `<id>:github`: a private folder is
-  never created silently.
+  never created silently. In a cloud session (below; not with `--allow-ephemeral`), where mode
+  combined is refused too, it asks only for `<id>:github` or leaving the sector out
+  (`init.github_local_sector_cloud`).
 - `--private-root` is stored in memory.json (which is committed) as `~/…` when it lies under the home
   folder (`os.homedir()`; `~`, `~/` and `~\` are accepted) and as a path relative to the vault
   otherwise, never as an absolute path. A private root on another drive than the repository or on a
@@ -2150,6 +2163,8 @@ node system/init.mjs [--interactive | --no-interactive] [--root <path>]
 - `--questions` prints the questions (en and cs text, choices, defaults) so the agent can ask the user:
   `mode` (default github), `lang` (en), `sectors` (core,work), `private_root` (asked only if a local
   sector or mode local/combined; default `../<repo-folder>-private`), `agents` (all), `cleanup` (none).
+  In a cloud session (the signals above) one line after the command (`init.questions.cloud`) says to
+  offer only mode github without local sectors; `--json` is unchanged.
 - Missing required flags (`--mode --lang --sectors`) → prints the missing questions, exit 2. Without
   `--yes` it prints the plan and exits 0 without changes (like `--dry-run`).
 - Refuses (exit 1) when `memory.json.initialized` is true.
