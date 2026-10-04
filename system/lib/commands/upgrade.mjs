@@ -563,7 +563,7 @@ export async function run(argv, cfg, ctx = {}) {
       parts.push('--yes');
       return parts.join(' ');
     },
-    // doctor of the new kit finds what an upgrade leaves to the owner (0.1.4: the update workflow, the old start hook).
+    // doctor of the new kit finds what an upgrade leaves to the owner (1.0.0: the update workflow, the old start hook).
     doctorAfter: () => `${vaultCli ? 'node system/memory.mjs' : `node ${quote(path.join(root, 'system', 'memory.mjs'))}`} doctor`,
     rollback: (id) => {
       const cli = vaultCli ? 'node system/memory.mjs' : `node ${quote(path.join(root, 'system', 'memory.mjs'))}`;

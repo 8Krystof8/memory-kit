@@ -12,7 +12,7 @@ body:
     attributes:
       label: memory-kit version
       description: "node system/memory.mjs --version"
-      placeholder: "0.1.4"
+      placeholder: "1.0.0"
     validations:
       required: true
   - type: input

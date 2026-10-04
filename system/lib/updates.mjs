@@ -51,7 +51,7 @@ const DEFAULTS = {
 /** The workflow that opens the issue of a newer kit; the template has it, upgrade never ships it. */
 export const WORKFLOW_REL = '.github/workflows/memory-kit-updates.yml';
 
-/** The kit's copy of that workflow (0.1.4), which upgrade brings to every vault, for workflowLinkOf. */
+/** The kit's copy of that workflow (1.0.0), which upgrade brings to every vault, for workflowLinkOf. */
 export const WORKFLOW_COPY_REL = 'system/templates/github/memory-kit-updates.yml';
 
 export function say(cfg, key, vars = {}) {

@@ -1,6 +1,6 @@
 {
   "name": "memory-kit",
-  "version": "0.1.4",
+  "version": "1.0.0",
   "data_version": 1,
   "api_version": 1,
   "node": "22.5.0",
@@ -44,7 +44,7 @@
       "group": "docs"
     },
     "docs/architecture.md": {
-      "sha256": "627dee230089dbcea1207b595a8881db8fc976a409650bd254b17c38dd54ee2b",
+      "sha256": "b8b8f9c2742fb0ae8eaac4b3366ea3b02a77de56343089a41423a5d33e158838",
       "group": "docs"
     },
     "docs/install.md": {
@@ -104,7 +104,7 @@
       "group": "docs"
     },
     "docs/upgrading.md": {
-      "sha256": "9a2ae135ee2b17a8b8f40a5c9420c7d73436831925bc9f2998f8043893b3d32c",
+      "sha256": "c85632aee76a500a00cff5091bb77556737013fd6b4679ffd74f3404436373e5",
       "group": "docs"
     },
     "install.ps1": {
@@ -116,7 +116,7 @@
       "group": "config"
     },
     "system/VERSION": {
-      "sha256": "8a3dad16d348c163566a456fcf650d85d7aeeda5e53d01ee1fa8dc15212915a7",
+      "sha256": "59854984853104df5c353e2f681a15fc7924742f9a2e468c29af248dce45ce03",
       "group": "code"
     },
     "system/api.mjs": {
@@ -228,7 +228,7 @@
       "group": "code"
     },
     "system/lib/commands/upgrade.mjs": {
-      "sha256": "00391fd510806c8527943bfdadfec7255b8c68a46e18417b64a1602ffeb0de33",
+      "sha256": "a53277765bd6f31b235dd2b98fd6b8fc09284b23d9afabbb0238aab7331194ec",
       "group": "code"
     },
     "system/lib/config.mjs": {
@@ -332,7 +332,7 @@
       "group": "code"
     },
     "system/lib/updates.mjs": {
-      "sha256": "c34bf79b04ad1043908f2334f2d5d21cca8c8481ac227aa108f82ac5a337168c",
+      "sha256": "cf530cd98ebbdfcc200f1db280a6695d680ed91ffa1888ac13dfc25ae18c3652",
       "group": "code"
     },
     "system/lib/upgrade.mjs": {
@@ -388,7 +388,7 @@
       "group": "code"
     },
     "system/templates/cs/kit/agents-system.md": {
-      "sha256": "dd3d7e4403ace9dc023dcfa959ae6ef5769decce72dd1077812b8326861a3797",
+      "sha256": "4ac09c8bcd94d2b9c83735adf6da23b3e1918635441a9a62bf784d16f266cbdb",
       "group": "code"
     },
     "system/templates/cs/kit/export.md": {
@@ -468,7 +468,7 @@
       "group": "code"
     },
     "system/templates/en/kit/agents-system.md": {
-      "sha256": "cfc9ff706f40876e336955ab19c244968d5c10e1d611325f9fc9e9dffd55e9da",
+      "sha256": "dca1d748c9d0eac086b4e1e73178ebcbfec63b90555d8e4f28317033105e6b28",
       "group": "code"
     },
     "system/templates/en/kit/export.md": {
@@ -1040,7 +1040,7 @@
       "group": "tests"
     },
     "system/tests/unit/kit-manifest.test.mjs": {
-      "sha256": "529612e0316a1ee39349cd15ef4e76b5d7036540fdafba0e9b1d00385bec3f30",
+      "sha256": "fb7d02f8826b86422fd8492f072695e98b80b30c12c021c62086c25a6744028f",
       "group": "tests"
     },
     "system/tests/unit/kit.test.mjs": {

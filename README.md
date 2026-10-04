@@ -431,8 +431,8 @@ these ways to hear of a new version:
 
 | way | how | on by default |
 |---|---|---|
-| an issue in your memory's repository | the nightly workflow [`.github/workflows/memory-kit-updates.yml`](.github/workflows/memory-kit-updates.yml) opens one issue, "memory-kit 0.1.4 is available", with what is new and the command; GitHub tells you by e-mail and in its app, and the workflow closes the issue after your upgrade. Your computer sends nothing. Off: `"updates": {"github": false}` in `memory.json` | yes, in a memory on GitHub made from 0.1.3 on (an older one adds the file once, see below) |
-| a line at the session start | `"updates": {"check": true}` in `memory.json`: once a day, in the background, the session start asks the kit's source for its newest version, and Claude Code then shows `memory-kit: version 0.1.4 is out (this memory has 0.1.3) …` once a day (Codex gets it through the agent). Never in CI; `NO_UPDATE_NOTIFIER=1` turns it off for every tool | no, because it goes online |
+| an issue in your memory's repository | the nightly workflow [`.github/workflows/memory-kit-updates.yml`](.github/workflows/memory-kit-updates.yml) opens one issue, "memory-kit 1.0.1 is available", with what is new and the command; GitHub tells you by e-mail and in its app, and the workflow closes the issue after your upgrade. Your computer sends nothing. Off: `"updates": {"github": false}` in `memory.json` | yes, in a memory on GitHub made from 1.0.0 on (an older one adds the file once, see below) |
+| a line at the session start | `"updates": {"check": true}` in `memory.json`: once a day, in the background, the session start asks the kit's source for its newest version, and Claude Code then shows `memory-kit: version 1.0.1 is out (this memory has 1.0.0) …` once a day (Codex gets it through the agent). Never in CI; `NO_UPDATE_NOTIFIER=1` turns it off for every tool | no, because it goes online |
 | by hand | `node system/memory.mjs upgrade --check` says whether a newer version is out, and nothing more; `activity` and `doctor` show what the last check found and which of these ways are on, and `setup` → New versions switches the daily check on or off | – |
 | on GitHub | on [the kit's page](https://github.com/8Krystof8/memory-kit): Watch → Custom → Releases, or the feed [releases.atom](https://github.com/8Krystof8/memory-kit/releases.atom) in any feed reader | – |
 
@@ -443,7 +443,7 @@ and checks.
 `upgrade` never adds or changes a workflow file: pushing one needs a token with the `workflow`
 scope, which the usual `gh` login does not have, so the next `sync` would fail. A memory made from
 0.1.3 on has the workflow from the template. In an older one, add it once on GitHub, which needs no
-such token: from 0.1.4 on, `node system/memory.mjs doctor` (and `setup` → New versions) prints a
+such token: from 1.0.0 on, `node system/memory.mjs doctor` (and `setup` → New versions) prints a
 link that opens GitHub's editor with the file already filled in, so you only press Commit changes.
 By hand: open your memory's repository, Add file → Create new file, name it
 `.github/workflows/memory-kit-updates.yml`, paste [this file](.github/workflows/memory-kit-updates.yml)
@@ -517,14 +517,12 @@ With `--lang cs`, `init` renames the folders and files to their Czech names: `se
 
 ## Status
 
-Version 0.1.0 was phase 1: the structure, checks, generated views, search, templates, sectors,
-setup, adapters and CI. Version 0.1.1 adds `upgrade`, `doctor`, the MCP server with `connect`, the
-JavaScript API, JSON schemas and support for Windows and macOS. Version 0.1.2 adds memory for code
-projects: hooks for Claude Code and Codex, a `dev` sector per repository outside the code, and
-`remember`. Version 0.1.3 shows that the memory works (the line at the session start, `activity`)
-and tells you of new versions. Version 0.1.4 hardens it: CI is green on Linux, macOS and Windows,
-one table says what each AI tool gets, and `doctor` helps an older memory catch up (a link that
-adds the update workflow on GitHub, and a fix for the start hook of 0.1.2).
+memory-kit 1.0.0 is the first stable release. It brings together the notes and their checks, the
+generated views, fast search with Czech built in, sectors with privacy, `upgrade` and `doctor`,
+the MCP server with `connect`, memory for code projects, the setup wizard, the one-line installers,
+the visible signs that the memory works (`activity`) and the notices of new versions, tested on
+Linux, macOS and Windows. A memory made with one of the early versions 0.1.0 to 0.1.3 upgrades to
+it with one command.
 
 New versions come every weekend, and `main` only ever holds released versions: the work happens on
 `dev`, and a release is a pull request whose CI is green on Linux, macOS and Windows. What comes

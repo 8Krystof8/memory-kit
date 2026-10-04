@@ -251,7 +251,7 @@ describe('the release tool', () => {
   test('a new version gets its own history entry; data_version follows the migrations', () => {
     const root = releasedCopy('release-next');
     const before = loadHistory(root);
-    writeFile(root, 'system/VERSION', '0.9.0\n');
+    writeFile(root, 'system/VERSION', '99.0.0\n');
     writeFile(root, 'system/migrations/index.mjs', [
       'export const MIGRATIONS = [',
       '  { id: \'0002-a\', from: 1, to: 2, title: \'a\', run() {} },',
@@ -262,13 +262,13 @@ describe('the release tool', () => {
     const res = release(root, ['--node', '22.9.0', '--source', 'https://example.org/kit.git']);
     assert.equal(res.code, 0, res.stderr);
     const man = loadManifest(root);
-    assert.equal(man.version, '0.9.0');
+    assert.equal(man.version, '99.0.0');
     assert.equal(man.data_version, 3);
     assert.equal(man.node, '22.9.0');
     assert.equal(man.source, 'https://example.org/kit.git');
     assert.equal(man.upgrade_from, '0.1.0', 'kept from the existing kit.json');
     const history = loadHistory(root);
-    assert.deepEqual(Object.keys(history), [...Object.keys(before), '0.9.0']);
+    assert.deepEqual(Object.keys(history), [...Object.keys(before), '99.0.0']);
     for (const v of Object.keys(before)) assert.deepEqual(history[v], before[v], `${v} untouched`);
     assert.equal(release(root, ['--check']).code, 0, 'the stored metadata is kept by later runs');
   });

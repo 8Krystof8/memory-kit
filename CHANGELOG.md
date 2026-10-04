@@ -9,10 +9,15 @@ which kit-owned files changed.
 
 Nothing yet.
 
-## 0.1.4 (2026-10-04)
+## 1.0.0 (2026-10-04)
 
-From this version on, `main` only ever holds released versions: the work happens on `dev`, and a
-release is a pull request from `dev` whose CI is green on Linux, macOS and Windows.
+The first stable release. memory-kit gives your AI tools a long-term memory in plain markdown that
+you own: one private repository of notes that Claude Code, Codex, Gemini CLI, Cursor and apps over
+MCP search cheaply, and that you read on GitHub or on your phone. 1.0.0 brings together everything
+of the early versions 0.1.0 to 0.1.3, which upgrade to it with one command, and adds the changes
+below. From now on the version numbers follow semantic versioning
+([docs/upgrading.md](docs/upgrading.md#version-numbers)), and `main` only ever holds released
+versions.
 
 ### Added
 
@@ -38,7 +43,7 @@ release is a pull request from `dev` whose CI is green on Linux, macOS and Windo
 
 ### Changed
 
-- **`upgrade` names `doctor` as the first next step**: both repairs of 0.1.4 for older memories
+- **`upgrade` names `doctor` as the first next step**: both repairs of 1.0.0 for older memories
   show only in `doctor`, so the next steps after an upgrade are now `node system/memory.mjs
   doctor`, then `git add -A` and `git commit` (the last two only under git).
 - **The start line of a memory that is not set up yet waits for you**: it said "Follow AGENTS.md,
@@ -57,7 +62,7 @@ before it changes anything; the cloud refusal of `init` names only the sessions 
 (Claude Code on the web, Codespaces, Gitpod; not Codex cloud); the Claude Code, Codex and Gemini
 CLI guides know `--format claude-hook` and the repair of `doctor --fix`; `docs/install.md` names the
 fourth setup extra and every installer override; `docs/upgrading.md` lists every file `upgrade`
-never touches and leaves the release tag to `release.yml`; the contract describes 0.1.4.
+never touches and leaves the release tag to `release.yml`; the contract describes 1.0.0, and the version numbers follow semantic versioning.
 
 In the repository (nothing changes in a memory): the README says which AI tool gets what, in one
 table for Claude Code, Codex, Gemini CLI, Cursor and apps over MCP, and marks every sign that the
@@ -91,7 +96,7 @@ of `doctor` and `setup`. Changed: `system/VERSION`, `system/init.mjs`,
 `system/lib/{config,doctor,updates,wizard}.mjs`, `system/lib/commands/{doctor,upgrade}.mjs`,
 `system/lang/{en,cs}/pack.json`, the version in the system section of `AGENTS.md` and
 `system/templates/{en,cs}/kit/agents-system.md`, the tests
-`system/tests/unit/{cli,docs,doctor,hooksetup,kit,review,updates,wizard}.test.mjs` and
+`system/tests/unit/{cli,docs,doctor,hooksetup,kit,kit-manifest,review,updates,wizard}.test.mjs` and
 `system/tests/integration/{projects,upgrade,upgrade-screen}.test.mjs`, `docs/architecture.md`,
 `docs/install.md`, `docs/maintenance.md`, `docs/modes.md`, `docs/upgrading.md` and
 `docs/integrations/{claude-code,codex,gemini-cli}.md`. The template's
@@ -117,7 +122,8 @@ of `doctor` and `setup`. Changed: `system/VERSION`, `system/init.mjs`,
   `doctor` names for a path with JSON escapes, a `.claude` folder linked outside the memory, the
   start line of a memory that is not set up, the cloud messages of `init` and `init --questions`,
   `doctor` among the next steps of `upgrade`, and docs that must match the code (the cloud signals,
-  the release checklist, the installer overrides).
+  the release checklist, the installer overrides). The test of the release tool no longer assumes
+  that the next version is 0.9.0.
 
 ## 0.1.3 (2026-09-30)
 

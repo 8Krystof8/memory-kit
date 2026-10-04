@@ -51,7 +51,7 @@ Four ways, and you can use several; the README's
   the vault and write issues, nothing else. Off: `"updates": {"github": false}` in `memory.json`.
   `upgrade` never ships this file (it is not in `system/kit.json`), because a changed workflow
   makes the next push need a token with the `workflow` scope; an older memory adds it once on
-  GitHub, which needs no such token: from 0.1.4 on, `doctor` and `setup` → New versions print a
+  GitHub, which needs no such token: from 1.0.0 on, `doctor` and `setup` → New versions print a
   link that opens GitHub's editor with the file filled in (the kit's copy in
   `system/templates/github/`), so one click on Commit changes adds it.
 - **A line at the session start** (off by default). With `"updates": {"check": true}` the session
@@ -519,15 +519,17 @@ Exit codes: 0 done or up to date, 1 refused, blocked or failed (and rolled back)
 
 ## Version numbers
 
-Versions are `MAJOR.MINOR.PATCH`, and `system/VERSION` holds the current one. While the major
-number is 0:
+Versions are `MAJOR.MINOR.PATCH` and follow semantic versioning; `system/VERSION` holds the
+current one:
 
-- **Patch** (0.1.1 → 0.1.2): fixes and additions. The data version and the API version stay the
-  same, so nothing you rely on changes.
-- **Minor** (0.1.x → 0.2.0): may bring a data migration (`data_version` goes up) or a breaking
-  change of the API (`api_version` goes up). The changelog says what changed and what to do.
-- **1.0.0** comes when the vault format and the API have settled. From then on the usual semantic
-  versioning rules apply.
+- **Patch** (1.0.0 → 1.0.1): fixes. Nothing you rely on changes.
+- **Minor** (1.0.x → 1.1.0): new features. The API stays compatible; a data migration that
+  `upgrade` applies by itself may come with it (`data_version` goes up).
+- **Major** (1.x → 2.0.0): a change of the vault format or the API that is not compatible
+  (`api_version` goes up). The changelog says what changed and what to do.
+
+Versions 0.1.0 to 0.1.3 were the early releases before 1.0.0; `upgrade` takes a memory from any of
+them straight to the newest version.
 
 `system/kit.json` also names `upgrade_from`, the oldest version this kit upgrades, and `node`, the
 oldest Node.js it runs on. A vault older than `upgrade_from` is upgraded in steps: first with

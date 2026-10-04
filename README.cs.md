@@ -438,8 +438,8 @@ způsobů, jak se o nové verzi dozvíš:
 
 | způsob | jak | zapnuto od začátku |
 |---|---|---|
-| issue v repozitáři tvé paměti | noční workflow [`.github/workflows/memory-kit-updates.yml`](.github/workflows/memory-kit-updates.yml) založí jedno issue „Je k dispozici memory-kit 0.1.4“ s novinkami a příkazem; GitHub ti dá vědět e-mailem a v aplikaci a po aktualizaci ho workflow zavře. Tvůj počítač nic neposílá. Vypnutí: `"updates": {"github": false}` v `memory.json` | ano, u paměti na GitHubu založené od verze 0.1.3 (starší si soubor jednou přidá, viz níže) |
-| řádek na začátku relace | `"updates": {"check": true}` v `memory.json`: jednou denně se na pozadí začátek relace zeptá zdroje kitu na nejnovější verzi a Claude Code pak jednou denně ukáže `memory-kit: vyšla verze 0.1.4 (tahle paměť má 0.1.3) …` (Codexu ji předá agent). Nikdy v CI; `NO_UPDATE_NOTIFIER=1` to vypne pro všechny nástroje | ne, protože jde na síť |
+| issue v repozitáři tvé paměti | noční workflow [`.github/workflows/memory-kit-updates.yml`](.github/workflows/memory-kit-updates.yml) založí jedno issue „Je k dispozici memory-kit 1.0.1“ s novinkami a příkazem; GitHub ti dá vědět e-mailem a v aplikaci a po aktualizaci ho workflow zavře. Tvůj počítač nic neposílá. Vypnutí: `"updates": {"github": false}` v `memory.json` | ano, u paměti na GitHubu založené od verze 1.0.0 (starší si soubor jednou přidá, viz níže) |
+| řádek na začátku relace | `"updates": {"check": true}` v `memory.json`: jednou denně se na pozadí začátek relace zeptá zdroje kitu na nejnovější verzi a Claude Code pak jednou denně ukáže `memory-kit: vyšla verze 1.0.1 (tahle paměť má 1.0.0) …` (Codexu ji předá agent). Nikdy v CI; `NO_UPDATE_NOTIFIER=1` to vypne pro všechny nástroje | ne, protože jde na síť |
 | ručně | `node system/memory.mjs aktualizuj --check` řekne, jestli vyšla novější verze, a nic víc; `aktivita` a `doktor` ukážou, co našla poslední kontrola a které z těchto cest máš zapnuté, a `nastaveni` → Nové verze zapne nebo vypne denní kontrolu | – |
 | na GitHubu | na [stránce kitu](https://github.com/8Krystof8/memory-kit): Watch → Custom → Releases, nebo kanál [releases.atom](https://github.com/8Krystof8/memory-kit/releases.atom) v libovolné čtečce | – |
 
@@ -450,7 +450,7 @@ kontrolami.
 `upgrade` nikdy nepřidá ani nezmění soubor workflow: push takového souboru potřebuje token
 s oprávněním `workflow`, které běžné přihlášení přes `gh` nemá, a další `sync` by selhal. Paměť
 založená od verze 0.1.3 má workflow ze šablony. Ve starší ho jednou přidej na GitHubu, kde žádný
-zvláštní token nepotřebuješ: od verze 0.1.4 vypíše `node system/memory.mjs doktor` (a `nastaveni` →
+zvláštní token nepotřebuješ: od verze 1.0.0 vypíše `node system/memory.mjs doktor` (a `nastaveni` →
 Nové verze) odkaz, který otevře editor GitHubu s už vyplněným souborem, takže jen stiskneš Commit
 changes. Ručně: otevři repozitář své paměti, Add file → Create new file, pojmenuj ho
 `.github/workflows/memory-kit-updates.yml`, vlož [tento soubor](.github/workflows/memory-kit-updates.yml)
@@ -502,14 +502,12 @@ Podrobná dokumentace je anglicky:
 
 ## Stav
 
-Verze 0.1.0 byla první fáze: struktura, kontroly, generované pohledy, hledání, šablony, sektory,
-nastavení, adaptéry a CI. Verze 0.1.1 přidává `upgrade`, `doctor`, MCP server s příkazem `connect`,
-JavaScriptové API, JSON schémata a podporu Windows a macOS. Verze 0.1.2 přidává paměť pro projekty
-s kódem: hooky pro Claude Code a Codex, sektor `dev` pro každý repozitář mimo kód a `remember`.
-Verze 0.1.3 ukazuje, že paměť funguje (řádek na začátku relace, `aktivita`), a dává vědět o nových
-verzích. Verze 0.1.4 ji zpevňuje: CI je zelené na Linuxu, macOS i Windows, jedna tabulka říká, co
-který AI nástroj dostane, a `doktor` pomůže starší paměti dohnat zbytek (odkaz, který na GitHubu
-přidá workflow s novými verzemi, a oprava start hooku z verze 0.1.2).
+memory-kit 1.0.0 je první stabilní verze. Spojuje poznámky a jejich kontroly, generované pohledy,
+rychlé hledání s vestavěnou češtinou, sektory se soukromím, `upgrade` a `doctor`, MCP server s
+příkazem `connect`, paměť pro projekty s kódem, průvodce nastavením, instalátory na jeden řádek,
+viditelné známky, že paměť funguje (`aktivita`), a upozornění na nové verze, vyzkoušené na Linuxu,
+macOS i Windows. Paměť z některé z raných verzí 0.1.0 až 0.1.3 se na ni aktualizuje jedním
+příkazem.
 
 Nové verze vycházejí každý víkend a v `main` jsou jen vydané verze: práce běží na `dev` a vydání je
 pull request, jehož CI je zelené na Linuxu, macOS i Windows. Co přijde dál, je v

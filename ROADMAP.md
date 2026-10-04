@@ -8,12 +8,12 @@ changes is in [CHANGELOG.md](CHANGELOG.md); how a memory gets it, in
 
 | weekend | version | theme |
 |---|---|---|
-| 3–4 October 2026 | 0.1.4 | Hardening: green CI everywhere, honest docs, updates that reach older memories |
-| 17–18 October 2026 | 0.1.5 | Proof: a benchmark against Mem0 and the Claude Code auto memory |
-| 24–25 October 2026 | 0.2.0 | Writes: propose, validate, merge |
-| 31 October – 1 November 2026 | 0.2.1 | Several writers at once |
+| 4 October 2026 | 1.0.0 | Launch: the first stable release; green CI everywhere, honest docs, updates that reach older memories |
+| 17–18 October 2026 | 1.1.0 | Proof: a benchmark against Mem0 and the Claude Code auto memory |
+| 24–25 October 2026 | 1.2.0 | Writes: propose, validate, merge |
+| 31 October – 1 November 2026 | 1.3.0 | Several writers at once |
 
-## 0.1.4: hardening
+## 1.0.0: launch
 
 - CI green on Linux, macOS and Windows with Node.js 22 and 24.
 - One table of what each AI tool gets (the session start line, the 📎 line, activity, the project
@@ -23,7 +23,7 @@ changes is in [CHANGELOG.md](CHANGELOG.md); how a memory gets it, in
 - `doctor` names the line to change in a `.claude/settings.json` that kept the old start hook.
 - `SECURITY.md`, issue and pull request templates.
 
-## 0.1.5: proof
+## 1.1.0: proof
 
 - A benchmark in the repository: the same notes, questions and model for memory-kit, Mem0 and the
   Claude Code auto memory. It measures correct answers, facts that changed, "not in memory" when
@@ -31,14 +31,14 @@ changes is in [CHANGELOG.md](CHANGELOG.md); how a memory gets it, in
 - Published results, including where memory-kit loses. A pilot comes first.
 - A measurement of the 📎 rule: runs with and without it show whether it pays for its tokens.
 
-## 0.2.0: propose, validate, merge
+## 1.2.0: propose, validate, merge
 
 - A design note first (the decisions of [docs/architecture.md](docs/architecture.md)).
 - Agents propose a change instead of editing notes. A deterministic validator checks it (keys,
   links, secrets, budgets, the five laws), and only then is it merged.
 - The MCP server gets the same write path, so apps can do more than add to the inbox.
 
-## 0.2.1: several writers
+## 1.3.0: several writers
 
 - Two agents or two computers changing the memory at the same time: locks where they are needed,
   and merges that never lose a note.
