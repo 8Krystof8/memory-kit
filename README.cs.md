@@ -302,7 +302,6 @@ Kanonické anglické názvy fungují vždy, český balíček k nim přidává a
 | `setup` | `nastaveni` | průvodce nastavením v terminálu: nastaví novou paměť, nebo připojí AI aplikace, paměť pro programátorské projekty, kontrolu instalace a to, jak se dozvíš o nových verzích |
 | `mcp [--read-only] [--local]` | `mcp --jen-cteni --lokalni` | MCP server, který si aplikace spouštějí samy (stdio); ručně ho nespouštíš |
 | `activity [--days 7] [--json]` | `aktivita --dny 7` | co agenti na tomto počítači s pamětí dělali: poslední použití, počty, kdo, nejpoužívanější poznámky ([Funguje to?](#funguje-to)) |
-| `graph [--local] [--live] [--no-open] [--json]` | `graf --lokalni --zive --neotvirat` | paměť jako graf v prohlížeči, podobně jako v Obsidianu ([Paměť jako graf](#paměť-jako-graf)) |
 
 Návratové kódy: 0 v pořádku, 1 nalezený problém, 2 chyba použití, 3 vnitřní chyba.
 
@@ -382,18 +381,6 @@ tagy verzí kitu (když ji spustíš, nebo jednou denně, když si to zapneš). 
 [`system/tests/unit/network.test.mjs`](system/tests/unit/network.test.mjs) to dokazuje při každém
 běhu CI: žádný modul kitu neimportuje síťový modul, nevolá `fetch` ani nespouští stahovací
 nástroj a git dostane `pull`, `push`, `clone` a `ls-remote` jen na těch místech.
-
-## Paměť jako graf
-
-`node system/memory.mjs graf` otevře tvou paměť v prohlížeči jako graf, podobně jako graf
-v Obsidianu: každá poznámka je tečka, každá vazba čára, barvy podle sektoru, typu nebo stavu. Klik
-na tečku ukáže poznámku a její vazby; můžeš hledat, filtrovat, zobrazit lokální graf kolem jedné
-poznámky nebo tečky přetahovat. Je to jeden soubor na disku (`.memory-kit/graph/index.html`):
-žádný server, nic online, a stránka sama nesmí načíst ani odeslat nic kromě svých dat.
-
-`graf --zive` nechá graf běžet: roste, jak se mění poznámky, a poznámky, které agent právě
-používá, se rozsvítí. Lokální sektory ukáže jen `graf --lokalni` a soubory pak zůstanou ve tvé
-soukromé složce. Plynule zvládne i 10 000 poznámek.
 
 ## Kontrola nastavení
 

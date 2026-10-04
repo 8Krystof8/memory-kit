@@ -281,7 +281,6 @@ besides Node.
 | `setup` | the setup wizard in a terminal: sets up a new memory, or connects AI apps, memory for coding projects, a health check and how you hear of new versions |
 | `mcp [--read-only] [--local]` | the MCP server the apps start (stdio); you do not run it yourself |
 | `activity [--days 7] [--json]` | what the agents did with the memory on this computer: last use, counts, who, the notes used most ([Is it working?](#is-it-working)) |
-| `graph [--local] [--live] [--no-open] [--json]` | the memory as a graph in the browser, like the graph view of Obsidian ([See it as a graph](#see-it-as-a-graph)) |
 
 Every command also accepts the canonical English names. A language pack adds aliases: in Czech,
 `hledej` means `search`, `kontrola` means `check`, `novy` means `new`, `sektor` means `sector`,
@@ -363,18 +362,6 @@ when you turn that on). There is no telemetry.
 [`system/tests/unit/network.test.mjs`](system/tests/unit/network.test.mjs) proves it on every CI
 run: no module of the kit imports a network module, calls `fetch` or starts a download tool, and
 git gets `pull`, `push`, `clone` and `ls-remote` only in those places.
-
-## See it as a graph
-
-`node system/memory.mjs graph` opens your memory in the browser as a graph, like the graph view of
-Obsidian: every note a dot, every link a line, coloured by sector, type or status. Click a dot to
-see the note and its links, search, filter, show the local graph around one note, or drag the dots
-around. It is one file on your disk (`.memory-kit/graph/index.html`): no server, nothing online,
-and the page itself is not allowed to load or send anything but its data.
-
-`graph --live` keeps it running: the graph grows as notes change, and the notes an agent uses right
-now light up. Local sectors appear only with `graph --local`, and then the files stay in your
-private folder. It stays fluid with 10 000 notes.
 
 ## Health check
 
