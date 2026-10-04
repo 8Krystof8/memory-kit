@@ -16,7 +16,7 @@ release is a pull request from `dev` whose CI is green on Linux, macOS and Windo
 
 ### Added
 
-- **An older memory gets the link that adds the update workflow**: a memory on GitHub made before
+- **Older memories hear of new versions too**: a memory on GitHub made before
   0.1.3 has no `.github/workflows/memory-kit-updates.yml`, and `upgrade` never adds a workflow, so
   it never heard of a new version by an issue. `doctor` now warns about it and prints a link that
   opens GitHub's editor with the file already filled in: one click on Commit changes adds it, with
@@ -27,7 +27,8 @@ release is a pull request from `dev` whose CI is green on Linux, macOS and Windo
   opens it whole; the VS Code terminal opens no link longer than 2048 characters, so there copy the
   whole link into the browser (the file ends with the line `fi`). The kit keeps a copy of the
   workflow in `system/templates/github/`, which `upgrade` brings to every memory.
-- **`doctor` finds the start hook of 0.1.2, and `doctor --fix` repairs it**: when you had changed
+- **One command repairs an old start setting**: `doctor` finds the start hook of 0.1.2, and
+  `doctor --fix` repairs it. When you had changed
   `.claude/settings.json`, `upgrade` to 0.1.3 kept your file with the old hook, which loads the
   memory but shows no line at the session start. `doctor` now warns and names the line (also when
   the path is written with JSON escapes such as `\/`), and `doctor --fix` adds `--format
@@ -38,19 +39,23 @@ release is a pull request from `dev` whose CI is green on Linux, macOS and Windo
 
 ### Changed
 
-- **`upgrade` names `doctor` as the first next step**: both repairs of 0.1.4 for older memories
+- **After an update, the next step is shown**: both repairs of 0.1.4 for older memories
   show only in `doctor`, so the next steps after an upgrade are now `node system/memory.mjs
   doctor`, then `git add -A` and `git commit` (the last two only under git).
-- **The start line of a memory that is not set up yet waits for you**: it said "Follow AGENTS.md,
+- **A memory that is not set up waits until you ask**: its start line said "Follow AGENTS.md,
   section Setup: ask the user, then run node system/init.mjs", so an agent started the setup
   questions unasked, although `AGENTS.md` sets up memory only when you ask. It now says to follow
   Setup when the user asks, and tells an agent that works on memory-kit itself to skip the setup
   and follow CONTRIBUTING.md.
-- `node system/init.mjs --questions` in a cloud session (Claude Code on the web, Codespaces,
-  Gitpod) adds one line: offer only mode github without local sectors. Elsewhere, and with
-  `--json`, its output is unchanged.
-- `"updates": {"github": false}` in `memory.json` now always reads as off, also in a memory without
-  the workflow file, which `activity`, `doctor` and `setup` listed as missing.
+- **In a cloud session, setup offers only what works there**: `node system/init.mjs --questions`
+  in a cloud session (Claude Code on the web, Codespaces, Gitpod) adds one line: offer only mode
+  github without local sectors. Elsewhere, and with `--json`, its output is unchanged. And
+  `init --mode github` with a sector that is local by default (family, health, finances) or marked
+  `:local` no longer asks for `--mode combined`, which a cloud session refuses: there it offers
+  `<id>:github`, or leaving the sector out and adding it later on your own computer.
+- **Turning the update issue off always works**: `"updates": {"github": false}` in `memory.json`
+  now always reads as off, also in a memory without the workflow file, which `activity`, `doctor`
+  and `setup` listed as missing.
 
 The docs match the code in more places: the README teaches one `upgrade` command, which asks
 before it changes anything; the cloud refusal of `init` names only the sessions it can tell
@@ -69,13 +74,6 @@ release. [SECURITY.md](SECURITY.md) says how to report privately and what checks
 (common key formats and password assignments, not every secret); there are issue and pull request
 templates that say which lines of `doctor` are private, and [ROADMAP.md](ROADMAP.md) lists the
 weekend releases.
-
-### Fixed
-
-- **A local sector in a cloud session**: `init --mode github` with a sector that is local by
-  default (family, health, finances) or marked `:local` asked for `--mode combined`, which a cloud
-  session then refuses. There it now offers `<id>:github`, or leaving the sector out and adding it
-  later on your own computer.
 
 ### Upgrading
 
