@@ -1,6 +1,6 @@
 {
   "name": "memory-kit",
-  "version": "0.2.0",
+  "version": "0.1.4",
   "data_version": 1,
   "api_version": 1,
   "node": "22.5.0",
@@ -44,7 +44,7 @@
       "group": "docs"
     },
     "docs/architecture.md": {
-      "sha256": "db8ad07995a41378a8a113cd0608600d0ce30d50a796f4324f862e629a526c37",
+      "sha256": "627dee230089dbcea1207b595a8881db8fc976a409650bd254b17c38dd54ee2b",
       "group": "docs"
     },
     "docs/install.md": {
@@ -116,7 +116,7 @@
       "group": "config"
     },
     "system/VERSION": {
-      "sha256": "1f930dd1f133c1f97a94fe3acb8db34372cf4c01ffdb2b3ff4ca72f9494121e9",
+      "sha256": "8a3dad16d348c163566a456fcf650d85d7aeeda5e53d01ee1fa8dc15212915a7",
       "group": "code"
     },
     "system/api.mjs": {
@@ -132,7 +132,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "67f5d86a2c402a374cffff608d16416b1b76fd9f7008397cc967a3929c74e48d",
+      "sha256": "44a5c76c60a9416249dad4211708a2d67a85896fbede1d7c1a3bee3df4f68a1c",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -185,10 +185,6 @@
     },
     "system/lib/commands/eval.mjs": {
       "sha256": "da2842253efe90d0c9bbc79c744aee46eb0f280a5c99743c2ba5ef63c51738a6",
-      "group": "code"
-    },
-    "system/lib/commands/graph.mjs": {
-      "sha256": "7471f07b0b71dcdbb46513a54e415e0533948dfaf34d243dfefa414a6f8ee1f9",
       "group": "code"
     },
     "system/lib/commands/hook.mjs": {
@@ -261,10 +257,6 @@
     },
     "system/lib/generate.mjs": {
       "sha256": "e2c7cb9fae4be306495073450153843a814d76af1771e82c72c63e9408c85247",
-      "group": "code"
-    },
-    "system/lib/graph.mjs": {
-      "sha256": "a9019e899b54975fd9c0fe5d68ff49b97b144b6918c60e3634da81588cb73ba3",
       "group": "code"
     },
     "system/lib/hookinput.mjs": {
@@ -360,7 +352,7 @@
       "group": "code"
     },
     "system/memory.mjs": {
-      "sha256": "7d3b909bc9f2e883cb74a935ec0141ba25f5fe734245697a45ad993f4c48b45a",
+      "sha256": "2b9d94ac248f23cfe4ee726fa8a442991b7b8402eac2f148d2d184a0ed5554b4",
       "group": "code"
     },
     "system/migrations/index.mjs": {
@@ -396,7 +388,7 @@
       "group": "code"
     },
     "system/templates/cs/kit/agents-system.md": {
-      "sha256": "30b443fcb835fcb9b56107f7e07652aca10caf4017a9484259cf3a43ec1598b4",
+      "sha256": "dd3d7e4403ace9dc023dcfa959ae6ef5769decce72dd1077812b8326861a3797",
       "group": "code"
     },
     "system/templates/cs/kit/export.md": {
@@ -476,7 +468,7 @@
       "group": "code"
     },
     "system/templates/en/kit/agents-system.md": {
-      "sha256": "7a1ec1e728287db73ecaa7d4387d605c2d4c27ae275ea7c997578a9dac2d5655",
+      "sha256": "cfc9ff706f40876e336955ab19c244968d5c10e1d611325f9fc9e9dffd55e9da",
       "group": "code"
     },
     "system/templates/en/kit/export.md": {
@@ -553,22 +545,6 @@
     },
     "system/templates/github/memory-kit-updates.yml": {
       "sha256": "873a7822b76f968585df9e3766171e09eedacaf2985e1df0ff416da280f304ab",
-      "group": "code"
-    },
-    "system/templates/graph/app.js": {
-      "sha256": "14ddfa5245f55e08036b7b5b52bd3a3c787d5efd1653ea3433ea115c73e8983d",
-      "group": "code"
-    },
-    "system/templates/graph/layout.js": {
-      "sha256": "c478a95b16484d5db73953fd83677f1737d7463789c23431107ca7850fa48067",
-      "group": "code"
-    },
-    "system/templates/graph/page.html": {
-      "sha256": "3beec142ad27c84ea3ea4c5f7e2dd0041be9b6efbb2e71dfa24f41d4681cac58",
-      "group": "code"
-    },
-    "system/templates/graph/style.css": {
-      "sha256": "62a649256e70950c65999567577da0d1d3e10cfd73c03bcab32ef7aa97876886",
       "group": "code"
     },
     "system/tests/fake-terminal.mjs": {
@@ -967,10 +943,6 @@
       "sha256": "fbe91abbb60245074b6e897faa69343e5d165448785a269aee43c2802ecc7353",
       "group": "tests"
     },
-    "system/tests/integration/graph.test.mjs": {
-      "sha256": "7aa09d1881220edc3b51c8f4ec65d52b8a8eda5d7cb497582cc8e31e55836d3a",
-      "group": "tests"
-    },
     "system/tests/integration/installers.test.mjs": {
       "sha256": "1a8698d5aad2cfe3aafa43d6fdebac68206eeda76faa097685e5274cd7cbf883",
       "group": "tests"
@@ -1061,10 +1033,6 @@
     },
     "system/tests/unit/generate.test.mjs": {
       "sha256": "4416676faa79114d2a73f4d78ef68ef2de374f08b8d88d83611dbc76d5411829",
-      "group": "tests"
-    },
-    "system/tests/unit/graph.test.mjs": {
-      "sha256": "aa3aac8d60b2897b5988b35466f6aaf977ece33c439e95567ba82d1049f1b60f",
       "group": "tests"
     },
     "system/tests/unit/hooksetup.test.mjs": {
