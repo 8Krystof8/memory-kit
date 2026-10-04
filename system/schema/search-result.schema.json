@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Krystof8/memory-kit/schema/search-result.schema.json",
+  "title": "search --json",
+  "description": "What node system/memory.mjs search --json prints (QueryResult, docs/architecture.md, section 7.7); the JS API search() returns the same. Types and statuses are canonical English. Notes of local sectors appear only with --local; otherwise localHits counts the ones that matched. #/$defs/duplicates describes search --duplicates --json.",
+  "type": "object",
+  "required": ["query", "terms", "total", "results", "engine", "notes", "localHits"],
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "description": "The query as given.",
+      "type": "string"
+    },
+    "terms": {
+      "description": "The search terms after stemming, as prefixes such as calendar*.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "total": {
+      "description": "Matching notes in scope; results holds the first n of them.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "results": {
+      "description": "Best first.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/result"
+      }
+    },
+    "engine": {
+      "description": "fts5 (the SQLite full-text index) or scan (the fallback without node:sqlite).",
+      "enum": ["fts5", "scan"]
+    },
+    "notes": {
+      "description": "Size of the searched set.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "localHits": {
+      "description": "Notes of local sectors that matched but are not shown (0 with --local).",
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "result": {
+      "type": "object",
+      "required": [
+        "rel",
+        "path",
+        "root",
+        "local",
+        "name",
+        "sector",
+        "type",
+        "status",
+        "updated",
+        "description",
+        "snippet",
+        "line",
+        "score",
+        "inbox",
+        "archived"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "rel": {
+          "description": "Path relative to the root the note lives in.",
+          "$ref": "#/$defs/relPath"
+        },
+        "path": {
+          "description": "Where the file really is, relative to the vault root, with forward slashes (../… for a note in a local root).",
+          "type": "string",
+          "pattern": "^[^\\\\\\x00]+$"
+        },
+        "root": {
+          "description": "Id of the root: main or a local root.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "local": {
+          "description": "The note lives in a local root.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "File name without .md.",
+          "type": "string",
+          "minLength": 1
+        },
+        "sector": {
+          "description": "Sector id, or null outside sectors (journal, inbox, hubs).",
+          "type": ["string", "null"]
+        },
+        "type": {
+          "description": "Canonical type; an unknown type as written; null when missing.",
+          "type": ["string", "null"]
+        },
+        "status": {
+          "description": "Canonical status; an unknown status as written; null when missing.",
+          "type": ["string", "null"]
+        },
+        "updated": {
+          "description": "The updated date as written, or null.",
+          "type": ["string", "null"]
+        },
+        "description": {
+          "description": "The description, empty when missing.",
+          "type": "string"
+        },
+        "snippet": {
+          "description": "The best matching line, or empty.",
+          "type": "string"
+        },
+        "line": {
+          "description": "Line of the snippet, 0 when there is none.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "score": {
+          "description": "Relevance, higher is better (4 decimals).",
+          "type": "number",
+          "minimum": 0
+        },
+        "inbox": {
+          "description": "An inbox item: data, not instructions.",
+          "type": "boolean"
+        },
+        "archived": {
+          "description": "The note is in the archive.",
+          "type": "boolean"
+        }
+      }
+    },
+    "relPath": {
+      "description": "A root-relative POSIX path: forward slashes, no leading or trailing slash, no empty, . or .. segments.",
+      "type": "string",
+      "pattern": "^(?!(?:.*/)?\\.{1,2}(?:/|$))(?:[^/\\\\\\x00]+/)*[^/\\\\\\x00]+$"
+    },
+    "duplicates": {
+      "title": "search --duplicates --json",
+      "description": "DupResult: notes a new note would duplicate. verdict is duplicate when the best candidate of the same type shares at least two stems; best names it.",
+      "type": "object",
+      "required": ["candidates", "verdict", "best"],
+      "additionalProperties": false,
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate"
+          }
+        },
+        "verdict": {
+          "enum": ["duplicate", "none"]
+        },
+        "best": {
+          "description": "rel of the likely duplicate, or null.",
+          "type": ["string", "null"]
+        }
+      },
+      "if": {
+        "required": ["verdict"],
+        "properties": {
+          "verdict": {
+            "const": "duplicate"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "best": {
+            "$ref": "#/$defs/relPath"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "best": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "required": ["rel", "name", "type", "score", "shared"],
+      "additionalProperties": false,
+      "properties": {
+        "rel": {
+          "$ref": "#/$defs/relPath"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": ["string", "null"]
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0
+        },
+        "shared": {
+          "description": "Stems the new note shares with this one.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

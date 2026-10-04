@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/8Krystof8/memory-kit/security/advisories/new
+    about: Keys, private notes or paths that could leave the computer or reach git.
+  - name: Something is not set up right
+    url: https://github.com/8Krystof8/memory-kit#health-check
+    about: Run node system/memory.mjs doctor first; it names each problem with its fix.

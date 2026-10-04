@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/8Krystof8/memory-kit/schema/note.schema.json",
+  "title": "Note frontmatter",
+  "description": "The frontmatter of a note outside the inbox, with canonical English keys and values (docs/architecture.md, sections 4.3 to 5.4). In a vault of another language, map the keys and the values of type, status, state and privacy to the canonical ones first (the kit accepts both). A key without a value (null) counts as not set. Keys the kit does not know are allowed and kept. Inbox items need no frontmatter. What only the whole vault can tell is left to check: links, names, places, the other budgets and all warnings.",
+  "type": "object",
+  "required": ["type", "status", "description", "updated"],
+  "propertyNames": {
+    "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+  },
+  "properties": {
+    "type": {
+      "description": "What kind of note it is (docs/architecture.md, table 4.4).",
+      "enum": [
+        "decision",
+        "rule",
+        "procedure",
+        "fact",
+        "insight",
+        "project",
+        "proposal",
+        "analysis",
+        "text",
+        "list",
+        "person",
+        "organization",
+        "journal",
+        "sector",
+        "hub"
+      ]
+    },
+    "status": {
+      "description": "Lifecycle status; for most types active means valid.",
+      "enum": ["active", "waiting", "done", "replaced", "rejected"]
+    },
+    "description": {
+      "description": "One sentence: what the note contains and when to look at it. At most 200 characters (a warning from 160).",
+      "type": "string",
+      "pattern": "\\S",
+      "maxLength": 200
+    },
+    "updated": {
+      "description": "Date of the last factual change.",
+      "$ref": "#/$defs/date"
+    },
+    "created": {
+      "description": "Creation date; required for decision and journal.",
+      "$ref": "#/$defs/optionalDate"
+    },
+    "aliases": {
+      "description": "Other names of the note: the common key of markdown tools, never localized.",
+      "$ref": "#/$defs/list"
+    },
+    "keywords": {
+      "description": "Word forms the stemmer misses, ASCII variants and synonyms.",
+      "$ref": "#/$defs/list"
+    },
+    "replaces": {
+      "description": "Wikilink, or a list of wikilinks, of the notes this one replaces.",
+      "type": ["string", "array", "null"],
+      "items": {
+        "type": "string"
+      }
+    },
+    "replaced_by": {
+      "description": "Wikilink of the note that replaces this one.",
+      "type": ["string", "null"]
+    },
+    "valid_until": {
+      "description": "The note is invalid after this day (facts, prices, deadlines).",
+      "$ref": "#/$defs/optionalDate"
+    },
+    "review_on": {
+      "description": "Verify the note on this day (fast-ageing notes).",
+      "$ref": "#/$defs/optionalDate"
+    },
+    "pin": {
+      "description": "Always in the hot layer.",
+      "type": ["boolean", "null"]
+    },
+    "source": {
+      "description": "Where the information comes from.",
+      "type": ["string", "null"]
+    },
+    "questions": {
+      "description": "Questions the note answers (decisions, long documents).",
+      "$ref": "#/$defs/list"
+    },
+    "state": {
+      "description": "Sector state (manifests).",
+      "enum": ["on", "sleep", "off", null]
+    },
+    "privacy": {
+      "description": "Sector privacy (manifests): github content may leave the machine through git, local content stays in the local root.",
+      "enum": ["github", "local", null]
+    },
+    "when_here": {
+      "description": "When a note belongs to this sector (manifests).",
+      "type": ["string", "null"]
+    },
+    "not_here": {
+      "description": "What does not belong to this sector (manifests).",
+      "type": ["string", "null"]
+    },
+    "links": {
+      "description": "Ids of linked sectors (manifests).",
+      "$ref": "#/$defs/sectorIds"
+    },
+    "hot_max": {
+      "description": "Hot notes of this sector at most (manifests); missing means 5.",
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 20
+    },
+    "cleanup": {
+      "description": "Only none in this version (manifests).",
+      "enum": ["none", "", null]
+    },
+    "sectors": {
+      "description": "Sectors the session worked in (journal).",
+      "$ref": "#/$defs/sectorIds"
+    },
+    "used": {
+      "description": "Wikilinks of the notes the session used (journal).",
+      "$ref": "#/$defs/list"
+    },
+    "changed": {
+      "description": "Wikilinks of the notes the session changed (journal).",
+      "$ref": "#/$defs/list"
+    },
+    "search_missed": {
+      "description": "Searches that missed (journal): \"query → [[note]]\" or \"query → not found\".",
+      "$ref": "#/$defs/list"
+    }
+  },
+  "allOf": [
+    {
+      "description": "Decisions and journal entries carry their creation date.",
+      "if": {
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "enum": ["decision", "journal"]
+          }
+        }
+      },
+      "then": {
+        "required": ["created"],
+        "properties": {
+          "created": {
+            "$ref": "#/$defs/date"
+          }
+        }
+      }
+    },
+    {
+      "description": "A note of type sector is a sector manifest (section 6.1).",
+      "if": {
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "const": "sector"
+          }
+        }
+      },
+      "then": {
+        "required": ["state", "privacy", "when_here", "not_here"],
+        "properties": {
+          "state": {
+            "description": "Must be set; its values are listed above.",
+            "type": "string"
+          },
+          "privacy": {
+            "description": "Must be set; its values are listed above.",
+            "type": "string"
+          },
+          "when_here": {
+            "$ref": "#/$defs/text"
+          },
+          "not_here": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "date": {
+      "description": "A calendar date YYYY-MM-DD.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$",
+      "format": "date"
+    },
+    "optionalDate": {
+      "description": "A date, or empty (not set).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/date"
+        },
+        {
+          "const": ""
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "list": {
+      "description": "A list of strings; null counts as an empty list.",
+      "type": ["array", "null"],
+      "items": {
+        "type": "string"
+      }
+    },
+    "sectorIds": {
+      "description": "A list of sector ids; null counts as an empty list.",
+      "type": ["array", "null"],
+      "items": {
+        "$ref": "#/$defs/sectorId"
+      }
+    },
+    "sectorId": {
+      "description": "Lowercase ASCII words joined by hyphens, at most 24 characters.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 24
+    },
+    "text": {
+      "description": "A non-empty text.",
+      "type": "string",
+      "pattern": "\\S"
+    }
+  }
+}
