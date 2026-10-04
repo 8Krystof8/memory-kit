@@ -9,9 +9,10 @@ changes is in [CHANGELOG.md](CHANGELOG.md); how a memory gets it, in
 | weekend | version | theme |
 |---|---|---|
 | 3–4 October 2026 | 0.1.4 | Hardening: green CI everywhere, honest docs, updates that reach older memories |
-| 17–18 October 2026 | 0.1.5 | Proof: a benchmark against Mem0 and the Claude Code auto memory |
-| 24–25 October 2026 | 0.2.0 | Writes: propose, validate, merge |
-| 31 October – 1 November 2026 | 0.2.1 | Several writers at once |
+| 10–11 October 2026 | 0.2.0 | The graph view: your memory as a living map in the browser |
+| 17–18 October 2026 | 0.3.0 | Proof: a benchmark against Mem0 and the Claude Code auto memory |
+| 24–25 October 2026 | 0.4.0 | Writes: propose, validate, merge |
+| 31 October – 1 November 2026 | 0.5.0 | Several writers at once |
 
 ## 0.1.4: hardening
 
@@ -23,7 +24,15 @@ changes is in [CHANGELOG.md](CHANGELOG.md); how a memory gets it, in
 - `doctor` names the line to change in a `.claude/settings.json` that kept the old start hook.
 - `SECURITY.md`, issue and pull request templates.
 
-## 0.1.5: proof
+## 0.2.0: the graph view
+
+- `node system/memory.mjs graph` (Czech `graf`) opens the memory as a map in the browser: notes as
+  dots, links as lines by their kind, with filters, search and the local graph around one note.
+- Live: while the map is open, a note an agent writes appears within seconds and the layout makes
+  room for it. No server and no port: the page is a file on your computer.
+- The same on Windows, macOS and Linux.
+
+## 0.3.0: proof
 
 - A benchmark in the repository: the same notes, questions and model for memory-kit, Mem0 and the
   Claude Code auto memory. It measures correct answers, facts that changed, "not in memory" when
@@ -31,21 +40,19 @@ changes is in [CHANGELOG.md](CHANGELOG.md); how a memory gets it, in
 - Published results, including where memory-kit loses. A pilot comes first.
 - A measurement of the 📎 rule: runs with and without it show whether it pays for its tokens.
 
-## 0.2.0: propose, validate, merge
+## 0.4.0: propose, validate, merge
 
 - A design note first (the decisions of [docs/architecture.md](docs/architecture.md)).
 - Agents propose a change instead of editing notes. A deterministic validator checks it (keys,
   links, secrets, budgets, the five laws), and only then is it merged.
 - The MCP server gets the same write path, so apps can do more than add to the inbox.
 
-## 0.2.1: several writers
+## 0.5.0: several writers
 
 - Two agents or two computers changing the memory at the same time: locks where they are needed,
   and merges that never lose a note.
 
 ## Later
 
-- A live map of the memory: notes as dots, links as lines by their strength, growing while agents
-  work. It needs a server on 127.0.0.1, an exception the network rules would have to allow.
 - The nightly cleanup, a local model for private sectors, a remote MCP server and embeddings
   ([docs/maintenance.md](docs/maintenance.md#roadmap-not-built-yet)).
