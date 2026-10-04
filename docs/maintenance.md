@@ -333,7 +333,7 @@ a new file in `inbox/`.
 
 | symptom | cause and fix |
 |---|---|
-| anything odd, or before you ask for help | `node system/memory.mjs doctor` checks Node, `memory.json`, the kit files, git hooks, roots and connected apps, and prints a fix for each problem (`--json` for scripts). It works even when `memory.json` is broken. `doctor --fix` repairs two things by itself: an unset `core.hooksPath` and a pre-commit hook file with CRLF line endings, a byte order mark or no executable bit |
+| anything odd, or before you ask for help | `node system/memory.mjs doctor` checks Node, `memory.json`, the kit files, git hooks, roots and connected apps, and prints a fix for each problem (`--json` for scripts). It works even when `memory.json` is broken. `doctor --fix` repairs three things by itself: an unset `core.hooksPath`, a pre-commit hook file with CRLF line endings, a byte order mark or no executable bit, and a Claude Code start hook of 0.1.2 or older (no `--format claude-hook`) in `.claude/settings.json` |
 | `memory: config error: …` (exit 3) on every command | `memory.json` or a language pack cannot be read; `node system/memory.mjs doctor` shows the cause and the fix |
 | `memory.json "version" is 2, but this kit reads data version 1: the vault is newer than this kit` | a newer kit already migrated this vault's data (on another computer, then pulled here); run `node system/memory.mjs upgrade` here too |
 | `upgrade` refuses: an earlier upgrade did not finish | an upgrade was interrupted; `node system/memory.mjs upgrade --rollback` ([upgrading.md](upgrading.md#an-interrupted-upgrade)). If it names files you changed since, `--rollback --force` restores them after saving your version in the backup |

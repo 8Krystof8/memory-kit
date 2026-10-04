@@ -1,0 +1,44 @@
+name: Bug report
+description: Something does not work the way the docs say.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. This repository is public: never paste your own notes, note names, keys or private paths; a made-up example is enough.
+        A security problem goes to the private report instead: Security → Report a vulnerability.
+  - type: input
+    id: version
+    attributes:
+      label: memory-kit version
+      description: "node system/memory.mjs --version"
+      placeholder: "0.1.4"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS, Node.js and AI tool
+      placeholder: "macOS 15, Node.js 22.12, Claude Code 2.1.300"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. node system/memory.mjs …
+        2. …
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of node system/memory.mjs doctor
+      description: |
+        It checks the setup and names each problem with its fix. It also prints private details: the folder of your memory, your home folder (with your user name), your private folder, your git branch and, when the update workflow is missing, a long link with your GitHub account and repository name. Replace them with `<memory>`, `<home>`, `<private>`, `<branch>` and `<owner>/<repo>`, and leave the link out.
+      render: text

@@ -4,21 +4,27 @@
 // memory.json "updates": {"check": true} the session start runs that check in the background, at
 // most once a day and never in CI; the owner's line at a session start then names a newer version
 // once a day. The workflow .github/workflows/memory-kit-updates.yml of a vault on GitHub turns the
-// answer of `upgrade --check --json` into one issue ("updates": {"github": false} turns that off).
+// answer of `upgrade --check --json` into one issue ("updates": {"github": false} turns that off);
+// a vault made before 0.1.3 lacks it, and workflowLinkOf builds the link that adds it on GitHub.
 // Nothing here throws out of a session.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { localDay } from './activity.mjs';
 import { writeAtomic } from './fsafe.mjs';
 import { detectStyle, formatJson } from './jsonc.mjs';
-import { DEFAULT_SOURCE, compareVersions, loadManifest, parseVersion, readVersion } from './kit.mjs';
+import { DEFAULT_SOURCE, compareVersions, hashText, loadManifest, parseVersion, readVersion } from './kit.mjs';
 import { WORK_DIR, ensureWorkDirIgnored, interpolate } from './util.mjs';
 
 export const UPDATES_REL = '.memory-kit/updates.json';
 const DAY_MS = 86400000;
 const LS_REMOTE_TIMEOUT_MS = 15000;
+// The kit that runs this code; its copy of the update workflow goes into the link of an older vault.
+const CODE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+// GitHub answers a link of 9 KB with 414 (URI Too Long); the workflow makes one of about 5 KB.
+const MAX_LINK_LENGTH = 8000;
 
 // English defaults; packs may translate the same keys (section 4.10).
 const DEFAULTS = {
@@ -36,13 +42,17 @@ const DEFAULTS = {
   'updates.issue_closed': 'This memory has memory-kit {installed} now, so this issue is done.',
   'updates.ch_github_on': 'an issue on GitHub',
   'updates.ch_github_off': 'no issue on GitHub ("updates": {"github": false})',
-  'updates.ch_github_missing': 'no issue on GitHub yet: add .github/workflows/memory-kit-updates.yml (README, "Hear of new versions")',
+  'updates.ch_github_missing': 'no issue on GitHub yet: the workflow is missing (node system/memory.mjs doctor prints the link that adds it)',
+  'updates.ch_github_missing_short': 'no issue on GitHub yet: the workflow is missing',
   'updates.ch_check_on': 'a daily check at the session start',
   'updates.ch_check_off': 'no daily check ("updates": {"check": true} turns it on)',
 };
 
 /** The workflow that opens the issue of a newer kit; the template has it, upgrade never ships it. */
 export const WORKFLOW_REL = '.github/workflows/memory-kit-updates.yml';
+
+/** The kit's copy of that workflow (0.1.4), which upgrade brings to every vault, for workflowLinkOf. */
+export const WORKFLOW_COPY_REL = 'system/templates/github/memory-kit-updates.yml';
 
 export function say(cfg, key, vars = {}) {
   let text = null;
@@ -103,11 +113,17 @@ export function latestAt(src, { git = spawnSync, env = process.env } = {}) {
   return latest;
 }
 
+/** {owner, repo} of a repository URL on GitHub (https, git@ or ssh://), else null. */
+export function githubRepo(url) {
+  const m = /^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(String(url ?? '').trim());
+  return m ? { owner: m[1], repo: m[2] } : null;
+}
+
 /** The releases page of a source on GitHub ({base}/releases, and the tag page of a version), else null. */
 export function releasesOf(source, version) {
-  const m = /^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(String(source ?? '').trim());
-  if (!m) return null;
-  const base = `https://github.com/${m[1]}/${m[2]}/releases`;
+  const repo = githubRepo(source);
+  if (!repo) return null;
+  const base = `https://github.com/${repo.owner}/${repo.repo}/releases`;
   return { page: base, tag: version ? `${base}/tag/v${version}` : null };
 }
 
@@ -222,20 +238,26 @@ function rawConfigOf(root) {
   }
 }
 
-/** Where the vault's origin points, read from git's config (no network): 'github', 'other' or null. */
-function originKind(root) {
-  const res = spawnSync('git', ['config', '--get', 'remote.origin.url'], {
+/** The output of a local git command in the vault (it never reaches a remote), or '' when it fails. */
+function gitLocal(root, args) {
+  const res = spawnSync('git', args, {
     cwd: root, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
   });
-  const url = res.status === 0 ? String(res.stdout).trim() : '';
+  return res.status === 0 ? String(res.stdout).trim() : '';
+}
+
+/** Where the vault's origin points, read from git's config (no network): 'github', 'other' or null. */
+function originKind(root) {
+  const url = gitLocal(root, ['config', '--get', 'remote.origin.url']);
   if (!url) return null;
   return /github\.com[:/]/i.test(url) ? 'github' : 'other';
 }
 
 /**
  * What the vault knows about newer versions, from files on this computer only: {installed, latest,
- * checked, available, channels: {github, check}}. github is 'on', 'off' (updates.github false),
- * 'missing' (no workflow file) or 'none' (mode local, or no origin on GitHub). Takes a cfg or a root.
+ * checked, available, channels: {github, check}}. github is 'on', 'off' (updates.github false, with
+ * or without the workflow file), 'missing' (no workflow file) or 'none' (mode local, or no origin on
+ * GitHub). Takes a cfg or a root.
  */
 export function updateStatus(cfgOrRoot) {
   const root = typeof cfgOrRoot === 'string' ? cfgOrRoot : cfgOrRoot.root;
@@ -247,16 +269,20 @@ export function updateStatus(cfgOrRoot) {
   const mode = typeof cfgOrRoot === 'object' && cfgOrRoot.mode ? cfgOrRoot.mode : rawConfigOf(root)?.mode;
   let github = 'none';
   if (mode !== 'local' && originKind(root) === 'github') {
-    github = !fs.existsSync(path.join(root, ...WORKFLOW_REL.split('/'))) ? 'missing' : settings.github ? 'on' : 'off';
+    github = !settings.github ? 'off' : fs.existsSync(path.join(root, ...WORKFLOW_REL.split('/'))) ? 'on' : 'missing';
   }
   const checked = typeof cache.checked === 'string' && Number.isFinite(Date.parse(cache.checked)) ? cache.checked : null;
   return { installed, latest, checked, available, channels: { github, check: settings.check } };
 }
 
-/** The channels of a status as the owner reads them: "an issue on GitHub · no daily check (…)". */
-export function channelList(cfg, status) {
+/**
+ * The channels of a status as the owner reads them: "an issue on GitHub · no daily check (…)".
+ * short: without the hint where the link for a missing workflow is (doctor and setup print it).
+ */
+export function channelList(cfg, status, { short = false } = {}) {
   const parts = [];
-  if (status.channels.github !== 'none') parts.push(say(cfg, `updates.ch_github_${status.channels.github}`));
+  const github = status.channels.github === 'missing' && short ? 'missing_short' : status.channels.github;
+  if (github !== 'none') parts.push(say(cfg, `updates.ch_github_${github}`));
   parts.push(say(cfg, status.channels.check ? 'updates.ch_check_on' : 'updates.ch_check_off'));
   return parts.join(' · ');
 }
@@ -290,6 +316,49 @@ export function sourceOf(root) {
 export function workflowUrlOf(source) {
   const pages = releasesOf(source);
   return pages ? `${pages.page.replace(/\/releases$/, '')}/blob/main/${WORKFLOW_REL}` : null;
+}
+
+// encodeURIComponent, and also ! ' ( ) *, which it leaves raw: a terminal ends a link at them.
+const percentEncode = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+
+const ORIGIN_REFS = 'refs/remotes/origin/';
+
+/**
+ * The repository's default branch as git knows it offline, which is the only branch GitHub runs a
+ * scheduled workflow from: origin/HEAD (a clone sets it), else main when origin has one (a cloud
+ * session works on a branch of its own and has no origin/HEAD), else the current branch, else main.
+ */
+function defaultBranchOf(root) {
+  const head = gitLocal(root, ['symbolic-ref', '--quiet', `${ORIGIN_REFS}HEAD`]);
+  if (head.startsWith(ORIGIN_REFS) && head.length > ORIGIN_REFS.length) return head.slice(ORIGIN_REFS.length);
+  if (gitLocal(root, ['rev-parse', '--verify', '--quiet', `${ORIGIN_REFS}main`])) return 'main';
+  return gitLocal(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']) || 'main';
+}
+
+/**
+ * A link that opens GitHub's editor for a new file in the vault's own repository, with the path and
+ * the text of the update workflow filled in (…/new/<branch>?filename=…&value=…): the owner adds it
+ * with "Commit changes", which needs no token with the `workflow` scope. The text is the running
+ * kit's copy (WORKFLOW_COPY_REL), only while it matches its sha256 in kit.json, percent-encoded
+ * with ! ' ( ) * included; the branch is the one GitHub runs a nightly workflow from
+ * (defaultBranchOf). null when the vault's origin is not on GitHub, the copy is missing or changed
+ * here, or the link would be longer than GitHub takes. Reads git's config, the copy and kit.json;
+ * nothing goes online. Never throws.
+ */
+export function workflowLinkOf(root, { codeRoot = CODE_ROOT } = {}) {
+  try {
+    const repo = githubRepo(gitLocal(root, ['config', '--get', 'remote.origin.url']));
+    if (!repo) return null;
+    const text = fs.readFileSync(path.join(codeRoot, ...WORKFLOW_COPY_REL.split('/')), 'utf8');
+    // Only the copy the kit shipped: one changed here (kit.integrity warns of it) gets no link.
+    if (hashText(text) !== loadManifest(codeRoot)?.files?.[WORKFLOW_COPY_REL]?.sha256) return null;
+    const branch = defaultBranchOf(root);
+    const where = branch.split('/').map(percentEncode).join('/');
+    const url = `https://github.com/${repo.owner}/${repo.repo}/new/${where}?filename=${WORKFLOW_REL}&value=${percentEncode(text)}`;
+    return url.length <= MAX_LINK_LENGTH ? url : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The issue text for the nightly CI of a vault on GitHub: {title, body}. */

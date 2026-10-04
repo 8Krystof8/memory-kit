@@ -76,7 +76,9 @@ and asks the setup questions. To pass the answers instead, see the options at th
 
 **Setting up in a cloud session** (Claude Code on the web, Codex cloud): choose mode `github`
 without local sectors. A cloud container disappears when the session ends, so a private folder
-there would be lost; `init` refuses it. Add local sectors later on your own computer.
+there would be lost. `init` refuses it only where it can tell (Claude Code on the web, GitHub
+Codespaces, Gitpod); it cannot recognise Codex cloud, so there the choice is up to you. Add local
+sectors later on your own computer.
 
 **Without GitHub:** on the kit's page choose Code → Download ZIP. Unzip it, open the folder in a local
 agent, say "set up memory" and choose mode `local`. See [docs/modes.md](docs/modes.md).
@@ -123,6 +125,21 @@ can search and read your notes and save new captures to `inbox/`; it never chang
 and local sectors stay hidden. `node system/memory.mjs connect --list` shows which apps are
 connected. Where each app keeps its settings, and what to do when it does not work:
 [docs/integrations/mcp.md](docs/integrations/mcp.md).
+
+## What each AI tool gets
+
+"Measured" means the kit does or records it itself; "best-effort" means an instruction that the
+agent may follow or skip.
+
+| | Claude Code | Codex | Gemini CLI | Cursor | apps over MCP |
+|---|---|---|---|---|---|
+| the rules and the search protocol | `CLAUDE.md` → `AGENTS.md` | `AGENTS.md` | `GEMINI.md` → `AGENTS.md` | `AGENTS.md` | `memory_start` |
+| the start view at a session start | a hook (measured) | the agent runs `start` (best-effort), or an [optional hook](docs/integrations/codex.md#optional-load-the-start-file-with-a-hook); a hook in code projects | the agent runs `start` (best-effort), or an [optional hook](docs/integrations/gemini-cli.md) | the agent runs `start` (best-effort) | the agent calls `memory_start` (best-effort) |
+| your line at a session start (measured) | yes | no: Codex shows no hook messages; failures and a newer version reach you through the agent | no | no | no |
+| the 📎 line under answers (best-effort) | rule 11 | rule 11 | rule 11 | rule 11 | the server's instructions |
+| the activity log (measured) | yes | yes | yes | yes, as "CLI" | yes, with the app's name |
+| memory for code projects ([docs/projects.md](docs/projects.md)) | yes | yes | no | no | no |
+| the error lookup after a failed command | yes | no | no | no | no |
 
 ## Memory for your code projects
 
@@ -285,10 +302,12 @@ The output above is shortened.)
 
 ## Is it working?
 
-The memory works in the background, and it shows that it does in three places.
+The memory works in the background, and it shows that it does in three places. Two of them are
+**measured**: the kit writes them itself. One is **best-effort**: an instruction the agent may
+follow or not. Which AI tool gets what is in [What each AI tool gets](#what-each-ai-tool-gets).
 
-**At every session start in Claude Code**, one line from memory-kit that the agent does not have to
-read (it is a message of the hook, not part of the agent's context):
+**At every session start in Claude Code** (measured), one line from memory-kit that the agent does
+not have to read (it is a message of the hook, not part of the agent's context):
 
 ```text
 memory-kit: memory loaded · 34 notes · 5 sectors
@@ -299,18 +318,20 @@ project (dev)`. When the memory did not load, the line gives the reason and tell
 `doctor`, so a broken memory no longer looks like a working one. `"feedback": {"notice": false}`
 in `memory.json` turns the line off.
 
-**Under an answer that used your notes**, the agent adds one line that names them, and after it
-saved something, one that names the new note:
+**Under an answer that used your notes** (best-effort), the agent adds one line that names them,
+and after it saved something, one that names the new note:
 
 ```text
 📎 memory: [[fixed-price-packages]], [[harbor-bakery]]
 📎 saved: [[2026-09-29-harbor-bakery-wants-a-loyalty-card]]
 ```
 
-The rule is step 11 of the search rules and is also in the instructions of the MCP server. It is an
-instruction to the agent, so treat it as a habit, not a guarantee. For a record, use the next part.
+The rule is step 11 of the search rules and is also in the instructions of the MCP server. It is only
+an instruction: an agent may leave the line out, or write one without having read a note, so
+neither its presence nor its absence proves anything. The record is the next part.
 
-**Any time**, `activity` shows what the agents did with the memory on this computer:
+**Any time** (measured), `activity` shows what the agents did with the memory on this computer:
+
 
 ```text
 $ node system/memory.mjs activity
@@ -365,9 +386,11 @@ memory-kit doctor · kit 0.1.1 · /home/you/my-memory
 ```
 
 (The output above is shortened.) `doctor` also works when `memory.json` is broken, and it changes
-nothing. `doctor --fix` repairs the two things that are safe to repair by itself: an unset git
-hook path, and a pre-commit hook file with the wrong line endings or without its executable bit
-(when it changes the file's content, it keeps a copy of the old one).
+nothing. `doctor --fix` repairs the three things that are safe to repair by itself: an unset git
+hook path, a pre-commit hook file with the wrong line endings or without its executable bit, and
+a Claude Code start hook of 0.1.2 or older in `.claude/settings.json`, which loads the memory but
+shows no line at the session start (when it changes a file's content, it keeps a copy of the old
+one).
 `doctor --json` prints the report for scripts.
 
 ## Update to a new version
@@ -376,12 +399,13 @@ One command updates the kit:
 
 ```sh
 node system/memory.mjs upgrade
-node system/memory.mjs upgrade --yes
 ```
 
-The first command downloads the newest kit and prints what would change. Nothing changes yet. The
-second applies it. Then commit with the two commands `upgrade` prints (`git add -A`, then
-`git commit -m "…"`).
+It downloads the newest kit, shows what would change and what is new, and asks before it changes
+anything. Where it cannot ask (an AI agent, a script, or a memory still on 0.1.1) it only prints
+the plan and changes nothing; `node system/memory.mjs upgrade --yes` then applies it. Then run the
+three commands `upgrade` prints: `node system/memory.mjs doctor` (it shows what is left to you, such
+as the link that adds the update workflow), `git add -A` and `git commit -m "…"`.
 
 What it promises:
 
@@ -419,9 +443,11 @@ and checks.
 `upgrade` never adds or changes a workflow file: pushing one needs a token with the `workflow`
 scope, which the usual `gh` login does not have, so the next `sync` would fail. A memory made from
 0.1.3 on has the workflow from the template. In an older one, add it once on GitHub, which needs no
-such token: open your memory's repository, Add file → Create new file, name it
+such token: from 0.1.4 on, `node system/memory.mjs doctor` (and `setup` → New versions) prints a
+link that opens GitHub's editor with the file already filled in, so you only press Commit changes.
+By hand: open your memory's repository, Add file → Create new file, name it
 `.github/workflows/memory-kit-updates.yml`, paste [this file](.github/workflows/memory-kit-updates.yml)
-and commit. It answers after the upgrade to 0.1.3.
+and commit. It answers once your memory has 0.1.3 or newer.
 
 ## For developers
 
@@ -495,9 +521,14 @@ Version 0.1.0 was phase 1: the structure, checks, generated views, search, templ
 setup, adapters and CI. Version 0.1.1 adds `upgrade`, `doctor`, the MCP server with `connect`, the
 JavaScript API, JSON schemas and support for Windows and macOS. Version 0.1.2 adds memory for code
 projects: hooks for Claude Code and Codex, a `dev` sector per repository outside the code, and
-`remember`. The nightly cleanup by a cheap
-model, a local model for private sectors, a remote MCP server and embeddings are on the
-[roadmap](docs/maintenance.md#roadmap-not-built-yet). Their safety rules are already written down.
+`remember`. Version 0.1.3 shows that the memory works (the line at the session start, `activity`)
+and tells you of new versions. Version 0.1.4 hardens it: CI is green on Linux, macOS and Windows,
+one table says what each AI tool gets, and `doctor` helps an older memory catch up (a link that
+adds the update workflow on GitHub, and a fix for the start hook of 0.1.2).
+
+New versions come every weekend, and `main` only ever holds released versions: the work happens on
+`dev`, and a release is a pull request whose CI is green on Linux, macOS and Windows. What comes
+next is in [ROADMAP.md](ROADMAP.md); how to report a security problem, in [SECURITY.md](SECURITY.md).
 
 ## License
 

@@ -9,6 +9,114 @@ which kit-owned files changed.
 
 Nothing yet.
 
+## 0.1.4 (2026-10-04)
+
+From this version on, `main` only ever holds released versions: the work happens on `dev`, and a
+release is a pull request from `dev` whose CI is green on Linux, macOS and Windows.
+
+### Added
+
+- **Older memories hear of new versions too**: a memory on GitHub made before
+  0.1.3 has no `.github/workflows/memory-kit-updates.yml`, and `upgrade` never adds a workflow, so
+  it never heard of a new version by an issue. `doctor` now warns about it and prints a link that
+  opens GitHub's editor with the file already filled in: one click on Commit changes adds it, with
+  no token with the `workflow` scope. `setup` → New versions prints the same link. The link opens
+  the file on the repository's default branch, the only one GitHub runs a nightly workflow from
+  (also from a cloud session that works on a branch of its own), and carries the kit's copy only
+  while it matches its hash in `system/kit.json`. It is fully percent-encoded, so Windows Terminal
+  opens it whole; the VS Code terminal opens no link longer than 2048 characters, so there copy the
+  whole link into the browser (the file ends with the line `fi`). The kit keeps a copy of the
+  workflow in `system/templates/github/`, which `upgrade` brings to every memory.
+- **One command repairs an old start setting**: `doctor` finds the start hook of 0.1.2, and
+  `doctor --fix` repairs it. When you had changed
+  `.claude/settings.json`, `upgrade` to 0.1.3 kept your file with the old hook, which loads the
+  memory but shows no line at the session start. `doctor` now warns and names the line (also when
+  the path is written with JSON escapes such as `\/`), and `doctor --fix` adds `--format
+  claude-hook` inside that one JSON string and nowhere else (a copy of the old file goes to
+  `.memory-kit/backups/doctor/`). A file with comments, a hook in exec form, or a settings file
+  that is a link or sits in a `.claude` folder linked outside the memory is left to you, with the
+  line to change.
+
+### Changed
+
+- **After an update, the next step is shown**: both repairs of 0.1.4 for older memories
+  show only in `doctor`, so the next steps after an upgrade are now `node system/memory.mjs
+  doctor`, then `git add -A` and `git commit` (the last two only under git).
+- **A memory that is not set up waits until you ask**: its start line said "Follow AGENTS.md,
+  section Setup: ask the user, then run node system/init.mjs", so an agent started the setup
+  questions unasked, although `AGENTS.md` sets up memory only when you ask. It now says to follow
+  Setup when the user asks, and tells an agent that works on memory-kit itself to skip the setup
+  and follow CONTRIBUTING.md.
+- **In a cloud session, setup offers only what works there**: `node system/init.mjs --questions`
+  in a cloud session (Claude Code on the web, Codespaces, Gitpod) adds one line: offer only mode
+  github without local sectors. Elsewhere, and with `--json`, its output is unchanged. And
+  `init --mode github` with a sector that is local by default (family, health, finances) or marked
+  `:local` no longer asks for `--mode combined`, which a cloud session refuses: there it offers
+  `<id>:github`, or leaving the sector out and adding it later on your own computer.
+- **Turning the update issue off always works**: `"updates": {"github": false}` in `memory.json`
+  now always reads as off, also in a memory without the workflow file, which `activity`, `doctor`
+  and `setup` listed as missing.
+
+The docs match the code in more places: the README teaches one `upgrade` command, which asks
+before it changes anything; the cloud refusal of `init` names only the sessions it can tell
+(Claude Code on the web, Codespaces, Gitpod; not Codex cloud); the Claude Code, Codex and Gemini
+CLI guides know `--format claude-hook` and the repair of `doctor --fix`; `docs/install.md` names the
+fourth setup extra and every installer override; `docs/upgrading.md` lists every file `upgrade`
+never touches and leaves the release tag to `release.yml`; the contract describes 0.1.4.
+
+In the repository (nothing changes in a memory): the README says which AI tool gets what, in one
+table for Claude Code, Codex, Gemini CLI, Cursor and apps over MCP, and marks every sign that the
+memory works as measured (the line at the session start, `activity`) or best-effort (the 📎 line,
+an instruction the agent may skip or write without having read a note). The release rules are in
+[CONTRIBUTING.md](CONTRIBUTING.md#releasing): `main` only ever holds released versions, a release
+needs green CI on every platform, a version number is used once, and `release.yml` tags the
+release. [SECURITY.md](SECURITY.md) says how to report privately and what checks each promise
+(common key formats and password assignments, not every secret); there are issue and pull request
+templates that say which lines of `doctor` are private, and [ROADMAP.md](ROADMAP.md) lists the
+weekend releases.
+
+### Upgrading
+
+Nothing to do by hand. After `upgrade`, run `node system/memory.mjs doctor`: in a memory made
+before 0.1.3 it prints the link that adds the update workflow on GitHub, and when your
+`.claude/settings.json` kept the start hook of 0.1.2, `doctor --fix` adds `--format claude-hook`
+to it. Commit the changed file.
+
+### Kit files
+
+New: `system/templates/github/memory-kit-updates.yml`, a copy of the update workflow for the link
+of `doctor` and `setup`. Changed: `system/VERSION`, `system/init.mjs`,
+`system/lib/{config,doctor,updates,wizard}.mjs`, `system/lib/commands/{doctor,upgrade}.mjs`,
+`system/lang/{en,cs}/pack.json`, the version in the system section of `AGENTS.md` and
+`system/templates/{en,cs}/kit/agents-system.md`, the tests
+`system/tests/unit/{cli,docs,doctor,hooksetup,kit,review,updates,wizard}.test.mjs` and
+`system/tests/integration/{projects,upgrade,upgrade-screen}.test.mjs`, `docs/architecture.md`,
+`docs/install.md`, `docs/maintenance.md`, `docs/modes.md`, `docs/upgrading.md` and
+`docs/integrations/{claude-code,codex,gemini-cli}.md`. The template's
+`.github/workflows/memory-kit-updates.yml` names the link in its comment. Removed: nothing.
+`README.md`, `README.cs.md`, `SECURITY.md`, `ROADMAP.md`, `CONTRIBUTING.md`, `CHANGELOG.md`,
+`.github/ISSUE_TEMPLATE/` and `.github/pull_request_template.md` belong to the kit repository;
+`upgrade` does not bring them.
+
+### Testing
+
+- CI is green again on macOS and Windows: tests that compared screen text broken by the terminal
+  inside a long temporary path (macOS and Windows temp folders) now compare it without white space;
+  the Codex hooks test expects `commandWindows` on Windows; a test that copied a folder with
+  diacritics now uses the helpers' plain copy; a test that pretends Linux with a Windows vault path
+  skips itself on Windows.
+- **A test that depended on the machine**: the test of the pre-commit hook with an old Node.js
+  first on the `PATH` expects the refusal only where no Node.js 22 or newer waits in a usual place,
+  since the hook rightly uses that one (the CI runners have one in `/usr/local/bin`).
+- **The oldest supported Node.js**: on Node.js 22.5 to 22.12, which have no `node:sqlite` with
+  FTS5, `doctor` rightly warns about `node.fts5`, but the test of a broken `memory.json` expected
+  no warning. It now expects that one warning there, like the rest of the file.
+- New tests: the characters and the branch of the workflow link, the hash of its copy, the line
+  `doctor` names for a path with JSON escapes, a `.claude` folder linked outside the memory, the
+  start line of a memory that is not set up, the cloud messages of `init` and `init --questions`,
+  `doctor` among the next steps of `upgrade`, and docs that must match the code (the cloud signals,
+  the release checklist, the installer overrides).
+
 ## 0.1.3 (2026-09-30)
 
 You can now see that the memory works while it stays in the background: one line at a session

@@ -23,7 +23,7 @@ in PowerShell.
    - otherwise: the kit is downloaded without its history into a fresh git repository with no remote,
      so your notes can never be pushed to the public kit repository.
 4. Runs the setup wizard (`node system/init.mjs`): language, sectors, AI tools, then optional extras
-   (connect apps, memory for coding projects, a health check).
+   (connect apps, memory for coding projects, a health check, new versions).
 
 Run on a folder that already holds a memory, it offers `doctor` and `upgrade` instead of setting
 anything up again.
@@ -43,7 +43,8 @@ anything up again.
 
 ## Refusals
 
-The installer stops (exit 3) when it runs as root or in an administrator shell, when the folder
+The installer stops (exit 3) when it runs under sudo (allow with `MEMORY_KIT_ALLOW_ROOT=1`) or in
+an administrator PowerShell on Windows (allow with `MEMORY_KIT_ALLOW_ADMIN=1`), when the folder
 lies inside another git repository that does not ignore it (allow with `MEMORY_KIT_ALLOW_NESTED=1`),
 or when the folder's GitHub remote is public. Exit codes: 0 done, 1 a step failed, 2 usage or a
 missing prerequisite, 3 refused, 130 cancelled.
