@@ -9,6 +9,22 @@ which kit-owned files changed.
 
 Nothing yet.
 
+## 0.2.0 (not released yet)
+
+Your memory as a living map in the browser.
+
+### Added
+
+- **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
+  every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
+  hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.
+  Search, filters, a panel with each note's links both ways, the local graph around one note, and
+  sliders for the forces. It is one file on your disk: no server, nothing online, and its Content
+  Security Policy lets the page load nothing but its data and send nothing. `graph --live` follows
+  the notes and lights up the ones the agents use right now; `graph --local` adds the local sectors
+  and then writes into your private folder. Its own layout (Barnes–Hut in a Web Worker) and WebGL2
+  drawing keep 10 000 notes fluid without any library.
+
 ## 0.1.4 (2026-10-04)
 
 From this version on, `main` only ever holds released versions: the work happens on `dev`, and a
