@@ -250,6 +250,30 @@ args = ["/home/you/my-memory/system/memory.mjs", "mcp", "--root", "/home/you/my-
   committed. It records the app's name and what a call did, never the query or note text, and a
   note of a local sector only as a count. `"feedback": {"log": false}` in `memory.json` turns it off.
 
+## Over HTTP: the memory by a link
+
+`node system/memory.mjs mcp --http` serves the same tools over HTTP for the apps that connect to a
+memory by a URL (a custom connector of Claude or ChatGPT, another computer, a hosted gateway):
+
+```sh
+node system/memory.mjs mcp --http                 # http://127.0.0.1:8787/mcp
+node system/memory.mjs mcp --http --port 9000 --read-only
+```
+
+- **A token is always required.** It is `MEMORY_KIT_MCP_TOKEN`, else `.memory-kit/mcp-token`, made
+  on the first start (owner only, never committed). Send it as `Authorization: Bearer <token>`, or
+  use the link `…/mcp/<token>` in an app that cannot send a header. Anyone with the token can
+  search and read the memory and (without `--read-only`) add to its inbox: keep it like a password,
+  and delete the file to get a new one.
+- **Only this computer reaches it** by default (127.0.0.1). For the phone or the web, put HTTPS in
+  front of it: a tunnel such as Tailscale Funnel or Cloudflare Tunnel, or a hosted gateway. `--host
+  0.0.0.0` listens on every network the computer is on; do that only behind HTTPS.
+- **A web page cannot use it through your browser**: a request with an `Origin` header is refused
+  unless `--allow-origin <url>` allows that origin.
+- Local sectors stay hidden unless `--local`; `MEMORY_SECTORS` narrows it like the stdio server.
+- It is Streamable HTTP without server-sent events: one endpoint, a session per client from
+  `initialize` on (`Mcp-Session-Id`), forgotten after an idle hour.
+
 ## Troubleshooting
 
 Start with `node system/memory.mjs doctor`. Its `mcp.clients` line lists the apps connected to this

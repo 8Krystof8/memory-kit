@@ -66,6 +66,12 @@ Honest agents, and your memory as a living map in the browser.
   lines to (a `- [fact]` line, a dated gotcha, a line under a heading), it keeps both, the upstream
   lines first, and the frontmatter's `updated` takes the later date. A line changed or removed on
   either side still stops the sync and names the file, as before.
+- **The memory by a link**: `mcp --http` serves the MCP tools over HTTP for apps that connect to
+  a memory by a URL (custom connectors of Claude and ChatGPT, other computers, a hosted gateway).
+  A token is always required (a bearer header, or the token as the last part of the path),
+  browser origins are refused, and it listens on 127.0.0.1 unless told otherwise; the phone and the
+  web reach it through HTTPS in front of it. The only module of the kit that listens on a port, and
+  only when the owner starts it.
 - **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
   every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
   hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.

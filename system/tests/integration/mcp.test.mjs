@@ -841,7 +841,7 @@ describe('JSON-RPC framing and lifecycle', () => {
     }
     const help = runCli(fx.root, ['mcp', '--help']);
     assert.equal(help.code, 0);
-    assert.equal(help.stdout, 'usage: node system/memory.mjs mcp [--read-only] [--local]\n');
+    assert.equal(help.stdout, 'usage: node system/memory.mjs mcp [--read-only] [--local] [--http [--port 8787] [--host 127.0.0.1] [--allow-origin <url>]]\n');
     const eof = runCli(fx.root, ['mcp', '--read-only', '--local']);
     assert.equal(eof.code, 0, eof.stderr);
     assert.equal(eof.stdout, '');

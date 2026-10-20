@@ -76,7 +76,7 @@
       "group": "docs"
     },
     "docs/integrations/mcp.md": {
-      "sha256": "052cfd698986ee800039f2d6eb40d8ed1bd5c673480331cd2bbdf21e81c40726",
+      "sha256": "0fc6e59107707ca23de4a466a9384092bc2949c43e285a9f21e616644dd49a7a",
       "group": "docs"
     },
     "docs/maintenance.md": {
@@ -208,7 +208,7 @@
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
-      "sha256": "8ea66dce6eb5b128f9c036d3393d3c90b10be5e494fa628f14a3cba6c5dbb306",
+      "sha256": "d8c17480363e92b0ad523212665915ac59da243c97e86f7d4d7c2c3c622de367",
       "group": "code"
     },
     "system/lib/commands/new.mjs": {
@@ -309,6 +309,10 @@
     },
     "system/lib/mcp.mjs": {
       "sha256": "9ef6b0499cc5bca27806401eca12f59d7a6243a8d2f50d921a4b97989253a53b",
+      "group": "code"
+    },
+    "system/lib/mcphttp.mjs": {
+      "sha256": "c63c38cf7e0c3b34adebe2d50ab559eb9de83c40dd9a588ff432fea64300a2ef",
       "group": "code"
     },
     "system/lib/migrations.mjs": {
@@ -999,8 +1003,12 @@
       "sha256": "74017fdc3f71e2e3b60cdef074a4d602aa8603b01d9c085222957bacc033735a",
       "group": "tests"
     },
+    "system/tests/integration/mcp-http.test.mjs": {
+      "sha256": "54b0b3039a94bd653e79601ef6deade76b28d6442e79e4c9e1592c774e8dcca2",
+      "group": "tests"
+    },
     "system/tests/integration/mcp.test.mjs": {
-      "sha256": "df2576e620476ea2657a352fdcc5b969e07311ba429d833ffd8bd4f63df9a199",
+      "sha256": "37a285c01b699ae44f829a9342db82b844fe0fcb9be96f2bfcaf33e9085dfcbb",
       "group": "tests"
     },
     "system/tests/integration/projects-e2e.test.mjs": {
@@ -1124,7 +1132,7 @@
       "group": "tests"
     },
     "system/tests/unit/network.test.mjs": {
-      "sha256": "5eaa95614fcc5d1740b6b0aa66fc9ef26d2bb50a639ae2f5dc8f31b3faebd67c",
+      "sha256": "29e6af4072a9b9993129e59bd27e191eab1eaacca980b6134e99eda801c127b3",
       "group": "tests"
     },
     "system/tests/unit/pack.test.mjs": {

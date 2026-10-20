@@ -16,6 +16,8 @@ const ALLOWED_BUILTINS = new Set([
   'node:buffer', 'node:child_process', 'node:crypto', 'node:fs', 'node:os', 'node:path', 'node:perf_hooks',
   'node:readline', 'node:sqlite', 'node:url', 'node:util',
 ]);
+// The one module that may listen: the MCP server over HTTP, started only by `mcp --http`.
+const LISTENERS = { 'system/lib/mcphttp.mjs': ['node:http'] };
 // The built-ins that open sockets, bare or with the node: prefix.
 const NETWORK_MODULES = ['http', 'https', 'http2', 'net', 'tls', 'dgram', 'dns', 'inspector', 'cluster'];
 const NETWORK_APIS = [/\bfetch\s*\(/, /\bWebSocket\b/, /\bXMLHttpRequest\b/, /\bEventSource\b/, /\bsendBeacon\b/];
@@ -71,6 +73,7 @@ describe('no network (1.1)', () => {
     for (const rel of modules) {
       for (const spec of specifiers(code(read(rel)))) {
         if (spec.startsWith('./') || spec.startsWith('../')) continue;
+        if (LISTENERS[rel]?.includes(spec)) continue;
         const bare = spec.replace(/^node:/, '').split('/')[0];
         if (NETWORK_MODULES.includes(bare) || !ALLOWED_BUILTINS.has(spec)) bad.push(`${rel}: ${spec}`);
       }
