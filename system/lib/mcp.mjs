@@ -365,7 +365,11 @@ async function runRecent(memory, args) {
 }
 
 async function runInbox(memory, args, ctx) {
-  const source = args.source ?? (ctx.client ? `${ctx.client} (mcp)` : 'mcp');
+  // Who wrote it is set here, from the connection, never by the caller: the caller's own words on
+  // where the text comes from follow after a middle dot.
+  const writer = ctx.client ? `${ctx.client} (mcp)` : 'mcp';
+  const given = typeof args.source === 'string' ? args.source.replace(/\s+/g, ' ').trim() : '';
+  const source = given ? `${writer} · ${given}` : writer;
   const saved = await memory.inbox(args.text, { title: args.title, source });
   return { text: say(memory, 'mcp.inbox_saved', { path: saved.path }), structured: saved };
 }

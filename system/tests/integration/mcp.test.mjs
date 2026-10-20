@@ -435,7 +435,7 @@ describe('tools over pipes', () => {
     const added = Object.keys(afterOne).filter((name) => !(name in before));
     assert.deepEqual(added, [path.posix.basename(saved)]);
     for (const [name, text] of Object.entries(before)) assert.equal(afterOne[name], text, `${name} unchanged`);
-    assert.match(readFile(v.root, saved), /^---\ncreated: \d{4}-\d{2}-\d{2}\nsource: a call\n---\n# Loyalty card\n\nIdea: a loyalty card for bakery customers\.\n$/);
+    assert.match(readFile(v.root, saved), /^---\ncreated: \d{4}-\d{2}-\d{2}\nsource: test-client \(mcp\) · a call\n---\n# Loyalty card\n\nIdea: a loyalty card for bakery customers\.\n$/);
 
     const again = await c.call('memory_inbox', { text: 'A second, different capture.', title: 'Loyalty card' });
     assert.equal(again.structuredContent.path, saved.replace(/\.md$/, '-2.md'));

@@ -300,7 +300,7 @@
       "group": "code"
     },
     "system/lib/mcp.mjs": {
-      "sha256": "49b85d85fc759b5a982232a12f83b6ea2cfbb96ff72fd56c03563d8746b66d8e",
+      "sha256": "7900cc5fa65f84fe83a7f8fd7657f467ecd5b176ffed1569ed9a8bb93f2d2c3c",
       "group": "code"
     },
     "system/lib/migrations.mjs": {
@@ -988,7 +988,7 @@
       "group": "tests"
     },
     "system/tests/integration/mcp.test.mjs": {
-      "sha256": "795103109da6d7ecd82c23044af1a5319c7c18a05dd60151aab004ea3c3e40c0",
+      "sha256": "df2576e620476ea2657a352fdcc5b969e07311ba429d833ffd8bd4f63df9a199",
       "group": "tests"
     },
     "system/tests/integration/projects-e2e.test.mjs": {

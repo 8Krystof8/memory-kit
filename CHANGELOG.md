@@ -32,6 +32,9 @@ Honest agents, and your memory as a living map in the browser.
   a repository that is not a project, starts with the memory's start view (the core sector and the
   rules, the vault named by its full path). Off by default: the hooks run in work and client
   repositories too.
+- **The kit names who wrote to the inbox**: a capture saved over MCP (`memory_inbox`) gets its
+  `source` from the connection (the client's name), never from the caller; the caller's own words
+  on where the text comes from follow after a middle dot (`test-client (mcp) · a call`).
 - **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
   every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
   hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.
