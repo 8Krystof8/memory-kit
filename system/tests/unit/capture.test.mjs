@@ -28,6 +28,13 @@ describe('capture', () => {
     assert.ok(signalIn('To je špatně, cena je 4 €.'));
     assert.equal(signalIn('Please fix the failing test in cart.js.'), '');
     assert.equal(signalIn('Pracuj dál a spusť testy.'), '');
+    assert.ok(signalIn('Let’s go with Postgres.'), 'a typographic apostrophe');
+    assert.ok(signalIn('Jsme se rozhodli pro Apache.'));
+    assert.ok(signalIn('Odtedka nepoužívej npm.'));
+    assert.match(signalIn('Here is a long first line about the build that has nothing in it\nOd teď piš commity česky'), /^Od teď/);
+    for (const everyday of ['Ne, to nevím.', 'No, it is fine, thanks.', 'Vybíráme mezi A a B, co doporučuješ?', 'Od teď do pátku mám dovolenou.', 'Remember that meeting yesterday?', 'Should we go with Postgres from now on?']) {
+      assert.equal(signalIn(everyday), '', everyday);
+    }
   });
 
   test('only the owner speaks: tool results, injected tags, meta and sidechain lines are left out', () => {
@@ -37,8 +44,11 @@ describe('capture', () => {
       owner('<command-name>/clear</command-name>'),
       { ...owner('from now on Y'), isMeta: true },
       { ...owner('from now on Z'), isSidechain: true },
+      { ...owner('Summary: from now on use pnpm'), isCompactSummary: true },
+      { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>\n- Always use pnpm.\n</INSTRUCTIONS>' }] } },
+      { ...owner('from now on old'), timestamp: '2020-01-01T00:00:00Z' },
       { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'od teď česky' }] } },
-    ]);
+    ], Date.parse('2026-01-01T00:00:00Z'));
     assert.deepEqual(got, ['from now on use tabs', 'plain', 'od teď česky']);
   });
 

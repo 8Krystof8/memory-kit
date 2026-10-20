@@ -13,44 +13,53 @@ import { fold } from './text.mjs';
 const MAX_QUOTE = 160;
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-// Folded phrases: a decision, a correction of the agent, a lasting rule or preference.
+// Folded phrases: a decision, a correction of the agent, a lasting rule or preference. A bare
+// "no, …" is an everyday answer, not a correction: those need a word that says wrong.
 const SIGNALS = [
   // English
-  /\b(we|i) (have )?decided\b/, /\blet'?s go with\b/, /\b(we|i)'?ll go with\b/, /\bdecision:/, /\bfrom now on\b/,
-  /\bgoing forward\b/, /\b(always|never) (use|do|write|call|put|run|commit|push)\b/, /\bdon'?t ever\b/, /\bremember (that|this)\b/,
-  /\bthat'?s (wrong|not right|incorrect)\b/, /\bno, (it|that|we|you)\b/, /\bcorrection:/, /\bi prefer\b/,
+  /\b(we|i) (have )?decided (to|on|that)\b/, /\blet'?s go with\b/, /\b(we|i)'?ll go with\b/, /\bdecision:/, /\bfrom now on\b/,
+  /\bgoing forward\b/, /\b(always|never) (use|do|write|call|put|run|commit|push)\b/, /\bdon'?t ever\b/, /\bdon'?t use \S+( \S+)? anymore\b/,
+  /\bremember (that|this)\b/, /\bthat'?s (wrong|not right|incorrect|not true)\b/, /\bcorrection:/, /\bi prefer (to |that |\w+ over )/,
   // Czech
-  /\brozhodl[ai]? (jsem|jsme)\b/, /\brozhodnuti:/, /\bjdeme do toho\b/, /\bvybirame?\b/, /\bod ted\b/, /\bodted\b/, /\bod dneska\b/,
-  /\b(vzdycky|vzdy|nikdy) (pouzivej|delej|pis|davej|pust|commituj|pushuj)\b/, /\bzapamatuj si\b/, /\bpamatuj (si )?(ze|to)\b/,
-  /\bto je (spatne|blbe|chybne)\b/, /\bne, (to|tak|je|jsi)\b/, /\boprava:/, /\bradsi (pouzivej|delej|pis)\b/, /\bpreferuju\b/,
+  /\brozhodl[ai]? (jsem|jsme)\b/, /\b(jsem|jsme) se rozhodl[ai]?\b/, /\brozhodnuti:/, /\bjdeme do toho\b/, /\bvybrali jsme\b/,
+  /\b(od ted|od tedka|odted|odtedka|od dneska)\b(?! do\b)/, /\b(vzdycky|vzdy|nikdy|uz nikdy) (pouzivej|delej|pis|davej|pust|commituj|pushuj)\b/,
+  /\bnepouzivej\b/, /\bbudeme pouzivat\b/, /\bzapamatuj si\b/, /\bpamatuj (si )?(ze|to)\b/,
+  /\bto je (spatne|blbe|chybne)\b/, /\bto neni pravda\b/, /^spatne\b/, /\boprava:/, /\bradsi (pouzivej|delej|pis)\b/, /\bpreferuju\b/,
 ];
 
-/** The owner's own messages in a transcript (not tool results, not injected context). */
-export function ownerMessages(entries) {
+// Lines the harness or the agent's tools put on the owner's side of the transcript.
+const INJECTED = /^(# AGENTS\.md instructions for|<)|<INSTRUCTIONS>|<user_instructions>/;
+
+/**
+ * The owner's own messages in a transcript (not tool results, not injected context, not a
+ * compaction summary), only those written after `since` (ms) when the line carries a time.
+ */
+export function ownerMessages(entries, since = 0) {
   const out = [];
-  const keep = (text) => {
+  const keep = (text, e) => {
     const t = String(text ?? '').trim();
-    // Context the harness injects comes in angle-bracket tags (<command-…>, <environment_context>).
-    if (t && !t.startsWith('<')) out.push(t);
+    const at = Date.parse(e?.timestamp ?? '');
+    if (t && !INJECTED.test(t) && !(at && at < since)) out.push(t);
   };
   for (const e of entries) {
     // Claude Code: {type: 'user', message: {role: 'user', content: string | [{type: 'text', text}]}}
-    if (e?.type === 'user' && isObj(e.message) && !e.isMeta && !e.isSidechain) {
+    if (e?.type === 'user' && isObj(e.message) && !e.isMeta && !e.isSidechain && !e.isCompactSummary && !e.isVisibleInTranscriptOnly) {
       const c = e.message.content;
-      if (typeof c === 'string') keep(c);
-      else if (Array.isArray(c)) for (const b of c) if (b?.type === 'text') keep(b.text);
+      if (typeof c === 'string') keep(c, e);
+      else if (Array.isArray(c)) for (const b of c) if (b?.type === 'text') keep(b.text, e);
     }
     // Codex: {type: 'response_item', payload: {type: 'message', role: 'user', content: [{type: 'input_text', text}]}}
     const p = e?.type === 'response_item' && isObj(e.payload) ? e.payload : null;
-    if (p?.type === 'message' && p.role === 'user' && Array.isArray(p.content)) for (const b of p.content) keep(b?.text);
+    if (p?.type === 'message' && p.role === 'user' && Array.isArray(p.content)) for (const b of p.content) keep(b?.text, e);
   }
   return out;
 }
 
-/** The first sentence-sized piece of an owner message that carries a signal, or ''. */
+/** The first sentence or line of an owner message that carries a signal (not a question), or ''. */
 export function signalIn(text) {
-  for (const piece of String(text).split(/(?<=[.!?\n])\s+/)) {
-    const f = fold(piece);
+  for (const piece of String(text).split(/\n+|(?<=[.!?])\s+/)) {
+    const f = fold(piece).replace(/[‘’ʼ]/g, "'").trim();
+    if (!f || f.endsWith('?')) continue;
     if (SIGNALS.some((re) => re.test(f))) return piece.replace(/\s+/g, ' ').trim().slice(0, MAX_QUOTE);
   }
   return '';
@@ -63,12 +72,16 @@ export function signalIn(text) {
 export function checkCapture(cfg, { transcript, since = 0, files } = {}) {
   const { entries } = readTranscript(transcript);
   let quote = '';
-  for (const text of ownerMessages(entries)) quote = signalIn(text) || quote;
+  for (const text of ownerMessages(entries, since)) quote = signalIn(text) || quote;
   if (!quote) return null;
   const notes = files ?? noteFiles(cfg);
   // Only notes count: generated views and hub files (home.md) change without anything saved.
   const kept = [cfg.dirs?.sectors ?? 'sectors', cfg.dirs?.inbox ?? 'inbox', cfg.dirs?.journal ?? 'journal'];
-  const isNote = (abs) => abs.split(path.sep).some((part) => kept.includes(part));
+  const roots = [cfg.root, ...(cfg.roots ?? []).filter((r) => r.id !== 'main' && !r.foreign && r.path).map((r) => r.path)];
+  const isNote = (abs) => roots.some((root) => {
+    const rel = path.relative(root, abs);
+    return rel && !rel.startsWith('..') && !path.isAbsolute(rel) && kept.includes(rel.split(path.sep)[0]);
+  });
   for (const paths of notes.values()) {
     for (const abs of paths) {
       if (!isNote(abs)) continue;

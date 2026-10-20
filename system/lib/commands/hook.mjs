@@ -65,6 +65,9 @@ const DEFAULTS = {
   'hook.checkpoint_shared': 'Project memory: the code in this repository changed since this session started (another session works here too, so not all of it may be yours) and the handoff did not. Before you finish, record briefly what this session did: 1) rewrite {handoff} (done, next steps, open questions, branch); 2) errors you fixed as gotchas: {cmd} remember --project {id} --type gotcha "symptom → cause → fix"; 3) what did not work: --type dead-end; 4) new decisions: --type decision. Only what really happened. Then finish.',
   'hook.cite': 'memory-kit checked the 📎 line of your answer: {problems}. Open the notes you cite, save what you say you saved, or drop those names from the line; then end with the corrected 📎 line. Never cite a note you did not open in this session.',
   'hook.capture': 'memory-kit: in this session the owner said something that reads like a decision, a correction or a lasting preference ("{quote}"), and nothing was saved to the memory. If it is worth keeping, save it now in the owner\'s words: {save}. If it was nothing to keep, just finish.',
+  'hook.capture_project': '{cmd} remember --project {id} --type decision "…" (a lasting rule or preference: --type convention)',
+  'hook.capture_vault': 'a decision note per AGENTS.md: {cmd} new decision <sector>/<name>; a lasting rule: {cmd} new rule <sector>/<name>',
+  'hook.capture_inbox': '{cmd} remember "…"',
   'hook.cite_missing': 'no such note: {names}',
   'hook.cite_unread': 'not read in this session: {names}',
   'hook.cite_unsaved': 'not changed in this session: {names}',
@@ -288,7 +291,10 @@ function captureReason(cfg, input, sid, s) {
   if (!r) return '';
   writeAtomic(marker, `${todayLocal()}\n`);
   const cmd = vaultCommand(cfg);
-  const save = s?.sector && sectorExists(cfg, s.sector) ? `${cmd} remember --project ${s.sector} --type decision "…"` : `${cmd} remember "…"`;
+  const project = s?.sector && sectorExists(cfg, s.sector);
+  // In a project: the dev notes; in the vault: a decision note (AGENTS.md); elsewhere: the inbox.
+  const key = project ? 'hook.capture_project' : !s?.top ? 'hook.capture_vault' : 'hook.capture_inbox';
+  const save = say(cfg, key, { cmd, id: s?.sector ?? '' });
   return say(cfg, 'hook.capture', { quote: r.quote.replace(/"/g, "'"), save });
 }
 
