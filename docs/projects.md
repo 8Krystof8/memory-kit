@@ -113,6 +113,14 @@ which `node system/memory.mjs activity` shows next to the uses of the CLI and th
 commits nothing while git would take the folder, and `doctor` (`git.repo`) warns about it. Adding
 the line `.memory-kit/` to `.gitignore` and committing it covers every clone.
 
+
+## Load one project from anywhere
+
+`node system/memory.mjs start --project <sector>` prints one project's memory: its handoff,
+conventions, gotchas and dead ends, then the start view of that sector and the core sector. An app
+connected over MCP gets the same with `memory_start` and its `project` argument (the sector from
+the table of the start view), so the owner or the agent picks the project instead of loading the
+whole memory. A local-store project opens over MCP only on a server started with `--local`.
 ## Settings
 
 `connect claude-code --projects` (or `connect codex --projects`) writes the hooks into

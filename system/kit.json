@@ -96,7 +96,7 @@
       "group": "docs"
     },
     "docs/projects.md": {
-      "sha256": "56dc6edaef6c96bd9bab3ecba443caf741b9559bff9965b215e292453f8d0325",
+      "sha256": "d5e8db7ccc277c81b63d7c60deb9a45053a3011c775ac418f47722b0bcf7e13a",
       "group": "docs"
     },
     "docs/search.md": {
@@ -120,7 +120,7 @@
       "group": "code"
     },
     "system/api.mjs": {
-      "sha256": "db53bee7e9425699b54d52c6abe150cbdee9f9c8f166263d16e418d049eabbb0",
+      "sha256": "e86e0569091eec487a73a0fb1cc37b7d7df821e94299654612b35494a80f332a",
       "group": "code"
     },
     "system/init.mjs": {
@@ -132,7 +132,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "fb0730e2bb2471073db01cfaf916dd82f3eea6a337412696f9b523e83c3c8300",
+      "sha256": "e23349f7608ca7cc0894ee8343264e137aa8bf0f78f340599611f7d90c73309e",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -232,7 +232,7 @@
       "group": "code"
     },
     "system/lib/commands/start.mjs": {
-      "sha256": "0f5ea20ddbbaeccb2ab692887c9db3f96ce57d976924095a8d0329972623568d",
+      "sha256": "39913266791b7f96ff282b0ecedd846f9239f39ebb8c1a8ff6cf4751bdc74cbe",
       "group": "code"
     },
     "system/lib/commands/sync.mjs": {
@@ -304,7 +304,7 @@
       "group": "code"
     },
     "system/lib/mcp.mjs": {
-      "sha256": "c6d68b0697d1c85d7829aaa2e52c78ea9d8ba3087b92f6405756ec8916c92a68",
+      "sha256": "9ef6b0499cc5bca27806401eca12f59d7a6243a8d2f50d921a4b97989253a53b",
       "group": "code"
     },
     "system/lib/migrations.mjs": {
@@ -320,7 +320,7 @@
       "group": "code"
     },
     "system/lib/projects.mjs": {
-      "sha256": "65c4c796548549fbd9c84524376271b5b2d17763378b6703f345f6d3613d8456",
+      "sha256": "c16fb40f1a1aa6ebc665848ed6e66f90144a16333dd2dd8156c9407f85e67984",
       "group": "code"
     },
     "system/lib/repofacts.mjs": {
@@ -1004,7 +1004,7 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "115ad9e61ddf6d1c12b1e22b9f753aa0968fa8f8f509c3101399eef4dba10768",
+      "sha256": "3078276857a18eb0d597af9213d207d28572024e8808dcb4ff8ec6828017374b",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {

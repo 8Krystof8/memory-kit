@@ -129,6 +129,7 @@ export function toolDefinitions({ readOnly = false } = {}) {
         type: 'object',
         properties: {
           sectors: { type: 'array', items: { type: 'string' }, maxItems: 20, description: 'Optional sector ids to narrow the view to' },
+          project: { type: 'string', maxLength: 64, description: 'Optional: the sector of a coding project (from the sectors table) to load instead of the general view: its handoff, conventions, gotchas and dead ends, then that sector and the core sector' },
         },
         additionalProperties: false,
       },
@@ -301,7 +302,7 @@ function valueWord(memory, kind, value) {
 }
 
 async function runStart(memory, args, ctx) {
-  const view = await memory.start({ sectors: args.sectors ?? ctx.sectors, surface: 'mcp' });
+  const view = await memory.start({ sectors: args.sectors ?? ctx.sectors, surface: 'mcp', project: args.project, local: ctx.local === true });
   return { text: view.text, structured: view };
 }
 

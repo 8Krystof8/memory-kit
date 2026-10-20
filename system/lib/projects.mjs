@@ -940,12 +940,45 @@ export function projectBrief(cfg, sector, ident, vaultCmd, { git } = {}) {
     cs ? `## Git: větev ${g.branch}, necommitnuté soubory ${g.dirty}` : `## Git: branch ${g.branch}, uncommitted files ${g.dirty}`,
     ...g.commits.map((c) => `- ${c}`),
   ];
+  out.push(...briefNotes(cfg, sector));
+  return `${out.join('\n')}\n`;
+}
+
+/** The lines the brief takes from the dev notes: handoff, conventions, gotchas, dead ends. */
+function briefNotes(cfg, sector) {
+  const t = texts(cfg);
+  const out = [];
   for (const [role, max] of [['handoff', 1200], ['conventions', 700], ['gotchas', 700], ['deadends', 400]]) {
     // Placeholders and headings with nothing under them cost tokens and say nothing.
     const lines = (bodyOf(cfg, sector, role, max) || '').split('\n').filter((l) => l.trim() && l.trim() !== t.none);
     const kept = lines.filter((l, i) => !/^#/.test(l) || (lines[i + 1] && !/^#/.test(lines[i + 1])));
     if (kept.some((l) => !/^#/.test(l))) out.push('', `## ${t[role][0]}`, ...kept);
   }
+  return out;
+}
+
+/** True when a sector holds the notes of a coding project (its handoff note exists). */
+export function isProjectSector(cfg, sector) {
+  try {
+    return Boolean(sector) && NAME_RE.test(sector) && (sectorExists(cfg, sector) || isLocalSector(cfg, sector)) && fs.existsSync(noteAbs(cfg, sector, 'handoff'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The project part of a start view chosen by the owner or the agent (start --project, the
+ * memory_start "project" argument) away from the code repository: the dev notes of the brief
+ * without git. command: the vault command to record with, or null where there is no shell (MCP).
+ */
+export function projectPack(cfg, sector, { command = null } = {}) {
+  const cs = cfg.lang === 'cs';
+  const out = [cs ? `# Projekt · sektor paměti \`${sector}\`` : `# Project · memory sector \`${sector}\``];
+  if (command) {
+    const record = `${command} remember --project ${sector} --type gotcha|dead-end|todo|run|convention|decision "…"`;
+    out.push(cs ? `Zapsat: \`${record}\`.` : `Record: \`${record}\`.`);
+  }
+  out.push(...briefNotes(cfg, sector));
   return `${out.join('\n')}\n`;
 }
 

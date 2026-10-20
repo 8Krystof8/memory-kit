@@ -666,6 +666,7 @@
     "upgrade.ui.findings": "nová zjištění kontroly (aktualizaci nebrání): {n}; ukáže je node system/memory.mjs check",
     "upgrade.ui.done": "Hotovo.",
 
+    "start.not_project": "„{value}“ není projekt této paměti (sektor s poznámkou předávky); projekty ukáže: node system/memory.mjs project list",
     "start.bad_format": "--format musí být text, claude-hook, gemini-hook nebo json, zadáno \"{value}\"",
     "start.notice": "memory-kit: paměť načtena · poznámky: {notes} · sektory: {sectors}",
     "start.notice_project": "memory-kit: paměť tohoto projektu načtena ({sector}) · poznámky: {notes}",
@@ -966,6 +967,8 @@
     "api.not_found": "na cestě {rel} není žádná čitelná poznámka; cesty najdeš přes search nebo recent",
     "api.offset_past_end": "offset {offset} je za koncem {rel} ({total} řádků)",
     "api.column_past_end": "column {column} je za koncem řádku {offset} v {rel} ({n} znaků)",
+    "api.not_project": "„{value}“ není projekt této paměti (sektor s poznámkou předávky); sektory jsou v tabulce startovního pohledu",
+    "api.project_local": "projekt „{value}“ má poznámky v lokálním sektoru, který tento server neotevírá (spusť ho s --local)",
     "api.bad_surface": "surface musí být cli, nebo mcp, zadáno \"{value}\"",
     "api.text_empty": "text je prázdný",
     "api.too_long": "{name} má {n} znaků; limit je {max}",

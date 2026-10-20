@@ -51,6 +51,10 @@ Honest agents, and your memory as a living map in the browser.
 - **Install by asking your agent**: `llms.txt` at the top of the repository tells an agent how
   to install memory-kit for a person (ask the setup questions, run the installer with the answers,
   connect it, run doctor), and the README has the one prompt to paste.
+- **Pick the project to load**: `start --project <sector>` and the `project` argument of the MCP
+  `memory_start` load one coding project instead of the general view: its handoff, conventions,
+  gotchas and dead ends, then the view of that sector and the core sector. A project whose notes
+  stay in a local sector opens over MCP only on a server started with `--local`.
 - **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
   every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
   hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.

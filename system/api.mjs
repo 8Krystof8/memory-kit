@@ -29,6 +29,7 @@ import {
   readText, realpathLoose, resolveExact, splitList, toPosix, todayLocal, uniq, windowsNameProblem,
 } from './lib/util.mjs';
 import { inLocalSectorFolder, loadVault, localFolderNotes, withoutNotes } from './lib/vault.mjs';
+import { isLocalSector, isProjectSector, projectPack } from './lib/projects.mjs';
 
 export const API_VERSION = 1;
 
@@ -65,6 +66,8 @@ const DEFAULTS = {
   'api.offset_past_end': 'offset {offset} is past the end of {rel} ({total} lines)',
   'api.column_past_end': 'column {column} is past the end of line {offset} of {rel} ({n} characters)',
   'api.bad_surface': 'surface must be cli or mcp, got "{value}"',
+  'api.not_project': '"{value}" is not a coding project of this memory (a sector with a handoff note); the sectors are in the table of the start view',
+  'api.project_local': 'project "{value}" keeps its notes in a local sector, which this server does not open (start it with --local)',
   'api.text_empty': 'the text is empty',
   'api.too_long': '{name} has {n} characters; the limit is {max}',
   'api.secret': 'refused: the text looks like it holds a secret ({rules}); leave keys, tokens and passwords out of the memory',
@@ -287,13 +290,21 @@ class Memory {
    * `surface` 'mcp' gives the search rules of the memory_* tools instead of the shell commands of
    * AGENTS.md (for apps without a shell); that view is always rendered in memory.
    */
-  async start({ sectors, today, surface } = {}) {
+  async start({ sectors, today, surface, project, local = true, command = null } = {}) {
     const cfg = this.#live();
     const list = sectorsOption(cfg, sectors);
     const day = todayOption(cfg, today);
     const who = textOption(cfg, 'surface', surface) ?? 'cli';
     if (!START_SURFACES.includes(who)) throw fail(cfg, 'INVALID_ARGUMENT', 'api.bad_surface', { value: who });
-    return renderStartView(cfg, { sectors: list, today: day, surface: who });
+    const id = textOption(cfg, 'project', project);
+    if (!id) return renderStartView(cfg, { sectors: list, today: day, surface: who });
+    // A project chosen by the owner or the agent: its dev notes first, then the view narrowed to
+    // the project and the core sector.
+    if (!isProjectSector(cfg, id)) throw fail(cfg, 'INVALID_ARGUMENT', 'api.not_project', { value: id });
+    if (!local && isLocalSector(cfg, id)) throw fail(cfg, 'FORBIDDEN', 'api.project_local', { value: id });
+    const core = String(cfg.raw?.profile ?? '').split('/')[1];
+    const view = await renderStartView(cfg, { sectors: [id, ...(core && core !== id ? [core] : [])], today: day, surface: who });
+    return { ...view, text: `${projectPack(cfg, id, { command })}\n${view.text}` };
   }
 
   /**

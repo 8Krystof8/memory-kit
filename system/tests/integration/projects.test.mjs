@@ -15,6 +15,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { KIT_ROOT, checkJson, copyKit, describeFindings, fixtureVault, plantSecret, removeTmpDirs, tmpDir } from '../helpers.mjs';
 import { logHook } from '../../lib/hooklog.mjs';
+import { openMemory } from '../../api.mjs';
 import { commandNode } from '../../lib/nodepath.mjs';
 
 after(removeTmpDirs);
@@ -1087,6 +1088,29 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.equal(hook(v, 'stop', stopIn).stdout, '', 'feedback.notice false');
     const act = JSON.parse(cli(v, ['activity', '--json']).stdout);
     assert.deepEqual(act.honesty, { checked: 0, right: 0, back: 0, asked: 0, used: 3, saved: 0 }, 'the three stops used one note each');
+  });
+
+  test('a project chosen by name: start --project and memory_start {project}; a local-store one only with --local', async () => {
+    for (const store of ['git', 'local']) {
+      const v = vault('en', { projects: { enabled: true, store } });
+      const repo = codeRepo();
+      assert.equal(projectJson(v, 'add', repo).code, 0);
+      assert.equal(cli(v, ['remember', '--type', 'gotcha', 'vite needs a restart after .env changes'], { cwd: repo }).code, 0);
+      const out = cli(v, ['start', '--project', 'dev']).stdout;
+      assert.match(out, /^# Project · memory sector `dev`\nRecord: `node system\/memory\.mjs remember --project dev /);
+      assert.match(out, /vite needs a restart/);
+      assert.match(out, /# Memory: start/, 'then the view');
+      assert.match(cli(v, ['start', '--project', 'nope']).stderr, /"nope" is not a coding project/);
+      const memory = await openMemory(v.root);
+      if (store === 'git') {
+        const view = await memory.start({ project: 'dev', surface: 'mcp', local: false });
+        assert.match(view.text, /^# Project · memory sector `dev`\n\n## /, 'no shell command over MCP');
+      } else {
+        await assert.rejects(memory.start({ project: 'dev', surface: 'mcp', local: false }), /local sector/);
+        assert.match((await memory.start({ project: 'dev', surface: 'mcp', local: true })).text, /vite needs a restart/);
+      }
+      await assert.rejects(memory.start({ project: 'core' }), /not a coding project/);
+    }
   });
 
   test('stop and session start read the code repository without taking its index lock; a failed git status asks nothing', { skip: process.platform === 'win32' && 'index mtimes' }, () => {

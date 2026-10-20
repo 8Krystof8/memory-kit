@@ -11,13 +11,15 @@ import path from 'node:path';
 import { agentFromEnv, logActivity } from '../activity.mjs';
 import { START_FORMATS, buildStartView, failedStartView, formatStartView, startNotice } from '../startview.mjs';
 import { checkInBackground, updateLine } from '../updates.mjs';
+import { isProjectSector, projectPack } from '../projects.mjs';
 import { checkToday, git, isGitRepo, parseCli, splitList, usageError } from '../util.mjs';
 
-export const usage = 'start [--sectors a,b] [--today YYYY-MM-DD] [--format text|claude-hook|gemini-hook|json]';
+export const usage = 'start [--sectors a,b] [--project <sector>] [--today YYYY-MM-DD] [--format text|claude-hook|gemini-hook|json]';
 
 // English defaults; packs may translate the same keys.
 const DEFAULTS = {
   'start.bad_format': '--format must be text, claude-hook, gemini-hook or json, got "{value}"',
+  'start.not_project': '"{value}" is not a coding project of this memory (a sector with a handoff note); see them with: node system/memory.mjs project list',
 };
 
 // The agent whose hook asks for a format; for the others the marks in the environment tell.
@@ -44,6 +46,7 @@ export async function run(argv, cfg) {
   try {
     const parsed = parseCli(argv, {
       sectors: { type: 'string' },
+      project: { type: 'string' },
       today: { type: 'string' },
       format: { type: 'string' },
     }, usage);
@@ -56,7 +59,17 @@ export async function run(argv, cfg) {
     format = wanted;
     ensureHooksPath(cfg.root);
     const sectors = splitList(parsed.values.sectors ?? process.env.MEMORY_SECTORS);
-    const built = await buildStartView(cfg, { sectors, today: parsed.values.today });
+    const project = parsed.values.project;
+    if (project !== undefined && !isProjectSector(cfg, project)) {
+      usageError(say(cfg, 'start.not_project', { value: project }), usage);
+      return 0;
+    }
+    const core = String(cfg.raw?.profile ?? '').split('/')[1];
+    const built = await buildStartView(cfg, project
+      ? { sectors: [project, ...(core && core !== project ? [core] : [])], today: parsed.values.today }
+      : { sectors, today: parsed.values.today });
+    // A chosen project: its dev notes come before the view.
+    if (project) built.view = { ...built.view, text: `${projectPack(cfg, project, { command: 'node system/memory.mjs' })}\n${built.view.text}` };
     // The owner's lines: the memory loaded, and a newer kit a check found (once a day).
     const notice = format === 'claude-hook'
       ? [startNotice(cfg, built), updateLine(cfg)].filter(Boolean).join('\n') || null
