@@ -48,6 +48,9 @@ Honest agents, and your memory as a living map in the browser.
   `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`): load the memory, search it before answering about
   the past, save decisions right away, cite only notes opened in the session. Only the block
   between its marker lines is ever touched; `--remove` takes it out, `--dry-run` shows the change.
+- **Install by asking your agent**: `llms.txt` at the top of the repository tells an agent how
+  to install memory-kit for a person (ask the setup questions, run the installer with the answers,
+  connect it, run doctor), and the README has the one prompt to paste.
 - **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
   every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
   hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.

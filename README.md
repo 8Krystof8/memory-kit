@@ -45,7 +45,14 @@ the kit depends on none of them.
 
 ## Start in 5 minutes
 
-**One command**, on macOS and Linux:
+**Or ask your agent.** Paste this into Claude Code, Codex, Gemini CLI or Cursor:
+
+```text
+Install memory-kit for me. Follow https://raw.githubusercontent.com/8Krystof8/memory-kit/main/llms.txt:
+ask me the setup questions first, then install it and switch it on in this agent.
+```
+
+**Or one command**, on macOS and Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/8Krystof8/memory-kit/main/install.sh | sh

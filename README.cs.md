@@ -44,7 +44,14 @@ Obyčejné poznámky s YAML hlavičkou a `[[odkazy]]` jsou nápady převzaté z 
 
 ## Start za 5 minut
 
-**Jedním příkazem**, na macOS a Linuxu:
+**Nebo požádej agenta.** Vlož tohle do Claude Code, Codexu, Gemini CLI nebo Cursoru:
+
+```text
+Nainstaluj mi memory-kit. Postupuj podle https://raw.githubusercontent.com/8Krystof8/memory-kit/main/llms.txt:
+nejdřív se mě zeptej na otázky k nastavení, pak ho nainstaluj a zapni v tomto agentovi.
+```
+
+**Nebo jedním příkazem**, na macOS a Linuxu:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/8Krystof8/memory-kit/main/install.sh | sh
