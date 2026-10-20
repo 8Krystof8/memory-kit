@@ -1063,6 +1063,28 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.equal(start(off, tmpDir('plain'), 'e4').stdout, '', 'off by default');
   });
 
+  test('stop tells the owner in one line which notes the answer used; not with feedback.notice false or for Codex', () => {
+    const v = vault('en');
+    const repo = codeRepo();
+    assert.equal(projectJson(v, 'add', repo).code, 0);
+    start(v, repo, 'r1');
+    const note = path.join(v.root, SECTORS.en, 'core', 'opening-hours.md');
+    fs.writeFileSync(note, '---\ntype: fact\n---\n# Opening hours\n');
+    const old = new Date(Date.now() - 3600000);
+    fs.utimesSync(note, old, old);
+    const t = path.join(tmpDir('report-t'), 't.jsonl');
+    fs.writeFileSync(t, [
+      { type: 'user', timestamp: new Date(Date.now() - 60000).toISOString(), message: { role: 'user', content: 'when do we open?' } },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: note } }] } },
+    ].map((e) => JSON.stringify(e)).join('\n'));
+    const stopIn = { cwd: repo, session_id: 'r1', stop_hook_active: false, transcript_path: t };
+    assert.deepEqual(JSON.parse(hook(v, 'stop', stopIn).stdout), { systemMessage: 'memory-kit: notes used: 1 (opening-hours)' });
+    assert.equal(hook(v, 'stop', stopIn, { agent: 'codex' }).stdout, '', 'Codex shows no systemMessage');
+    const mem = JSON.parse(fs.readFileSync(path.join(v.root, 'memory.json'), 'utf8'));
+    fs.writeFileSync(path.join(v.root, 'memory.json'), JSON.stringify({ ...mem, feedback: { notice: false } }));
+    assert.equal(hook(v, 'stop', stopIn).stdout, '', 'feedback.notice false');
+  });
+
   test('stop and session start read the code repository without taking its index lock; a failed git status asks nothing', { skip: process.platform === 'win32' && 'index mtimes' }, () => {
     const v = vault('en');
     const repo = codeRepo();

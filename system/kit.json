@@ -132,7 +132,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "c8e83533b44387c0255ee6e3b26419762184c3e2793f39bf9bd8429391aafbe6",
+      "sha256": "154bfc4e200c6646d7e65dc87dd854f4a079cd7f05b8d73f5d5b05bec0cf8b8f",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -156,7 +156,7 @@
       "group": "code"
     },
     "system/lib/capture.mjs": {
-      "sha256": "d95d10e3912441b673b63d50f77eed722b851002981949371a10ebb95364746d",
+      "sha256": "8c5651284875b1a64a15ae128ebd11fd668b5fd73ac9d114e1ca940b05094909",
       "group": "code"
     },
     "system/lib/changelog.mjs": {
@@ -168,7 +168,7 @@
       "group": "code"
     },
     "system/lib/citations.mjs": {
-      "sha256": "8abd87157221fd4eb3aed0c6f5656eb650b7439da29c9bb199afe4308e9f07f4",
+      "sha256": "3b683493d286cf34f2a319df537050c702e5ece45e78caf4ee22b9e325bb933f",
       "group": "code"
     },
     "system/lib/clients.mjs": {
@@ -200,7 +200,7 @@
       "group": "code"
     },
     "system/lib/commands/hook.mjs": {
-      "sha256": "3d79a74354a61cce04e5fa2925226ea1fc1d0704a7e9952d232c8ca9558d29ce",
+      "sha256": "561353609b466fecb182359ab6708989d5931d9b95d69f6ee23aa25cba8e5df4",
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
@@ -321,6 +321,10 @@
     },
     "system/lib/repofacts.mjs": {
       "sha256": "9cf9c9faba765ba2d73bb35210a03518fb169e20dc1ba1e5d3d054fecefe452d",
+      "group": "code"
+    },
+    "system/lib/report.mjs": {
+      "sha256": "26160bf0f8045092e35e95b495fc39a6470ebb77a567fd90862d36d92aa2b2be",
       "group": "code"
     },
     "system/lib/schema.mjs": {
@@ -996,7 +1000,7 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "0dcacd15c0d8e4995be329ea70b63db1eca3f2425bbf0aa6f82e5fd3390ab9b1",
+      "sha256": "15d16579bd9e79667d85049fd9e029996704392f7656ef9022bee4ac5e978cd0",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {
@@ -1121,6 +1125,10 @@
     },
     "system/tests/unit/recovery.test.mjs": {
       "sha256": "ecf56155210daeb7d3390d30d0669005bee208bd1559d6d2d7148849fb350d83",
+      "group": "tests"
+    },
+    "system/tests/unit/report.test.mjs": {
+      "sha256": "64150d7341824723da329c445222530d2e1ca1aef06fb567c00d4802cc821790",
       "group": "tests"
     },
     "system/tests/unit/review.test.mjs": {

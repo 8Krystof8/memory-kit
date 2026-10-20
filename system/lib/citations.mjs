@@ -109,19 +109,22 @@ export function lastAssistantText(entries) {
   return '';
 }
 
-/** What the tool calls of the transcript were given and what they returned, each as one string. */
-export function toolTraces(entries) {
+/**
+ * What the tool calls of the transcript were given and (results: true) what they returned, each
+ * as one string.
+ */
+export function toolTraces(entries, { results = true } = {}) {
   const out = [];
   for (const e of entries) {
     const content = Array.isArray(e?.message?.content) ? e.message.content : [];
     for (const b of content) {
       if (b?.type === 'tool_use') out.push(`${b.name ?? ''} ${str(b.input)}`);
-      else if (b?.type === 'tool_result') out.push(str(b.content));
+      else if (b?.type === 'tool_result' && results) out.push(str(b.content));
     }
     const p = e?.type === 'response_item' && isObj(e.payload) ? e.payload : null;
     if (!p) continue;
     if (['function_call', 'custom_tool_call', 'local_shell_call'].includes(p.type)) out.push(`${p.name ?? ''} ${str(p.arguments ?? p.input ?? p.action)}`);
-    else if (/_output$/.test(String(p.type))) out.push(str(p.output));
+    else if (/_output$/.test(String(p.type)) && results) out.push(str(p.output));
   }
   return out;
 }

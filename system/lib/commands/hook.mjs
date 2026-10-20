@@ -23,7 +23,9 @@
 //                  is sent back to the agent, at most 3 times per session (projects.citations);
 //                  when the owner said something that reads like a decision or a correction and
 //                  no note changed in the session, the agent is asked once to save it
-//                  (projects.capture, lib/capture.mjs);
+//                  (projects.capture, lib/capture.mjs); with nothing to ask, Claude Code gets
+//                  one line for the owner on the notes the answer used and saved (lib/report.mjs,
+//                  feedback.notice);
 //                  once per session in a known project, when the code changed and the handoff did
 //                  not: ask the agent to record handoff, gotchas and dead ends (JSON or nothing);
 //                  never in a Claude Code run without a person (claude -p, the Agent SDK)
@@ -51,6 +53,7 @@ import { readHookInput, lookupCandidate, isProbe } from '../hookinput.mjs';
 import { writeAtomic } from '../fsafe.mjs';
 import { checkCitations, hasProblems } from '../citations.mjs';
 import { checkCapture } from '../capture.mjs';
+import { shortList, turnReport } from '../report.mjs';
 import { WORK_DIR, ensureWorkDirIgnored, todayLocal, workDirGit } from '../util.mjs';
 
 export const usage = 'hook claude-code|codex session-start|stop|tool-failure|session-end (run by the agent hooks; JSON on stdin)';
@@ -70,6 +73,9 @@ const DEFAULTS = {
   'hook.capture_project': '{cmd} remember --project {id} --type decision "…" (a lasting rule or preference: --type convention)',
   'hook.capture_vault': 'a decision note per AGENTS.md: {cmd} new decision <sector>/<name>; a lasting rule: {cmd} new rule <sector>/<name>',
   'hook.capture_inbox': '{cmd} remember "…"',
+  'hook.report': 'memory-kit: {parts}',
+  'hook.report_read': 'notes used: {n} ({names})',
+  'hook.report_saved': 'saved: {n} ({names})',
   'hook.cite_missing': 'no such note: {names}',
   'hook.cite_unread': 'not read in this session: {names}',
   'hook.cite_unsaved': 'not changed in this session: {names}',
@@ -339,7 +345,20 @@ function stop(cfg, input, agent) {
     if (process.env.MEMORY_DEBUG) process.stderr.write(`memory hook: ${err?.stack ?? err}\n`);
   }
   const reasons = [cite, capture, checkpointReason(cfg, sid, s)].filter(Boolean);
-  return reasons.length ? JSON.stringify({ decision: 'block', reason: reasons.join('\n\n') }) : '';
+  if (reasons.length) return JSON.stringify({ decision: 'block', reason: reasons.join('\n\n') });
+  // Nothing to ask: one line for the owner on what the answer did with the memory.
+  if (agent !== 'claude-code' || cfg.feedback?.notice === false) return '';
+  try {
+    const r = turnReport(cfg, { transcript: input.transcript_path });
+    if (!r) return '';
+    const parts = [
+      r.read.length ? say(cfg, 'hook.report_read', { n: r.read.length, names: shortList(r.read) }) : '',
+      r.saved.length ? say(cfg, 'hook.report_saved', { n: r.saved.length, names: shortList(r.saved) }) : '',
+    ].filter(Boolean).join(' · ');
+    return JSON.stringify({ systemMessage: say(cfg, 'hook.report', { parts }) });
+  } catch {
+    return '';
+  }
 }
 
 /** The checkpoint's reason: the code changed and the handoff did not ('' otherwise). */

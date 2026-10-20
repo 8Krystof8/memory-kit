@@ -36,22 +36,29 @@ const INJECTED = /^(# AGENTS\.md instructions for|<)|<INSTRUCTIONS>|<user_instru
  */
 export function ownerMessages(entries, since = 0) {
   const out = [];
-  const keep = (text, e) => {
-    const t = String(text ?? '').trim();
-    const at = Date.parse(e?.timestamp ?? '');
-    if (t && !INJECTED.test(t) && !(at && at < since)) out.push(t);
-  };
   for (const e of entries) {
-    // Claude Code: {type: 'user', message: {role: 'user', content: string | [{type: 'text', text}]}}
-    if (e?.type === 'user' && isObj(e.message) && !e.isMeta && !e.isSidechain && !e.isCompactSummary && !e.isVisibleInTranscriptOnly) {
-      const c = e.message.content;
-      if (typeof c === 'string') keep(c, e);
-      else if (Array.isArray(c)) for (const b of c) if (b?.type === 'text') keep(b.text, e);
-    }
-    // Codex: {type: 'response_item', payload: {type: 'message', role: 'user', content: [{type: 'input_text', text}]}}
-    const p = e?.type === 'response_item' && isObj(e.payload) ? e.payload : null;
-    if (p?.type === 'message' && p.role === 'user' && Array.isArray(p.content)) for (const b of p.content) keep(b?.text, e);
+    const at = Date.parse(e?.timestamp ?? '');
+    if (!(at && at < since)) out.push(...ownerTexts(e));
   }
+  return out;
+}
+
+/** The owner's own texts in one transcript line ([] for any other line). */
+export function ownerTexts(e) {
+  const out = [];
+  const keep = (text) => {
+    const t = String(text ?? '').trim();
+    if (t && !INJECTED.test(t)) out.push(t);
+  };
+  // Claude Code: {type: 'user', message: {role: 'user', content: string | [{type: 'text', text}]}}
+  if (e?.type === 'user' && isObj(e.message) && !e.isMeta && !e.isSidechain && !e.isCompactSummary && !e.isVisibleInTranscriptOnly) {
+    const c = e.message.content;
+    if (typeof c === 'string') keep(c);
+    else if (Array.isArray(c)) for (const b of c) if (b?.type === 'text') keep(b.text);
+  }
+  // Codex: {type: 'response_item', payload: {type: 'message', role: 'user', content: [{type: 'input_text', text}]}}
+  const p = e?.type === 'response_item' && isObj(e.payload) ? e.payload : null;
+  if (p?.type === 'message' && p.role === 'user' && Array.isArray(p.content)) for (const b of p.content) keep(b?.text);
   return out;
 }
 
