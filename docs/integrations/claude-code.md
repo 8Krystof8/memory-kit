@@ -172,6 +172,16 @@ is not documented, so the kit does not rely on it.
 - To stop permission prompts for the memory commands, allow them in `/permissions`, for example
   with the rule `Bash(node system/memory.mjs:*)`.
 
+## The rules in every session: connect --rules
+
+`node system/memory.mjs connect claude-code --rules` adds a short block of rules to `~/.claude/CLAUDE.md` (`$CLAUDE_CONFIG_DIR/CLAUDE.md`), the
+instructions Claude Code reads in every session, in every folder: load the memory at the start,
+search it before answering about earlier decisions, save a decision right away, cite only notes
+opened in the session. The block sits between two `memory-kit:rules` marker lines and names this
+vault by its full path; the rest of the file stays as it was, and a copy of the old file goes to
+`.memory-kit/backups/connect/`. Running it again updates the block, `--remove` takes it out and
+`--dry-run` only shows what would change.
+
 ## Claude Code's own memory
 
 Claude Code's auto memory is tied to one machine and does not travel to cloud sessions. For

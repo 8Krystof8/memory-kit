@@ -19,8 +19,10 @@ import {
   planTomlEdit, portableArgs, projectConfigPath, resolveClient, serverArgs, spawnSpec, tomlBlock, vaultRefs,
 } from '../clients.mjs';
 import { ensureWorkDirIgnored, git, parseCli, usageError } from '../util.mjs';
+import { RULE_AGENTS, applyRules, rulesBlock, rulesFile, rulesVault } from '../globalrules.mjs';
+import { vaultCommand } from '../projects.mjs';
 
-export const usage = 'connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json] | connect claude-code|codex --projects [--auto-add|--no-auto-add] [--store local|git] [--autosync|--no-autosync] [--everywhere|--no-everywhere] [--form shell|exec] [--dry-run] [--remove] [--json] | connect --list [--json]';
+export const usage = 'connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json] | connect claude-code|codex --projects [--auto-add|--no-auto-add] [--store local|git] [--autosync|--no-autosync] [--everywhere|--no-everywhere] [--form shell|exec] [--dry-run] [--remove] [--json] | connect claude-code|codex|gemini-cli --rules [--dry-run] [--remove] [--json] | connect --list [--json]';
 
 export const BACKUP_DIR = '.memory-kit/backups/connect';
 const CLI_TIMEOUT_MS = 120000;
@@ -75,6 +77,18 @@ const DEFAULTS = {
   'connect.check': 'check: {text}',
   'connect.try': 'then ask the agent to call memory_start; it answers with the start page of your memory',
   'connect.next_remove': 'next: restart {client} so it stops the server',
+  'connect.rules.add': '{client}: the memory rules were added to {path}',
+  'connect.rules.update': '{client}: the memory rules were updated in {path}',
+  'connect.rules.unchanged': '{client}: the memory rules are already in {path}',
+  'connect.rules.remove': '{client}: the memory rules were taken out of {path}',
+  'connect.rules.absent': '{client}: {path} has no memory rules, nothing to remove',
+  'connect.rules.plan.add': '{client}: would add the memory rules to {path}',
+  'connect.rules.plan.update': '{client}: would update the memory rules in {path}',
+  'connect.rules.plan.remove': '{client}: would take the memory rules out of {path}',
+  'connect.rules.other_vault': 'the rules named another memory ({vault}); they now name this one',
+  'connect.rules.unreadable': '{client}: {path} cannot be read ({error}); fix it and run the command again',
+  'connect.rules.what': 'every session now loads the memory, searches it before answering about the past, saves decisions right away and cites only notes it opened; the rest of the file is kept as it was',
+  'connect.rules.next': 'next: start a new {client} session; the rules apply from its start',
   'connect.next.claude-code': 'start a new Claude Code session (running sessions keep their old servers)',
   'connect.next.claude-code-file': 'close running Claude Code sessions and start a new one; Claude Code rewrites this file while it runs, so connect again if the entry disappears',
   'connect.check.claude-code': 'claude mcp get {name}, or /mcp inside a session',
@@ -754,8 +768,74 @@ async function runProjects(argv, cfg, ctx) {
   return res.exit;
 }
 
+/**
+ * connect claude-code|codex|gemini-cli --rules: the rules block in the agent's global instructions
+ * (lib/globalrules.mjs). Only the block between its marker lines is written; the file is backed up
+ * first and replaced atomically.
+ */
+async function runRules(argv, cfg, ctx) {
+  const parsed = parseCli(argv.filter((a) => a !== '--rules'), {
+    'dry-run': { type: 'boolean' },
+    remove: { type: 'boolean' },
+    json: { type: 'boolean' },
+  }, usage);
+  if (!parsed) return 2;
+  const { values, positionals } = parsed;
+  const agent = positionals.length === 1 ? positionals[0] : null;
+  if (!Object.hasOwn(RULE_AGENTS, agent ?? '')) {
+    usageError(`--rules works with ${Object.keys(RULE_AGENTS).join(', ')} (got ${positionals.join(' ') || 'nothing'})`, usage);
+    return 2;
+  }
+  const root = ctx?.root ?? cfg?.root;
+  if (!root || !cfg) {
+    usageError('no vault: pass --root <path>', usage);
+    return 2;
+  }
+  const client = RULE_AGENTS[agent];
+  const file = rulesFile(agent);
+  const dest = writeTarget(file);
+  const out = { agent, path: file, action: null, dryRun: values['dry-run'] === true, backup: null, otherVault: null };
+  let text = '';
+  try {
+    text = fs.readFileSync(dest, 'utf8');
+  } catch (err) {
+    if (err?.code !== 'ENOENT') {
+      const line = say(cfg, 'connect.rules.unreadable', { client, path: file, error: err.code ?? err.message });
+      process.stdout.write(values.json ? `${JSON.stringify({ ...out, action: 'failed', error: line }, null, 2)}\n` : `${line}\n`);
+      return 1;
+    }
+  }
+  const vault = path.resolve(root);
+  const block = values.remove ? null : rulesBlock({ lang: cfg.lang, vault: vault.replace(/\\/g, '/'), command: vaultCommand(cfg) });
+  const before = rulesVault(text);
+  if (!values.remove && before && before !== vault.replace(/\\/g, '/')) out.otherVault = before;
+  const res = applyRules(text, block);
+  out.action = res.action;
+  const writes = res.action === 'add' || res.action === 'update' || res.action === 'remove';
+  if (writes && !out.dryRun) {
+    if (text) out.backup = backupFile(vault, `${agent}-rules`, dest, new Date());
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    writeConfig(dest, res.text);
+  }
+  if (values.json) {
+    process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
+    return 0;
+  }
+  const lines = [say(cfg, writes && out.dryRun ? `connect.rules.plan.${res.action}` : `connect.rules.${res.action}`, { client, path: file })];
+  if (out.otherVault) lines.push(say(cfg, 'connect.rules.other_vault', { vault: out.otherVault }));
+  if (out.dryRun && writes) lines.push(say(cfg, 'connect.dry_run'));
+  else if (writes) {
+    if (out.backup) lines.push(say(cfg, 'connect.backup', { path: out.backup }));
+    if (res.action !== 'remove') lines.push(say(cfg, 'connect.rules.what'));
+    lines.push(say(cfg, 'connect.rules.next', { client }));
+  }
+  process.stdout.write(`${lines.join('\n')}\n`);
+  return 0;
+}
+
 export async function run(argv, cfg, ctx) {
   if (argv.includes('--projects')) return runProjects(argv, cfg, ctx);
+  if (argv.includes('--rules')) return runRules(argv, cfg, ctx);
   const parsed = parseCli(argv, {
     scope: { type: 'string' },
     name: { type: 'string' },

@@ -43,6 +43,11 @@ Honest agents, and your memory as a living map in the browser.
   checked, right the first time and sent back, decisions the agent was asked to save, answers that
   used the memory and notes saved, and the share of citations right the first time. The hook log
   keeps only the outcomes, no names and no text.
+- **The rules in every session**: `connect claude-code --rules` (also `codex` and `gemini-cli`)
+  adds a short block to the agent's global instructions (`~/.claude/CLAUDE.md`,
+  `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`): load the memory, search it before answering about
+  the past, save decisions right away, cite only notes opened in the session. Only the block
+  between its marker lines is ever touched; `--remove` takes it out, `--dry-run` shows the change.
 - **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
   every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
   hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.

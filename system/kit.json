@@ -60,11 +60,11 @@
       "group": "docs"
     },
     "docs/integrations/claude-code.md": {
-      "sha256": "9924d7d5e88b975670fb8bda07e19cf59c9617ea994bcd74e01d8512aaa54874",
+      "sha256": "3534fb194632dd8e6118a8fb83ccfb2a4b19471f3effeebe2b7189481f50fe5f",
       "group": "docs"
     },
     "docs/integrations/codex.md": {
-      "sha256": "cdf8bd268158a5f88684c1d2aa8031b6ac089efd2e64e71534cb76cb3cc22d3d",
+      "sha256": "3209e369659d88b8a37d0e6443801998548fa91e005b8db5fccbeaeb02071840",
       "group": "docs"
     },
     "docs/integrations/cursor.md": {
@@ -72,7 +72,7 @@
       "group": "docs"
     },
     "docs/integrations/gemini-cli.md": {
-      "sha256": "5aaefef2a19448671b2d5f902cf82ad4db5f05412ec5fca8d937596d1fdb639f",
+      "sha256": "7a216664d42dc0c809257548a2300efa27b69b615618f30554299de31ee583db",
       "group": "docs"
     },
     "docs/integrations/mcp.md": {
@@ -132,7 +132,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "75f8841f930a8826aebb0a1aa6850f10fe7e109788855b9e81207293ee05e242",
+      "sha256": "fb0730e2bb2471073db01cfaf916dd82f3eea6a337412696f9b523e83c3c8300",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -184,7 +184,7 @@
       "group": "code"
     },
     "system/lib/commands/connect.mjs": {
-      "sha256": "68894a6b97fa820678f941a71f10b461fc5153b69e79bce063d8d2fb0ea0a762",
+      "sha256": "8e21f7705f7547a0dff898de5be46cd541ed9327cdce9cce28686f83c667440c",
       "group": "code"
     },
     "system/lib/commands/doctor.mjs": {
@@ -269,6 +269,10 @@
     },
     "system/lib/generate.mjs": {
       "sha256": "e2c7cb9fae4be306495073450153843a814d76af1771e82c72c63e9408c85247",
+      "group": "code"
+    },
+    "system/lib/globalrules.mjs": {
+      "sha256": "f9948445205ba5bfcdda2da7beb7aae7d6b3222df44f9f7483d795f4a85c39b9",
       "group": "code"
     },
     "system/lib/graph.mjs": {
@@ -1081,6 +1085,10 @@
     },
     "system/tests/unit/generate.test.mjs": {
       "sha256": "4416676faa79114d2a73f4d78ef68ef2de374f08b8d88d83611dbc76d5411829",
+      "group": "tests"
+    },
+    "system/tests/unit/globalrules.test.mjs": {
+      "sha256": "7c71946d3456cfc6ad73a17e791287a0472419960b2f295fa1830f3f6d5b7219",
       "group": "tests"
     },
     "system/tests/unit/graph.test.mjs": {

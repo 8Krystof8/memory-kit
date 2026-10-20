@@ -80,6 +80,16 @@ servers. `/mcp list` shows the server as connected.
 If the settings file contains comments, `connect` leaves it alone and prints the entry to paste
 into `"mcpServers"`. More in [mcp.md](mcp.md).
 
+## The rules in every session: connect --rules
+
+`node system/memory.mjs connect gemini-cli --rules` adds a short block of rules to `~/.gemini/GEMINI.md`, the
+instructions Gemini CLI reads in every session, in every folder: load the memory at the start,
+search it before answering about earlier decisions, save a decision right away, cite only notes
+opened in the session. The block sits between two `memory-kit:rules` marker lines and names this
+vault by its full path; the rest of the file stays as it was, and a copy of the old file goes to
+`.memory-kit/backups/connect/`. Running it again updates the block, `--remove` takes it out and
+`--dry-run` only shows what would change.
+
 ## Things to know
 
 - **Its own search tools may not read `.ignore`.** Gemini's grep and glob tools respect
