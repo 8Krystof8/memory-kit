@@ -138,6 +138,25 @@ describe('sync', { skip: !HAS_GIT && 'git is not installed' }, () => {
     assert.ok(readFile(a, rel).includes('(machine B)'), 'machine A gets both after a pull');
   });
 
+  test('a rebase the owner is resolving by hand is left alone', () => {
+    const { env, a: first, b } = twoMachines();
+    const rel = 'sectors/work/pricing.md';
+    const edit = (root, text) => {
+      writeFile(root, rel, readFile(root, rel).replace('Standard has up to six pages and a blog.', text));
+      git(root, env, 'commit', '-q', '-am', `edit ${text}`);
+    };
+    edit(first, 'eight pages');
+    git(first, env, 'push', '-q');
+    edit(b, 'seven pages');
+    spawnSync('git', ['pull', '--rebase'], { cwd: b, env: { ...process.env, ...env }, encoding: 'utf8' });
+    writeFile(b, rel, 'MY HAND RESOLUTION\n');
+    const res = runCli(b, ['sync', '--today', TODAY], { env });
+    assert.equal(res.code, 1);
+    assert.match(res.stderr, /rebase or merge is not finished/);
+    assert.equal(readFile(b, rel), 'MY HAND RESOLUTION\n', 'the hand edit is untouched');
+    assert.ok(fs.existsSync(path.join(b, '.git', 'rebase-merge')) || fs.existsSync(path.join(b, '.git', 'rebase-apply')), 'the rebase still waits');
+  });
+
   test('a conflict in a note aborts the rebase, keeps the local commit and exits 1', () => {
     const { env, a, b } = twoMachines();
     const rel = 'sectors/work/pricing.md';

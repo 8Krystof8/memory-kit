@@ -171,6 +171,11 @@ export async function run(argv, cfg) {
     process.stdout.write(`${cfg.t('sync.local_mode')}\n`);
     return 0;
   }
+  // A rebase or merge the owner is resolving by hand is theirs: sync neither continues nor aborts it.
+  if (rebaseInProgress(root) || git(root, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'], { allowFail: true }).ok) {
+    process.stderr.write(`${cfg.t('sync.busy')}\n`);
+    return 1;
+  }
   const remotes = git(root, ['remote'], { allowFail: true }).stdout.trim();
   if (!remotes) {
     process.stdout.write(`${cfg.t('sync.no_remote')}\n`);

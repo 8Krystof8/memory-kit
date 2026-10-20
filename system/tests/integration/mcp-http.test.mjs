@@ -65,10 +65,14 @@ describe('mcp over http', () => {
     const init = await post(base, INIT, { token: null, url: `/mcp/${TOKEN}` });
     assert.equal(init.status, 200);
     assert.equal((await post(base, INIT, { token: null, url: '/mcp/wrong' })).status, 401);
+    assert.equal((await post(base, INIT, { token: null, url: '/mcp/%E0' })).status, 401, 'a malformed escape is a 401, not a crash');
+    assert.equal((await post(base, INIT)).status, 200, 'and the server still answers');
   });
 
   test('serverToken: the env first, else a file made once, owner only', () => {
-    assert.deepEqual(serverToken(v.root, { env: { MEMORY_KIT_MCP_TOKEN: 'abc' } }), { token: 'abc', source: 'env' });
+    const long = 'k'.repeat(32);
+    assert.deepEqual(serverToken(v.root, { env: { MEMORY_KIT_MCP_TOKEN: long } }), { token: long, source: 'env' });
+    assert.throws(() => serverToken(v.root, { env: { MEMORY_KIT_MCP_TOKEN: 'abc' } }), /at least 32 characters/);
     const made = serverToken(v.root, { env: {} });
     assert.equal(made.source, 'new');
     assert.ok(made.token.length >= 40);

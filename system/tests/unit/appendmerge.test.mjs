@@ -27,9 +27,24 @@ describe('mergeAdditions', () => {
     assert.equal(mergeAdditions(null, 'x', 'y'), null, 'a file added on both sides has no base');
   });
 
-  test('a key added by one side is kept as a line, not mistaken for the common date', () => {
-    assert.equal(mergeAdditions('---\ntype: list\n---\n- a\n', '---\ntype: list\nupdated: 2026-09-02\n---\n- a\n', '---\ntype: list\n---\n- a\n- b\n'),
-      '---\ntype: list\nupdated: 2026-09-02\n---\n- a\n- b\n');
+  test('a key one side adds to the frontmatter is left to the owner', () => {
+    assert.equal(mergeAdditions('---\ntype: list\n---\n- a\n', '---\ntype: list\nupdated: 2026-09-02\n---\n- a\n', '---\ntype: list\n---\n- a\n- b\n'), null);
+  });
+
+  test('not merged: keys added to the frontmatter, a heading added on both sides, an updated value without a date', () => {
+    const base = '---\ntype: list\nupdated: 2026-09-01\n---\n- a\n';
+    assert.equal(mergeAdditions(base, '---\ntype: list\nstatus: active\nupdated: 2026-09-02\n---\n- a\n', '---\ntype: list\nupdated: 2026-09-01\n---\n- a\n- b\n'), null);
+    assert.equal(mergeAdditions('# N\n- a\n', '# N\n- a\n## History\n- x\n', '# N\n- a\n## History\n- y\n'), null);
+    assert.equal(mergeAdditions(base, base.replace('2026-09-01', 'soon'), `${base}- b\n`), null);
+  });
+
+  test('one side holds the other side\'s lines and more: kept once', () => {
+    assert.equal(mergeAdditions('# L\n- a\n', '# L\n- a\n- b\n', '# L\n- a\n- b\n- c\n'), '# L\n- a\n- b\n- c\n');
+  });
+
+  test('the later date wins as a date, not as a string', () => {
+    const n = (u, body) => `---\nupdated: ${u}\n---\n${body}`;
+    assert.equal(mergeAdditions(n('2026-09-01', '- a\n'), n('"2026-09-02"', '- a\n- b\n'), n('2026-09-10', '- a\n- c\n')), n('2026-09-10', '- a\n- b\n- c\n'));
   });
 
   test('CRLF stays CRLF', () => {

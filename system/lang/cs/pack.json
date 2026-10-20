@@ -464,6 +464,7 @@
     "sync.no_git": "není to git repozitář: není co synchronizovat",
     "sync.git_error": "git s tímto repozitářem nedokáže pracovat, proto se nic nesynchronizovalo: {detail}",
     "sync.local_mode": "režim local: nic neopouští tento počítač, sync tedy nic nedělá; stačí commit",
+    "sync.busy": "v trezoru není dokončený rebase nebo merge, takže se nic nesynchronizovalo; dokonči ho (git rebase --continue nebo git commit) nebo zruš (git rebase --abort nebo git merge --abort) a spusť sync znovu",
     "sync.conflict": "konflikt mimo generované soubory: {files}. Rebase přerušen, vyřeš ho ručně.",
     "sync.regenerated": "po konfliktu přegenerovány generované soubory",
     "sync.pulled": "staženo",

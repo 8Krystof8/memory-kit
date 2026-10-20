@@ -90,7 +90,15 @@ async function serveHttp(root, { readOnly, local, version, values }) {
   const host = values.host ?? '127.0.0.1';
   const { createHttpServer, serverToken } = await import('../mcphttp.mjs');
   ensureWorkDirIgnored(root);
-  const { token, source, file } = serverToken(root);
+  let token;
+  let source;
+  let file;
+  try {
+    ({ token, source, file } = serverToken(root));
+  } catch (err) {
+    usageError(err.message, usage);
+    return 2;
+  }
   const server = createHttpServer({
     token, allowOrigins: values['allow-origin'] ?? [], log, root, readOnly, local,
     sectors: splitList(process.env.MEMORY_SECTORS), version, onActivity: (entry) => logActivity(root, entry),

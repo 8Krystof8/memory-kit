@@ -132,7 +132,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "6c2ab8315f848952f3b45f36dd0d9dfd75817ec958c83454ad09a2868a3695c5",
+      "sha256": "d28029f371713f1474c33b7c6c7ba5f043f4e02d75764c42d77535d8d03b3a0a",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -156,7 +156,7 @@
       "group": "code"
     },
     "system/lib/appendmerge.mjs": {
-      "sha256": "cdddb7b42d490e73558a768f305bf2c98d0de0e61d66cd34e4b696774f464ae1",
+      "sha256": "49d8b4e5ca2996431af613e2030721316a5f33d45c8e0fadd6d8d54ed0d08a7d",
       "group": "code"
     },
     "system/lib/capture.mjs": {
@@ -208,7 +208,7 @@
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
-      "sha256": "d8c17480363e92b0ad523212665915ac59da243c97e86f7d4d7c2c3c622de367",
+      "sha256": "aba3995a90c85a91a6e67d5a1afa05731be21c6450cba421cfc12eb72df95b9b",
       "group": "code"
     },
     "system/lib/commands/new.mjs": {
@@ -240,7 +240,7 @@
       "group": "code"
     },
     "system/lib/commands/sync.mjs": {
-      "sha256": "f80ba2b121b35e3e84f5368cd61c8985767d22bff61f5f4b4d1132a5c7e6599e",
+      "sha256": "91774fc31b4a5014b2bbdb1e059ee9cc80ebb0ef3f8f4a3ef73c35b1b82ecddd",
       "group": "code"
     },
     "system/lib/commands/upgrade.mjs": {
@@ -248,7 +248,7 @@
       "group": "code"
     },
     "system/lib/config.mjs": {
-      "sha256": "322c1c8ebd1d6894806d6f6034fac228d47de7cdd64c458ec874ab877f4e64b4",
+      "sha256": "dd3396727ac8d0253392db359f1c258c22ef92007f86d7c1c3b036b154915062",
       "group": "code"
     },
     "system/lib/doctor.mjs": {
@@ -312,7 +312,7 @@
       "group": "code"
     },
     "system/lib/mcphttp.mjs": {
-      "sha256": "c63c38cf7e0c3b34adebe2d50ab559eb9de83c40dd9a588ff432fea64300a2ef",
+      "sha256": "831227873590044d7a9605a5da9ecd2132b46a1cd473f07159eb1018fda878df",
       "group": "code"
     },
     "system/lib/migrations.mjs": {
@@ -1004,7 +1004,7 @@
       "group": "tests"
     },
     "system/tests/integration/mcp-http.test.mjs": {
-      "sha256": "54b0b3039a94bd653e79601ef6deade76b28d6442e79e4c9e1592c774e8dcca2",
+      "sha256": "56259fd35d937ab4e9ed4bf3b002670d58a6b9debfba56b6ca4d3ddccb44e815",
       "group": "tests"
     },
     "system/tests/integration/mcp.test.mjs": {
@@ -1016,11 +1016,11 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "bf1498729dc601ae72357475bc4addaf378e99afbff781a9acc114ef61340309",
+      "sha256": "a759d11957fd0114b389d74bc28172c9ab12cc27a63ece97ae98b307d90cf9f0",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {
-      "sha256": "926757c2aa1178357172ce4d7b5ef04d0306962aad1502062c6f1cf4798aa34d",
+      "sha256": "3dcb92efe8b0f1497fcbd1457f4de840520f71a5d1929f0717107e09ae273382",
       "group": "tests"
     },
     "system/tests/integration/updates.test.mjs": {
@@ -1048,7 +1048,7 @@
       "group": "tests"
     },
     "system/tests/unit/appendmerge.test.mjs": {
-      "sha256": "83b935cf9d414edd82b76f24e5560f6cde09184ddb9d0bc21b3bbb30642d0931",
+      "sha256": "4dbb473dc8d498cac1c4e080bda4673a230fdf72920284b2d58229478c12f807",
       "group": "tests"
     },
     "system/tests/unit/capture.test.mjs": {

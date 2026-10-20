@@ -1,8 +1,9 @@
 // The merge of a note that two devices only added to: when both sides of a conflict kept every
-// line of the common version and only inserted lines (a new `- [fact] …` line, a dated gotcha, a
-// line under a heading), the result is the common version with both sides' lines, the upstream
-// side's first; the frontmatter key `updated` takes the later date. Anything else (a line changed
-// or removed on either side) is not merged here: sync then stops and lists the file, as before.
+// line of the common version and only inserted lines in the body (a new `- [fact] …` line, a
+// dated gotcha, a line under a heading), the result is the common version with both sides' lines,
+// the upstream side's first; the frontmatter key `updated` takes the later date. Anything else (a
+// line changed or removed, a line added to the frontmatter, a heading added on both sides, an
+// `updated` value without a date) is not merged here: sync then stops and lists the file.
 // Pure: text in, text or null out.
 
 const UPDATED = /^updated:\s*(\S.*)$/;
@@ -53,18 +54,29 @@ export function mergeAdditions(base, upstream, replayed) {
   const iu = insertions(bb, ub);
   const ir = insertions(bb, rb);
   if (!iu || !ir) return null;
+  // Not in the frontmatter (a key added on both sides would be there twice), and not a heading
+  // both sides add (two "## History"): those are left to the owner.
+  const fmEnd = bb[0] === '---' ? bb.indexOf('---', 1) : -1;
+  for (let i = 0; i <= fmEnd; i++) if (iu[i].length || ir[i].length) return null;
+  const heads = (slots) => slots.flat().filter((l) => /^#{1,6}\s/.test(l));
+  if (heads(iu).length && heads(ir).length) return null;
+  const startsWith = (a, b) => b.length <= a.length && b.every((l, n) => a[n] === l);
   const out = [];
   for (let i = 0; i <= bb.length; i++) {
-    out.push(...iu[i]);
-    // The same lines added on both sides are kept once.
-    if (ir[i].join('\n') !== iu[i].join('\n')) out.push(...ir[i]);
+    // One side's lines may already hold the other's (it pulled them, then added more): kept once.
+    if (startsWith(iu[i], ir[i])) out.push(...iu[i]);
+    else if (startsWith(ir[i], iu[i])) out.push(...ir[i]);
+    else out.push(...iu[i], ...ir[i]);
     if (i < bb.length) out.push(bb[i]);
   }
   // The placeholder left where the key was (inside the frontmatter, so the first one).
   const k = keys[0] >= 0 ? out.indexOf('updated:') : -1;
   if (k >= 0) {
-    const latest = dates.filter(Boolean).sort().at(-1);
-    out[k] = latest ? `updated: ${latest}` : b[keys[0]] ?? out[k];
+    // Dates compared as dates: a value without one leaves the note to the owner.
+    const days = dates.filter((d) => d !== null).map((d) => /\d{4}-\d{2}-\d{2}/.exec(d)?.[0] ?? null);
+    if (days.some((d) => d === null)) return null;
+    const latest = dates[days.indexOf([...days].sort().at(-1))];
+    out[k] = `updated: ${latest}`;
   }
   const text = `${out.join('\n')}\n`;
   return crlf ? text.replace(/\n/g, '\r\n') : text;

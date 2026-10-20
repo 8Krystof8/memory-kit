@@ -613,6 +613,8 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     const offline = start(v, tmpDir('plain'), 'p3');
     assert.equal(offline.code, 0);
     assert.doesNotMatch(offline.stdout, /Warning: failed memory hook runs/);
+    const pulls = logOf(v).filter((e) => e.event === 'autopull');
+    assert.deepEqual([pulls.at(-1).step, pulls.at(-1).ok], ['fetch', true], 'the failed fetch is noted, not reported');
   });
 
   test('autosync: commits and pushes, logs a failed push with its fix and the next session start shows it; a busy lock is skipped', () => {

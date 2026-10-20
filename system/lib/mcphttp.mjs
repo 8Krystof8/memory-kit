@@ -28,6 +28,8 @@ const MAX_SESSIONS = 64;
 /** The token: MEMORY_KIT_MCP_TOKEN, else the token file (made now when there is none). */
 export function serverToken(root, { env = process.env } = {}) {
   const given = String(env.MEMORY_KIT_MCP_TOKEN ?? '').trim();
+  // A short token can be guessed: the same floor as the file's.
+  if (given && given.length < 32) throw new Error('MEMORY_KIT_MCP_TOKEN must be at least 32 characters (try: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64url\'))")');
   if (given) return { token: given, source: 'env' };
   const file = path.join(root, ...TOKEN_REL.split('/'));
   try {
@@ -53,8 +55,12 @@ export function requestToken(req, base) {
   const m = /^Bearer\s+(\S+)$/i.exec(auth);
   if (m) return m[1];
   const url = String(req.url ?? '').split('?')[0];
-  if (url.startsWith(`${base}/`)) return decodeURIComponent(url.slice(base.length + 1)) || null;
-  return null;
+  if (!url.startsWith(`${base}/`)) return null;
+  try {
+    return decodeURIComponent(url.slice(base.length + 1)) || null;
+  } catch {
+    return null; // a malformed escape is no token
+  }
 }
 
 const send = (res, status, body, headers = {}) => {
@@ -76,6 +82,15 @@ export function createHttpServer({ token, base = '/mcp', allowOrigins = [], log 
   };
 
   return http.createServer((req, res) => {
+    try {
+      handle(req, res);
+    } catch (err) {
+      log(`internal error: ${err?.stack ?? err}`);
+      if (!res.headersSent) send(res, 500, rpcError(-32603, 'Internal error'));
+    }
+  });
+
+  function handle(req, res) {
     const url = String(req.url ?? '').split('?')[0];
     if (url !== base && !url.startsWith(`${base}/`)) return send(res, 404, rpcError(-32601, 'Not found'));
     const origin = req.headers.origin;
@@ -130,6 +145,8 @@ export function createHttpServer({ token, base = '/mcp', allowOrigins = [], log 
         return send(res, 500, rpcError(-32603, 'Internal error'));
       }
     });
-    req.on('error', () => send(res, 400, rpcError(-32600, 'Bad request')));
-  });
+    req.on('error', () => {
+      if (!res.headersSent) send(res, 400, rpcError(-32600, 'Bad request'));
+    });
+  }
 }

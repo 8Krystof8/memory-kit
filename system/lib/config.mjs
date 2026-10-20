@@ -228,6 +228,7 @@ export const CODE_DEFAULTS = Object.freeze({
   'sync.no_git': 'not a git repository: nothing to sync',
   'sync.git_error': 'git cannot use this repository, so nothing was synced: {detail}',
   'sync.local_mode': 'mode local: nothing leaves this computer, so sync does nothing; a commit is enough',
+  'sync.busy': 'a rebase or merge is not finished in the vault, so nothing was synced; finish it (git rebase --continue or git commit) or undo it (git rebase --abort or git merge --abort), then run sync again',
   'sync.conflict': 'conflict outside the generated files: {files}. Rebase aborted; resolve it by hand.',
   'sync.regenerated': 'regenerated the generated files after a conflict',
   'sync.pulled': 'pulled',
