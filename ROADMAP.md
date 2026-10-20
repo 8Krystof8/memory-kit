@@ -31,24 +31,26 @@ changes is in [CHANGELOG.md](CHANGELOG.md); how a memory gets it, in
 
 The agent no longer only promises to use the memory: the kit checks that it did.
 
-- The memory loads at the start of every session, in any folder, not only inside the vault.
-- Before each question the kit attaches the 1–3 notes that fit it.
-- The 📎 line is checked: a cited note must exist and must have been read in the session.
-- A decision or a correction the owner gave must be saved before the session ends. The agent is
-  asked once; plan mode and subagents are left alone.
-- A short session report: what the agent used and what it saved, at no token cost.
-- `connect` writes the same rules for Claude Code, Codex and Gemini CLI everywhere, not per project.
-- `node system/memory.mjs gain`: the tokens and searches the memory saved, counted, not estimated.
+- The 📎 line is checked at Stop: a cited note must exist and must have been opened in the
+  session, a saved one must have changed. A wrong line goes back to the agent, at most 3 times.
+- A decision or a correction the owner gave must be saved: when nothing was, the agent is asked
+  once. Plan mode and subagents are left alone.
+- One line for the owner after each answer that used the memory, at no token cost.
+- An honesty score in `activity`: 📎 lines checked, right the first time, sent back, decisions
+  asked to save.
+- `connect --rules` writes the memory's rules into the global instructions of Claude Code, Codex
+  and Gemini CLI; `connect --projects --everywhere` loads the memory in every folder.
+- `start --project` and `memory_start {project}`: the owner or the agent picks the project to load
+  instead of the general start.
 - The source of a write over MCP is set by the kit, never by the caller.
-- `node system/memory.mjs graph` (Czech `graf`): the memory as a live map in the browser, notes as
-  dots and links by their kind, with filters, search and the local graph. A note an agent writes
-  appears within seconds. No server and no port.
-- `connect` lets the owner or the agent pick the project to load instead of the general start.
-- A one-prompt install and an `llms.txt` written for agents.
-- The new repository: same name, a new history, the license decided before it opens.
+- `node system/memory.mjs graph` (Czech `graf`): the memory as a live map in the browser.
+- `llms.txt` and a one-prompt install.
+- The new repository: same name, a new history, Apache-2.0.
 
 ## 0.2.1: lightning search
 
+- The memory before the question: the kit attaches the 1–3 notes that fit each question, once
+  search answers in milliseconds.
 - The index stays loaded in the MCP server and changes only for the notes that changed: search in
   milliseconds instead of about 1.8 s at 5,000 notes.
 - Trigram search for typos and every script, links between notes as a signal, and one merged list
