@@ -277,6 +277,8 @@ items are open at a time; further questions wait until there is room.
 
 `node system/memory.mjs sync` runs `git pull --rebase`. If a conflict touches only generated files
 (`_ai/`, `.ignore`, the home page), it regenerates them and continues. That is safe because they are deterministic.
+A note that both sides only added lines to (new lines anywhere, nothing changed or removed) is
+merged with both sides' lines, the upstream ones first, and `updated` takes the later date.
 Any other conflict aborts the rebase and lists the files, with exit code 1. Resolve them by hand,
 or ask an agent to. After a successful pull it pushes, retrying up to three times with a pull in
 between. It never uses `--force`. `--no-push` stops after the pull. In mode `local` it does nothing:

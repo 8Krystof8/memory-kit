@@ -1,5 +1,6 @@
 // `sync`: git pull --rebase, resolve conflicts that touch only generated files (_ai/, .ignore,
-// the home page) by regenerating them, then push (docs/architecture.md, 10.5). Never force-pushes, never resolves a conflict in a
+// the home page) by regenerating them and notes that both sides only added lines to by merging
+// them (lib/appendmerge.mjs), then push (docs/architecture.md, 10.5). Never force-pushes, never resolves a conflict in a
 // note: any other conflict aborts the rebase and exits 1. It never commits: uncommitted changes to
 // tracked files stop it at once (exit 1) with the commands that commit them, before git refuses the
 // pull with its own words. fastForward() is the quiet part the session start runs with autosync
@@ -8,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeGenerated } from '../generate.mjs';
+import { mergeAdditions } from '../appendmerge.mjs';
 import { loadVault } from '../vault.mjs';
 import { spawnSync } from 'node:child_process';
 import { checkToday, git, gitRepoState, parseCli, usageError } from '../util.mjs';
@@ -89,6 +91,22 @@ function isGenerated(cfg, rel) {
   return rel.startsWith(`${cfg.dirs.ai}/`) || rel === cfg.files.ignore || rel === cfg.files.home;
 }
 
+/**
+ * A conflicted markdown note that both sides only added to (lib/appendmerge.mjs): written merged
+ * and staged. True when it was merged; false leaves it to the owner.
+ */
+function mergeNote(root, rel) {
+  if (!rel.endsWith('.md')) return false;
+  const stage = (n) => {
+    const res = git(root, ['show', `:${n}:${rel}`], { allowFail: true });
+    return res.ok ? res.stdout : null;
+  };
+  const merged = mergeAdditions(stage(1), stage(2), stage(3));
+  if (merged === null) return false;
+  fs.writeFileSync(path.join(root, ...rel.split('/')), merged);
+  return git(root, ['add', '--', rel], { allowFail: true }).ok;
+}
+
 /** Pull with rebase; conflicts only in _ai/ or .ignore are regenerated, anything else aborts. */
 async function pull(cfg, today) {
   const root = cfg.root;
@@ -99,7 +117,8 @@ async function pull(cfg, today) {
   }
   let regenerated = false;
   for (let round = 0; round < MAX_ROUNDS && rebaseInProgress(root); round++) {
-    const files = conflictedFiles(root);
+    // Notes two devices only added to are merged line by line; the rest must be generated files.
+    const files = conflictedFiles(root).filter((f) => isGenerated(cfg, f) || !mergeNote(root, f));
     if (files.some((f) => !isGenerated(cfg, f))) {
       git(root, ['rebase', '--abort'], { allowFail: true });
       throw new SyncError(cfg.t('sync.conflict', { files: files.join(', ') }));

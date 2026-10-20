@@ -80,7 +80,7 @@
       "group": "docs"
     },
     "docs/maintenance.md": {
-      "sha256": "c760eb01991de8b8d0066517d2a4c4c788b5394fd49b3b90d19c43c5f981a447",
+      "sha256": "2969e6a05073c6aee27f89fd39cf8ef4fb5bd98d45713c013b396d609bb1abe6",
       "group": "docs"
     },
     "docs/modes.md": {
@@ -153,6 +153,10 @@
     },
     "system/lib/activity.mjs": {
       "sha256": "f07e26965e0ba479be7898a9eb0de8ae5e419239c8abc40e4dae9ea29a2357a4",
+      "group": "code"
+    },
+    "system/lib/appendmerge.mjs": {
+      "sha256": "cdddb7b42d490e73558a768f305bf2c98d0de0e61d66cd34e4b696774f464ae1",
       "group": "code"
     },
     "system/lib/capture.mjs": {
@@ -236,7 +240,7 @@
       "group": "code"
     },
     "system/lib/commands/sync.mjs": {
-      "sha256": "be19ae447604f6324a39f048b756208a17880723d5b1a46b9a787f95a48f24b4",
+      "sha256": "f80ba2b121b35e3e84f5368cd61c8985767d22bff61f5f4b4d1132a5c7e6599e",
       "group": "code"
     },
     "system/lib/commands/upgrade.mjs": {
@@ -1008,7 +1012,7 @@
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {
-      "sha256": "272400c3d8c50b018c2705a698dbbe7ff4b0f8e700d73ad80799b01e89276b70",
+      "sha256": "926757c2aa1178357172ce4d7b5ef04d0306962aad1502062c6f1cf4798aa34d",
       "group": "tests"
     },
     "system/tests/integration/updates.test.mjs": {
@@ -1033,6 +1037,10 @@
     },
     "system/tests/unit/api.test.mjs": {
       "sha256": "7fbc3467b66ff71f153cfb70eae310d024164580d22f00c4a2df66057853010a",
+      "group": "tests"
+    },
+    "system/tests/unit/appendmerge.test.mjs": {
+      "sha256": "83b935cf9d414edd82b76f24e5560f6cde09184ddb9d0bc21b3bbb30642d0931",
       "group": "tests"
     },
     "system/tests/unit/capture.test.mjs": {

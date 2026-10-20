@@ -62,6 +62,10 @@ Honest agents, and your memory as a living map in the browser.
   vault before the view is built, waiting at most 6 seconds, and tells you in one line how many
   changes came in. Local changes, a fork or no network leave it to the autosync at the session end;
   being offline is never reported as a failure.
+- **Two devices can add to the same note**: when `sync` meets a note that both sides only added
+  lines to (a `- [fact]` line, a dated gotcha, a line under a heading), it keeps both, the upstream
+  lines first, and the frontmatter's `updated` takes the later date. A line changed or removed on
+  either side still stops the sync and names the file, as before.
 - **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
   every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
   hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.

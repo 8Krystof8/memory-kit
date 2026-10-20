@@ -1,5 +1,6 @@
 // `sync` against a local bare remote: conflicts only in generated files are regenerated and the
-// push goes through; a conflict in a note aborts the rebase and exits 1; never --force
+// push goes through; a note both sides only added to is merged; a conflict in a note aborts the
+// rebase and exits 1; never --force
 // (docs/architecture.md, section 10.5).
 
 import { after, describe, test } from 'node:test';
@@ -119,6 +120,22 @@ describe('sync', { skip: !HAS_GIT && 'git is not installed' }, () => {
 
     git(a, env, 'pull', '-q', '--rebase');
     assert.ok(readFile(a, 'sectors/school/exam-schedule.md').includes('Machine B was here.'), 'A receives B');
+  });
+
+  test('a note both machines only added lines to is merged with both lines, and pushed', () => {
+    const { env, a, b } = twoMachines();
+    const rel = 'sectors/work/pricing.md';
+    change(a, env, rel, '- [fact] 2026-09-21: the logo costs extra (machine A)');
+    git(a, env, 'push', '-q');
+    change(b, env, rel, '- [fact] 2026-09-21: hosting is billed yearly (machine B)');
+    const res = runCli(b, ['sync', '--today', TODAY], { env });
+    assert.equal(res.code, 0, `${res.stdout}\n${res.stderr}`);
+    const text = readFile(b, rel);
+    assert.ok(text.includes('(machine A)') && text.includes('(machine B)'), text);
+    assert.ok(text.indexOf('(machine A)') < text.indexOf('(machine B)'), 'the upstream line first');
+    assert.ok(!/^(<{7}|>{7}|={7})/m.test(text), 'no conflict markers');
+    git(a, env, 'pull', '-q');
+    assert.ok(readFile(a, rel).includes('(machine B)'), 'machine A gets both after a pull');
   });
 
   test('a conflict in a note aborts the rebase, keeps the local commit and exits 1', () => {
