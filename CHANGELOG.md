@@ -11,10 +11,17 @@ Nothing yet.
 
 ## 0.2.0 (not released yet)
 
-Your memory as a living map in the browser.
+Honest agents, and your memory as a living map in the browser.
 
 ### Added
 
+- **The 📎 line is checked**: when an answer ends with `📎 memory: [[a]], [[b]]` (Czech
+  `📎 z paměti:`), the Stop hook of a project checks that every named note exists and that the
+  session opened it (Read, a shell command, `memory.mjs show`, the MCP `memory_read`, in Claude
+  Code and Codex transcripts alike); after `📎 saved: [[c]]` (`📎 uloženo:`) that the note changed
+  during the session. A wrong line goes back to the agent with what to fix, at most 3 times per
+  session and never in the stop the check itself caused. `projects.citations: false` in
+  `memory.json` turns it off.
 - **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
   every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
   hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.

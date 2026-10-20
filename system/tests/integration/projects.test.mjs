@@ -1000,6 +1000,36 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     fs.rmSync(path.join(repo, 'fix.js'));
   });
 
+  test('stop checks the 📎 line: a note not read or not there is sent back, at most 3 times, never in a stop it caused', () => {
+    const v = vault('en');
+    const repo = codeRepo();
+    assert.equal(projectJson(v, 'add', repo).code, 0);
+    start(v, repo, 'q1');
+    const note = path.join(v.root, SECTORS.en, 'core', 'coffee-price.md');
+    fs.writeFileSync(note, '---\ntype: fact\n---\n# Coffee price\n');
+    const t = path.join(tmpDir('cite-t'), 't.jsonl');
+    const write = (...entries) => fs.writeFileSync(t, `${entries.map((e) => JSON.stringify(e)).join('\n')}\n`);
+    const said = (text) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } });
+    const read = { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: note } }] } };
+    const stopIn = { cwd: repo, session_id: 'q1', stop_hook_active: false, transcript_path: t };
+    write(said('It costs 3 €.\n📎 memory: [[coffee-price]], [[tea-price]]'));
+    const ask = JSON.parse(hook(v, 'stop', stopIn).stdout);
+    assert.equal(ask.decision, 'block');
+    assert.match(ask.reason, /no such note: tea-price/);
+    assert.match(ask.reason, /not read in this session: coffee-price/);
+    assert.equal(hook(v, 'stop', { ...stopIn, stop_hook_active: true }).stdout, '', 'the stop the block caused is let through');
+    write(read, said('It costs 3 €.\n📎 memory: [[coffee-price]]'));
+    assert.equal(hook(v, 'stop', stopIn).stdout, '', 'read and there: nothing to say');
+    write(said('📎 memory: [[tea-price]]'));
+    assert.equal(JSON.parse(hook(v, 'stop', stopIn).stdout).decision, 'block');
+    assert.equal(JSON.parse(hook(v, 'stop', stopIn).stdout).decision, 'block');
+    assert.equal(hook(v, 'stop', stopIn).stdout, '', 'asked 3 times in this session: no more');
+    const off = vault('en', { projects: { enabled: true, citations: false } });
+    assert.equal(projectJson(off, 'add', repo).code, 0);
+    start(off, repo, 'q2');
+    assert.equal(hook(off, 'stop', { ...stopIn, session_id: 'q2' }).stdout, '', 'projects.citations false');
+  });
+
   test('stop and session start read the code repository without taking its index lock; a failed git status asks nothing', { skip: process.platform === 'win32' && 'index mtimes' }, () => {
     const v = vault('en');
     const repo = codeRepo();

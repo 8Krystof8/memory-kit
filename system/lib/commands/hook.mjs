@@ -16,7 +16,10 @@
 //                  feedback.notice). In a new repository: a one-time hint for the user naming
 //                  `project add` and `project ignore` (or the sector is made when
 //                  projects.auto_add is on). Every view given is a line of the activity log.
-//   stop           once per session in a known project, when the code changed and the handoff did
+//   stop           the 📎 line of the last answer is checked (lib/citations.mjs): a cited note
+//                  that does not exist, was not read in the session or (📎 saved) did not change
+//                  is sent back to the agent, at most 3 times per session (projects.citations);
+//                  once per session in a known project, when the code changed and the handoff did
 //                  not: ask the agent to record handoff, gotchas and dead ends (JSON or nothing);
 //                  never in a Claude Code run without a person (claude -p, the Agent SDK)
 //   tool-failure   (Claude Code) a failed Bash or PowerShell command is looked up in the
@@ -41,6 +44,7 @@ import { hookSummary, logHook } from '../hooklog.mjs';
 import { checkInBackground, updateLine } from '../updates.mjs';
 import { readHookInput, lookupCandidate, isProbe } from '../hookinput.mjs';
 import { writeAtomic } from '../fsafe.mjs';
+import { checkCitations, hasProblems } from '../citations.mjs';
 import { WORK_DIR, ensureWorkDirIgnored, todayLocal, workDirGit } from '../util.mjs';
 
 export const usage = 'hook claude-code|codex session-start|stop|tool-failure|session-end (run by the agent hooks; JSON on stdin)';
@@ -55,6 +59,10 @@ const DEFAULTS = {
   'hook.errors': 'Warning: failed memory hook runs since the last warning: {n}; see: {cmd} doctor',
   'hook.checkpoint': 'Project memory: the code changed in this session and the handoff did not. Before you finish, record briefly: 1) rewrite {handoff} (done, next steps, open questions, branch); 2) errors you fixed as gotchas: {cmd} remember --project {id} --type gotcha "symptom → cause → fix"; 3) what did not work: --type dead-end; 4) new decisions: --type decision. Only what really happened. Then finish.',
   'hook.checkpoint_shared': 'Project memory: the code in this repository changed since this session started (another session works here too, so not all of it may be yours) and the handoff did not. Before you finish, record briefly what this session did: 1) rewrite {handoff} (done, next steps, open questions, branch); 2) errors you fixed as gotchas: {cmd} remember --project {id} --type gotcha "symptom → cause → fix"; 3) what did not work: --type dead-end; 4) new decisions: --type decision. Only what really happened. Then finish.',
+  'hook.cite': 'memory-kit checked the 📎 line of your answer: {problems}. Open the notes you cite, save what you say you saved, or drop those names from the line; then end with the corrected 📎 line. Never cite a note you did not open in this session.',
+  'hook.cite_missing': 'no such note: {names}',
+  'hook.cite_unread': 'not read in this session: {names}',
+  'hook.cite_unsaved': 'not changed in this session: {names}',
   'hook.lookup': 'Project memory: a similar error was met before:',
   'hook.commit_message': 'Memory: session {day}',
   'hook.merge_busy': 'a merge, rebase, cherry-pick or revert is not finished in the vault',
@@ -227,11 +235,47 @@ async function sessionView(cfg, agent, input, entry, notices) {
  */
 const headless = (agent, env = process.env) => agent === 'claude-code' && /^sdk-/.test(String(env.CLAUDE_CODE_ENTRYPOINT ?? ''));
 
+// At most this many 📎 corrections are asked in one session.
+const CITE_ASKS = 3;
+
+/**
+ * The reason to block when the last answer's 📎 line names a note that does not exist, that the
+ * session did not read, or (📎 saved) that did not change in the session; '' when it is right or
+ * there is none. Asked at most CITE_ASKS times per session (the count is in .memory-kit/capture).
+ */
+function citeReason(cfg, input, sid, s) {
+  if (!projectSettings(cfg).citations || !sid) return '';
+  const counter = path.join(cfg.root, '.memory-kit', 'capture', 'cited', sid);
+  let asked = 0;
+  try {
+    asked = Number.parseInt(fs.readFileSync(counter, 'utf8'), 10) || 0;
+  } catch {
+    /* not asked yet */
+  }
+  if (asked >= CITE_ASKS) return '';
+  const r = checkCitations(cfg, { transcript: input.transcript_path, last: input.last_assistant_message, since: Date.parse(s?.started ?? '') || 0 });
+  if (!hasProblems(r)) return '';
+  writeAtomic(counter, `${asked + 1}\n`);
+  const problems = [
+    r.missing.length ? say(cfg, 'hook.cite_missing', { names: r.missing.join(', ') }) : '',
+    r.unread.length ? say(cfg, 'hook.cite_unread', { names: r.unread.join(', ') }) : '',
+    r.unsaved.length ? say(cfg, 'hook.cite_unsaved', { names: r.unsaved.join(', ') }) : '',
+  ].filter(Boolean).join('; ');
+  return say(cfg, 'hook.cite', { problems });
+}
+
 function stop(cfg, input, agent) {
-  if (!projectSettings(cfg).checkpoint || input.stop_hook_active === true || input.agent_id || input.permission_mode === 'plan') return '';
+  if (input.stop_hook_active === true || input.agent_id || input.permission_mode === 'plan') return '';
   if (headless(agent)) return '';
   const sid = safeId(input.session_id);
   const s = readSession(cfg, sid);
+  const reasons = [citeReason(cfg, input, sid, s), checkpointReason(cfg, sid, s)].filter(Boolean);
+  return reasons.length ? JSON.stringify({ decision: 'block', reason: reasons.join('\n\n') }) : '';
+}
+
+/** The checkpoint's reason: the code changed and the handoff did not ('' otherwise). */
+function checkpointReason(cfg, sid, s) {
+  if (!projectSettings(cfg).checkpoint) return '';
   if (!s?.sector || !s.top || !sectorExists(cfg, s.sector)) return '';
   const marker = path.join(cfg.root, '.memory-kit', 'capture', 'nudged', sid);
   if (fs.existsSync(marker)) return '';
@@ -256,7 +300,7 @@ function stop(cfg, input, agent) {
   writeAtomic(marker, `${todayLocal()}\n`);
   // Another session works in the same repository: the change may be its own, so say so.
   const key = otherSessions(cfg, s.top, sid).length ? 'hook.checkpoint_shared' : 'hook.checkpoint';
-  return JSON.stringify({ decision: 'block', reason: say(cfg, key, { handoff, cmd: vaultCommand(cfg), id: s.sector }) });
+  return say(cfg, key, { handoff, cmd: vaultCommand(cfg), id: s.sector });
 }
 
 /** The first line with some letters in it, digits folded, for deduplication. */

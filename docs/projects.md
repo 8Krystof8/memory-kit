@@ -127,6 +127,7 @@ ones too, so by default nothing is added to the memory or pushed by itself:
 | `store` | local | `--store local`, `--store git` | local: the dev notes stay in the local root on this computer; git: they go into the vault repository |
 | `autosync` | false | `--autosync`, `--no-autosync` | commit and push the vault when a session ends (refused without a git remote or in mode local) |
 | `checkpoint` | true | | the end-of-session request for the handoff |
+| `citations` | true | | the check of the 📎 line: a cited note must exist and be read in the session, a saved one must have changed (asked at most 3 times per session) |
 | `error_lookup` | true | | look failed commands up in gotchas and dead ends |
 
 Running `connect … --projects` again without a flag keeps the earlier choices. It prints the

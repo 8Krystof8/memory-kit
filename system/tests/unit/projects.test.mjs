@@ -173,12 +173,12 @@ describe('identify', { skip: !HAS_GIT && 'git is missing' }, () => {
 describe('settings and lookup', () => {
   test('projectSettings: the defaults of the settings contract', () => {
     assert.deepEqual(projectSettings({ raw: {} }), {
-      enabled: false, auto_add: false, store: 'local', autosync: false, checkpoint: true, error_lookup: true, repos: {},
+      enabled: false, auto_add: false, store: 'local', autosync: false, checkpoint: true, citations: true, error_lookup: true, repos: {},
     });
-    const on = { enabled: true, auto_add: true, store: 'git', autosync: true, checkpoint: false, error_lookup: false, repos: { a: 'dev' } };
+    const on = { enabled: true, auto_add: true, store: 'git', autosync: true, checkpoint: false, citations: false, error_lookup: false, repos: { a: 'dev' } };
     assert.deepEqual(projectSettings({ raw: { projects: on } }), on);
     assert.deepEqual(projectSettings({ raw: { projects: { enabled: 'yes', store: 'cloud', repos: [] } } }), {
-      enabled: false, auto_add: false, store: 'local', autosync: false, checkpoint: true, error_lookup: true, repos: {},
+      enabled: false, auto_add: false, store: 'local', autosync: false, checkpoint: true, citations: true, error_lookup: true, repos: {},
     });
     assert.equal(projectSettings(null).enabled, false);
   });

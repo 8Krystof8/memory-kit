@@ -268,6 +268,7 @@ export function projectSettings(cfg) {
     store: p.store === 'git' ? 'git' : 'local',
     autosync: p.autosync === true,
     checkpoint: p.checkpoint !== false,
+    citations: p.citations !== false,
     error_lookup: p.error_lookup !== false,
     repos: isObj(p.repos) ? p.repos : {},
   };
