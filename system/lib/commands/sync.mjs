@@ -2,12 +2,14 @@
 // the home page) by regenerating them, then push (docs/architecture.md, 10.5). Never force-pushes, never resolves a conflict in a
 // note: any other conflict aborts the rebase and exits 1. It never commits: uncommitted changes to
 // tracked files stop it at once (exit 1) with the commands that commit them, before git refuses the
-// pull with its own words.
+// pull with its own words. fastForward() is the quiet part the session start runs with autosync
+// on: fetch, and fast-forward a clean vault that is only behind.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeGenerated } from '../generate.mjs';
 import { loadVault } from '../vault.mjs';
+import { spawnSync } from 'node:child_process';
 import { checkToday, git, gitRepoState, parseCli, usageError } from '../util.mjs';
 
 export const usage = 'sync [--no-push] [--today YYYY-MM-DD]';
@@ -22,6 +24,31 @@ const NO_PROMPT = { GIT_TERMINAL_PROMPT: '0' };
 const NO_EDITOR = { GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true' };
 
 class SyncError extends Error {}
+
+/**
+ * Takes in what other devices pushed, never more: fetch (at most `timeout` ms), then a
+ * fast-forward only when the vault has an upstream, no change to tracked files and is behind but
+ * not ahead. { n: commits taken in, fetched: false and why when the fetch failed }. Never throws.
+ */
+export function fastForward(root, { timeout = 6000 } = {}) {
+  const run = (args, ms = 3000) => spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true, timeout: ms, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...NO_PROMPT } });
+  try {
+    if (run(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']).status !== 0) return { n: 0 };
+    if (run(['status', '--porcelain', '--untracked-files=no']).stdout.trim()) return { n: 0 };
+    const fetch = run(['fetch', '--quiet'], timeout);
+    if (fetch.status !== 0) {
+      const why = `${fetch.stderr ?? ''}`.split('\n').map((l) => l.trim()).find(Boolean) ?? (fetch.error?.code === 'ETIMEDOUT' ? 'timeout' : `exit ${fetch.status}`);
+      return { n: 0, fetched: false, why };
+    }
+    const counts = run(['rev-list', '--left-right', '--count', 'HEAD...@{u}']).stdout.trim().split(/\s+/).map(Number);
+    const [ahead, behind] = counts.length === 2 ? counts : [0, 0];
+    if (!behind || ahead) return { n: 0 };
+    if (run(['merge', '--ff-only', '--quiet', '@{u}']).status !== 0) return { n: 0, merged: false };
+    return { n: behind };
+  } catch {
+    return { n: 0 };
+  }
+}
 
 function rebaseInProgress(root) {
   for (const name of ['rebase-merge', 'rebase-apply']) {

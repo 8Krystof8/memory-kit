@@ -57,6 +57,11 @@ Honest agents, and your memory as a living map in the browser.
   `memory_start` load one coding project instead of the general view: its handoff, conventions,
   gotchas and dead ends, then the view of that sector and the core sector. A project whose notes
   stay in a local sector opens over MCP only on a server started with `--local`.
+- **Every device starts from the newest memory**: with autosync on (`connect --projects
+  --autosync`), the session start fetches what your other devices pushed and fast-forwards a clean
+  vault before the view is built, waiting at most 6 seconds, and tells you in one line how many
+  changes came in. Local changes, a fork or no network leave it to the autosync at the session end;
+  being offline is never reported as a failure.
 - **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
   every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
   hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.

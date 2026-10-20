@@ -793,6 +793,7 @@
     "hook.report": "memory-kit: {parts}",
     "hook.report_read": "použité poznámky: {n} ({names})",
     "hook.report_saved": "uloženo: {n} ({names})",
+    "hook.pulled": "memory-kit: paměť převzala změny z tvých dalších zařízení: {n}",
     "hook.cite_missing": "taková poznámka neexistuje: {names}",
     "hook.cite_unread": "v této session nepřečteno: {names}",
     "hook.cite_unsaved": "v této session nezměněno: {names}",

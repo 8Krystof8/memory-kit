@@ -583,6 +583,38 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.match(last.error, /memory\.json/);
   });
 
+  test('autosync: a session start takes in what another device pushed, and says so; local changes or offline leave it alone', () => {
+    const v = vault('en', { withGit: true, projects: { enabled: true, autosync: true } });
+    const remote = path.join(tmpDir('remote'), 'vault.git');
+    git(path.dirname(remote), ['init', '-q', '--bare', remote]);
+    git(v.root, ['remote', 'add', 'origin', remote]);
+    git(v.root, ['push', '-q', '-u', 'origin', 'HEAD']);
+    // The other device: a clone that saves a note and pushes it.
+    const other = path.join(tmpDir('device-b'), 'vault');
+    git(path.dirname(other), ['clone', '-q', remote, other]);
+    fs.writeFileSync(path.join(other, 'inbox', 'from-phone.md'), '# From the phone\n');
+    git(other, [...ID, 'add', '-A']);
+    git(other, [...ID, 'commit', '-qm', 'phone note']);
+    git(other, ['push', '-q']);
+    const out = startOut(start(v, tmpDir('plain'), 'p1'));
+    assert.match(out.user, /took in 1 changes from your other devices/);
+    assert.ok(fs.existsSync(path.join(v.root, 'inbox', 'from-phone.md')), 'the note is here before the session works');
+    // A local change: nothing is pulled at the start (the session end's autosync merges it).
+    fs.writeFileSync(path.join(other, 'inbox', 'second.md'), '# Second\n');
+    git(other, [...ID, 'add', '-A']);
+    git(other, [...ID, 'commit', '-qm', 'second']);
+    git(other, ['push', '-q']);
+    fs.appendFileSync(path.join(v.root, 'state.md'), '\n- local edit\n');
+    assert.doesNotMatch(startOut(start(v, tmpDir('plain'), 'p2')).user ?? '', /took in/);
+    assert.equal(fs.existsSync(path.join(v.root, 'inbox', 'second.md')), false);
+    git(v.root, ['checkout', '--', 'state.md']);
+    // Offline: the remote is gone; the start goes on and reports no failure.
+    fs.rmSync(remote, { recursive: true, force: true });
+    const offline = start(v, tmpDir('plain'), 'p3');
+    assert.equal(offline.code, 0);
+    assert.doesNotMatch(offline.stdout, /Warning: failed memory hook runs/);
+  });
+
   test('autosync: commits and pushes, logs a failed push with its fix and the next session start shows it; a busy lock is skipped', () => {
     const v = vault('en', { withGit: true, projects: { enabled: true, autosync: true } });
     const remote = path.join(tmpDir('remote'), 'vault.git');

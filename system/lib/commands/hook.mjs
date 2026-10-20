@@ -32,7 +32,9 @@
 //   tool-failure   (Claude Code) a failed Bash or PowerShell command is looked up in the
 //                  project's gotchas and dead ends, after cheap filters, deduplicated, at most 5
 //                  lookups per session
-//   session-end    starts the autosync in the background when projects.autosync is on
+//   session-end    starts the autosync in the background when projects.autosync is on (the
+//                  session start then also fast-forwards a clean vault to what other devices
+//                  pushed, waiting at most 6 s)
 //   autosync       check, commit and sync the vault under a lock (never while a merge or rebase is
 //                  unfinished); each failing step is logged with the error and the fix, and the
 //                  next session start shows it
@@ -52,6 +54,7 @@ import { checkInBackground, updateLine } from '../updates.mjs';
 import { readHookInput, lookupCandidate, isProbe } from '../hookinput.mjs';
 import { writeAtomic } from '../fsafe.mjs';
 import { checkCitations, hasProblems } from '../citations.mjs';
+import { fastForward } from './sync.mjs';
 import { checkCapture } from '../capture.mjs';
 import { shortList, turnReport } from '../report.mjs';
 import { WORK_DIR, ensureWorkDirIgnored, todayLocal, workDirGit } from '../util.mjs';
@@ -76,6 +79,7 @@ const DEFAULTS = {
   'hook.report': 'memory-kit: {parts}',
   'hook.report_read': 'notes used: {n} ({names})',
   'hook.report_saved': 'saved: {n} ({names})',
+  'hook.pulled': 'memory-kit: the memory took in {n} changes from your other devices',
   'hook.cite_missing': 'no such note: {names}',
   'hook.cite_unread': 'not read in this session: {names}',
   'hook.cite_unsaved': 'not changed in this session: {names}',
@@ -173,11 +177,33 @@ function hintOnce(cfg, agent, ident) {
   return { notices: [say(cfg, 'hook.hint', { cmd }), say(cfg, 'hook.hint_ignore', { cmd })], context: say(cfg, 'hook.hint_agent', { cmd }) };
 }
 
+// The pull at the session start waits at most this long: a slow network never holds a session.
+const PULL_TIMEOUT_MS = 6000;
+
+/**
+ * With projects.autosync on, the session starts from the newest memory: what the other devices
+ * pushed is fetched and fast-forwarded before the view is built. Only a clean vault that is
+ * behind and not ahead moves; anything else (local changes, a fork, no upstream, no network, mode
+ * local) is left to the autosync at the session end. Returns the number of commits taken in.
+ */
+function freshPull(cfg, agent) {
+  if (!projectSettings(cfg).autosync || cfg.mode === 'local') return 0;
+  const t0 = performance.now();
+  const r = fastForward(cfg.root, { timeout: PULL_TIMEOUT_MS });
+  const ms = Math.round(performance.now() - t0);
+  // Offline or slow is normal on a laptop: noted, never reported as a failure.
+  if (r.fetched === false) logHook(cfg.root, { agent, event: 'autopull', ok: true, step: 'fetch', ms, detail: `not fetched: ${r.why}` });
+  else if (r.merged === false) logHook(cfg.root, { agent, event: 'autopull', ok: false, step: 'merge', ms, error: 'the fast-forward failed', fix: say(cfg, 'hook.fix_sync', { cmd: vaultCommand(cfg) }) });
+  else if (r.n) logHook(cfg.root, { agent, event: 'autopull', ok: true, step: 'done', ms, n: r.n });
+  return r.n;
+}
+
 async function sessionStart(cfg, agent, input, entry) {
   pruneSessions(cfg);
   // memory.json "updates": {"check": true}: the daily check of a newer kit, in the background.
   checkInBackground(cfg);
-  const notices = freshWarnings(cfg);
+  const pulled = freshPull(cfg, agent);
+  const notices = [...(pulled ? [say(cfg, 'hook.pulled', { n: pulled })] : []), ...freshWarnings(cfg)];
   try {
     return await sessionView(cfg, agent, input, entry, notices);
   } catch (err) {

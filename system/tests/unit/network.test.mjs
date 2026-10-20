@@ -3,7 +3,7 @@
 // files and the built-ins listed below, none of which opens a connection; no module calls a
 // network API of the runtime or starts a download tool; and git reaches a remote only where the
 // owner asks for it: `sync` pulls and pushes the vault's own remote (autosync, when turned on,
-// runs sync), `upgrade` makes a shallow clone of the kit source, and the update check reads the
+// runs sync and, at the session start, its fetch and fast-forward), `upgrade` makes a shallow clone of the kit source, and the update check reads the
 // kit's version tags (`upgrade --check`, and once a day only with "updates": {"check": true}).
 
 import { describe, test } from 'node:test';
@@ -25,7 +25,7 @@ const GIT_REMOTE = /\[\s*'(clone|pull|push|fetch|ls-remote)'/g;
 const GIT_ALLOWED = {
   'system/lib/upgrade.mjs': ['clone'],
   'system/lib/updates.mjs': ['ls-remote'],
-  'system/lib/commands/sync.mjs': ['pull', 'push'],
+  'system/lib/commands/sync.mjs': ['fetch', 'pull', 'push'],
 };
 
 /** Every .mjs file of the kit's code (system/, without its tests), as vault-relative paths. */
@@ -87,7 +87,7 @@ describe('no network (1.1)', () => {
     assert.deepEqual(bad, []);
   });
 
-  test('git reaches a remote only in sync (pull, push), upgrade (clone) and the update check (ls-remote)', () => {
+  test('git reaches a remote only in sync (fetch, pull, push), upgrade (clone) and the update check (ls-remote)', () => {
     const found = {};
     for (const rel of modules) {
       for (const m of code(read(rel)).matchAll(GIT_REMOTE)) (found[rel] ??= []).push(m[1]);
