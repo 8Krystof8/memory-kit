@@ -1106,10 +1106,10 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
         const view = await memory.start({ project: 'dev', surface: 'mcp', local: false });
         assert.match(view.text, /^# Project · memory sector `dev`\n\n## /, 'no shell command over MCP');
       } else {
-        await assert.rejects(memory.start({ project: 'dev', surface: 'mcp', local: false }), /local sector/);
+        await assert.rejects(memory.start({ project: 'dev', surface: 'mcp' }), /not a coding project this server opens/, 'local is off by default');
         assert.match((await memory.start({ project: 'dev', surface: 'mcp', local: true })).text, /vite needs a restart/);
       }
-      await assert.rejects(memory.start({ project: 'core' }), /not a coding project/);
+      await assert.rejects(memory.start({ project: 'core', local: true }), /not a coding project/);
     }
   });
 

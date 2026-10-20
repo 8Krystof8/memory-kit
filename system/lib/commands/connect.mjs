@@ -86,6 +86,7 @@ const DEFAULTS = {
   'connect.rules.plan.update': '{client}: would update the memory rules in {path}',
   'connect.rules.plan.remove': '{client}: would take the memory rules out of {path}',
   'connect.rules.other_vault': 'the rules named another memory ({vault}); they now name this one',
+  'connect.rules.damaged': '{client}: the memory-kit marker lines in {path} are not one clean pair (one was edited away, or there are two blocks), so nothing was changed; fix them by hand, or delete the block, and run the command again',
   'connect.rules.unreadable': '{client}: {path} cannot be read ({error}); fix it and run the command again',
   'connect.rules.what': 'every session now loads the memory, searches it before answering about the past, saves decisions right away and cites only notes it opened; the rest of the file is kept as it was',
   'connect.rules.next': 'next: start a new {client} session; the rules apply from its start',
@@ -811,6 +812,11 @@ async function runRules(argv, cfg, ctx) {
   if (!values.remove && before && before !== vault.replace(/\\/g, '/')) out.otherVault = before;
   const res = applyRules(text, block);
   out.action = res.action;
+  if (res.action === 'damaged') {
+    const line = say(cfg, 'connect.rules.damaged', { client, path: file });
+    process.stdout.write(values.json ? `${JSON.stringify({ ...out, error: line }, null, 2)}\n` : `${line}\n`);
+    return 1;
+  }
   const writes = res.action === 'add' || res.action === 'update' || res.action === 'remove';
   if (writes && !out.dryRun) {
     if (text) out.backup = backupFile(vault, `${agent}-rules`, dest, new Date());

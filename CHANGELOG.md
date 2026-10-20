@@ -47,7 +47,9 @@ Honest agents, and your memory as a living map in the browser.
   adds a short block to the agent's global instructions (`~/.claude/CLAUDE.md`,
   `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`): load the memory, search it before answering about
   the past, save decisions right away, cite only notes opened in the session. Only the block
-  between its marker lines is ever touched; `--remove` takes it out, `--dry-run` shows the change.
+  between its marker lines is ever touched, and markers that are not one clean pair change
+  nothing; Codex's `AGENTS.override.md` and Gemini's `context.fileName` are followed. `--remove`
+  takes the block out, `--dry-run` shows the change.
 - **Install by asking your agent**: `llms.txt` at the top of the repository tells an agent how
   to install memory-kit for a person (ask the setup questions, run the installer with the answers,
   connect it, run doctor), and the README has the one prompt to paste.

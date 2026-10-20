@@ -43,12 +43,27 @@ describe('the rules block', () => {
     assert.ok(crlf.startsWith('a\r\nb\r\n\r\n<!--') && !/[^\r]\n/.test(crlf), 'CRLF kept');
   });
 
+  test('damaged markers: a lost end or start line, or two blocks, change nothing', () => {
+    const lostEnd = `# Mine\n${BEGIN}\nold\nMY NOTES\n`;
+    assert.deepEqual(applyRules(lostEnd, block), { text: lostEnd, action: 'damaged' });
+    const lostStart = `# Mine\nold\n${END}\nMY NOTES\n`;
+    assert.equal(applyRules(lostStart, null).action, 'damaged');
+    assert.equal(applyRules(`${block}\n${block}`, block).action, 'damaged');
+  });
+
   test('the file of each agent', () => {
     const home = '/h';
     assert.equal(rulesFile('claude-code', { env: {}, home, platform: 'linux' }), path.join(home, '.claude', 'CLAUDE.md'));
     assert.equal(rulesFile('claude-code', { env: { CLAUDE_CONFIG_DIR: '/c' }, home, platform: 'linux' }), path.join('/c', 'CLAUDE.md'));
     assert.equal(rulesFile('codex', { env: {}, home, platform: 'linux' }), path.join(home, '.codex', 'AGENTS.md'));
     assert.equal(rulesFile('gemini-cli', { env: {}, home, platform: 'linux' }), path.join(home, '.gemini', 'GEMINI.md'));
+    const h = tmpDir('rules-files');
+    fs.mkdirSync(path.join(h, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(h, '.codex', 'AGENTS.override.md'), 'x');
+    assert.equal(rulesFile('codex', { env: {}, home: h, platform: 'linux' }), path.join(h, '.codex', 'AGENTS.override.md'), 'Codex reads the override first');
+    fs.mkdirSync(path.join(h, '.gemini'), { recursive: true });
+    fs.writeFileSync(path.join(h, '.gemini', 'settings.json'), JSON.stringify({ context: { fileName: ['AGENTS.md', 'GEMINI.md'] } }));
+    assert.equal(rulesFile('gemini-cli', { env: {}, home: h, platform: 'linux' }), path.join(h, '.gemini', 'AGENTS.md'), 'Gemini context.fileName');
   });
 });
 

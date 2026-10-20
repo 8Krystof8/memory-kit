@@ -98,7 +98,7 @@ Throws `MemoryError` with code `CONFIG` when `memory.json` or a language pack ca
 
 `initialized` is false in a vault that has not been set up yet (`node system/init.mjs`).
 
-### memory.start({ sectors, today, surface })
+### memory.start({ sectors, today, surface, project, local, command })
 
 The session start view, as `node system/memory.mjs start` prints it. Returns
 `{ text, stale, initialized, failed }`.
@@ -108,6 +108,12 @@ The session start view, as `node system/memory.mjs start` prints it. Returns
   carries the search rules of `AGENTS.md` with their commands. `'mcp'` is an app that has only the
   `memory_*` tools: its search rules name `memory_search` and `memory_read` instead, and the view is
   always rendered on the fly. Any other value is `INVALID_ARGUMENT`.
+- `project`: the sector of a coding project (one with a handoff note). The text then starts with
+  its handoff, conventions, gotchas and dead ends, followed by the view of that sector and the core
+  sector. Not a project, or a project kept in a local sector while `local` is not true:
+  `INVALID_ARGUMENT`, the same answer for both.
+- `local`: true opens a project kept in a local sector (default false).
+- `command`: the vault command the project part names for recording (default none, as over MCP).
 - `stale` is true when the committed `_ai/start.md` is out of date and the view was rendered on
   the fly.
 - `failed` is true when the view could not be built; `text` then holds a short fallback with the

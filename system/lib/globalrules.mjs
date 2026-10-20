@@ -5,6 +5,7 @@
 // the only part of the file memory-kit ever touches: everything else stays byte for byte. Pure
 // functions; commands/connect.mjs reads, backs up and writes the file.
 
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { envGet } from './clients.mjs';
@@ -16,11 +17,30 @@ export const BEGIN = '<!-- memory-kit:rules:start · maintained by memory-kit (c
 export const END = '<!-- memory-kit:rules:end -->';
 const BLOCK_RE = /<!-- memory-kit:rules:start[^\n]*-->\n[\s\S]*?<!-- memory-kit:rules:end -->\n?/;
 
-/** The global instructions file of an agent. */
+/**
+ * The global instructions file an agent reads: Claude Code CLAUDE.md; Codex AGENTS.override.md
+ * when there is one (Codex then skips AGENTS.md), else AGENTS.md; Gemini CLI the first name of
+ * "context.fileName" in ~/.gemini/settings.json when it sets one, else GEMINI.md.
+ */
 export function rulesFile(agent, { env = process.env, home = os.homedir(), platform = process.platform } = {}) {
   if (agent === 'claude-code') return path.join(envGet(env, 'CLAUDE_CONFIG_DIR', platform) ?? path.join(home, '.claude'), 'CLAUDE.md');
-  if (agent === 'codex') return path.join(envGet(env, 'CODEX_HOME', platform) ?? path.join(home, '.codex'), 'AGENTS.md');
-  if (agent === 'gemini-cli') return path.join(home, '.gemini', 'GEMINI.md');
+  if (agent === 'codex') {
+    const dir = envGet(env, 'CODEX_HOME', platform) ?? path.join(home, '.codex');
+    const override = path.join(dir, 'AGENTS.override.md');
+    return fs.existsSync(override) ? override : path.join(dir, 'AGENTS.md');
+  }
+  if (agent === 'gemini-cli') {
+    const dir = path.join(home, '.gemini');
+    let name = 'GEMINI.md';
+    try {
+      const set = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'))?.context?.fileName;
+      const first = Array.isArray(set) ? set[0] : set;
+      if (typeof first === 'string' && /^[^/\\]+\.md$/i.test(first)) name = first;
+    } catch {
+      /* no settings, or not JSON: the default name */
+    }
+    return path.join(dir, name);
+  }
   return null;
 }
 
@@ -54,13 +74,19 @@ export function rulesBlock({ lang = 'en', vault, command }) {
 
 /**
  * The file's text with the block put in (block given) or taken out (null): { text, action } with
- * action 'add' (appended), 'update' (an older block replaced), 'unchanged', 'remove' or 'absent'.
+ * action 'add' (appended), 'update' (an older block replaced), 'unchanged', 'remove', 'absent' or
+ * 'damaged' (the markers are not one clean pair: nothing changes).
  * Line ends follow the file (CRLF stays CRLF); a new block is set off by one empty line.
  */
 export function applyRules(text, block) {
   const old = String(text ?? '');
   const crlf = /\r\n/.test(old);
   const lf = old.replace(/\r\n/g, '\n');
+  // Exactly one start line followed by one end line, or neither: anything else (a marker lost in
+  // an edit, two blocks) is left for the owner to fix, so no text of theirs is ever taken.
+  const starts = lf.split('\n').filter((l) => l.trimStart().startsWith('<!-- memory-kit:rules:start')).length;
+  const ends = lf.split('\n').filter((l) => l.trimStart().startsWith('<!-- memory-kit:rules:end')).length;
+  if (starts !== ends || starts > 1 || (starts === 1 && !BLOCK_RE.test(lf))) return { text: old, action: 'damaged' };
   const has = BLOCK_RE.test(lf);
   let next;
   let action;
