@@ -96,7 +96,7 @@
       "group": "docs"
     },
     "docs/projects.md": {
-      "sha256": "2ea693ed50f68c4f4b4b6dea5667f2f6d8da1e02c1095a60487f27cf20c530de",
+      "sha256": "56dc6edaef6c96bd9bab3ecba443caf741b9559bff9965b215e292453f8d0325",
       "group": "docs"
     },
     "docs/search.md": {
@@ -184,7 +184,7 @@
       "group": "code"
     },
     "system/lib/commands/connect.mjs": {
-      "sha256": "79073cb1d899d7f00bb78dc0799f822d42d55a1cc7c10579a835d57dee3cee64",
+      "sha256": "68894a6b97fa820678f941a71f10b461fc5153b69e79bce063d8d2fb0ea0a762",
       "group": "code"
     },
     "system/lib/commands/doctor.mjs": {
@@ -200,7 +200,7 @@
       "group": "code"
     },
     "system/lib/commands/hook.mjs": {
-      "sha256": "b0db99a695d9009f9d4c4230cff27e48eb84bb21e2ab5c2718a5d842c72e78a7",
+      "sha256": "3d79a74354a61cce04e5fa2925226ea1fc1d0704a7e9952d232c8ca9558d29ce",
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
@@ -284,7 +284,7 @@
       "group": "code"
     },
     "system/lib/hooksetup.mjs": {
-      "sha256": "ef6ed0c1c4ec2949168590e637b56c4843b867ce63ee28bfda3588a994e18377",
+      "sha256": "caff387e608a1ef5ade517e6737de6c4c9c9ae03721bd0434af8b1f4b59001ad",
       "group": "code"
     },
     "system/lib/jsonc.mjs": {
@@ -316,7 +316,7 @@
       "group": "code"
     },
     "system/lib/projects.mjs": {
-      "sha256": "33c3c5d93e5bb88188ebed47cfeb6e4288c0fbf984f9b335ea78bcd5985bae75",
+      "sha256": "65c4c796548549fbd9c84524376271b5b2d17763378b6703f345f6d3613d8456",
       "group": "code"
     },
     "system/lib/repofacts.mjs": {
@@ -996,7 +996,7 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "a3cc7aafae414ba528b6bbf54e91f65f33a4235482c799eb652044dfd5b59130",
+      "sha256": "0dcacd15c0d8e4995be329ea70b63db1eca3f2425bbf0aa6f82e5fd3390ab9b1",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {
@@ -1084,7 +1084,7 @@
       "group": "tests"
     },
     "system/tests/unit/hooksetup.test.mjs": {
-      "sha256": "f4b4d0b79181ab83388922b0e99ce4b07f59ffa3ab9786d82aa38a2b7f20d8e2",
+      "sha256": "a7d5a677addd518d58ebef435ed5cab15daddff3e34a23e03b4eb297f561c295",
       "group": "tests"
     },
     "system/tests/unit/kit-manifest.test.mjs": {
@@ -1116,7 +1116,7 @@
       "group": "tests"
     },
     "system/tests/unit/projects.test.mjs": {
-      "sha256": "ed31c6cece09a70128dc9a1ea9d00f9632c14529a4a9e2610ff25cfb06a55684",
+      "sha256": "e1294ffed22b452f245a7ede6704ab427ce1ac5bf14b01ccd22d0d22bbf110ae",
       "group": "tests"
     },
     "system/tests/unit/recovery.test.mjs": {

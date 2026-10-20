@@ -468,6 +468,9 @@ describe('memory.json "projects"', () => {
     const prev = { auto_add: true, store: 'git', autosync: true, checkpoint: false, repos: { 'github.com/acme/shop': 'dev' }, extra: 1 };
     assert.deepEqual(nextProjects(prev, {}), { enabled: true, auto_add: true, store: 'git', autosync: true, checkpoint: false, error_lookup: true, repos: { 'github.com/acme/shop': 'dev' }, extra: 1 });
     assert.deepEqual(nextProjects(prev, { autoAdd: false, store: 'local' }).auto_add, false);
+    assert.equal(nextProjects(prev, { everywhere: true }).everywhere, true, '--everywhere');
+    assert.equal(nextProjects({ everywhere: true }, {}).everywhere, true, 'kept when not given');
+    assert.equal(nextProjects({ everywhere: true }, { everywhere: false }).everywhere, false, '--no-everywhere');
     assert.equal(nextProjects(prev, { store: 'local' }).store, 'local');
     assert.equal(nextProjects({ store: 'cloud', auto_add: 'yes' }, {}).store, 'local', 'an invalid value falls back');
     assert.equal(nextProjects({ auto_add: 'yes' }, {}).auto_add, false);

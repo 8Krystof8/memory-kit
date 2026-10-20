@@ -126,6 +126,7 @@ ones too, so by default nothing is added to the memory or pushed by itself:
 | `auto_add` | false | `--auto-add`, `--no-auto-add` | give a new repository its memory on its first session |
 | `store` | local | `--store local`, `--store git` | local: the dev notes stay in the local root on this computer; git: they go into the vault repository |
 | `autosync` | false | `--autosync`, `--no-autosync` | commit and push the vault when a session ends (refused without a git remote or in mode local) |
+| `everywhere` | false | `--everywhere`, `--no-everywhere` | outside known projects too (any folder, a repository that is not a project), the session starts with the memory's start view: the core sector and the rules |
 | `checkpoint` | true | | the end-of-session request for the handoff |
 | `citations` | true | | the check of the 📎 line: a cited note must exist and be read in the session, a saved one must have changed (asked at most 3 times per session) |
 | `capture` | true | | when the owner said something that reads like a decision, a correction or a lasting preference and no note changed in the session, the agent is asked once to save it |

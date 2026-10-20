@@ -900,7 +900,7 @@ export function localRootOf(root, raw, { home = os.homedir() } = {}) {
  * error_lookup, and every other key as it was}. A choice not given (undefined) keeps the earlier
  * one, else the safe default.
  */
-export function nextProjects(prev, { autoAdd, store, autosync } = {}) {
+export function nextProjects(prev, { autoAdd, store, autosync, everywhere } = {}) {
   const p = isObj(prev) ? prev : {};
   const bool = (v) => typeof v === 'boolean';
   const pick = (value, old, fallback, valid) => (value !== undefined ? value : valid(old) ? old : fallback);
@@ -912,6 +912,8 @@ export function nextProjects(prev, { autoAdd, store, autosync } = {}) {
     checkpoint: bool(p.checkpoint) ? p.checkpoint : true,
     error_lookup: bool(p.error_lookup) ? p.error_lookup : true,
   };
+  // The start view outside known projects: only when asked for (--everywhere), else as it was.
+  if (typeof everywhere === 'boolean') out.everywhere = everywhere;
   for (const [k, v] of Object.entries(p)) if (!Object.hasOwn(out, k)) out[k] = v;
   return out;
 }
@@ -1010,7 +1012,7 @@ export async function installProjects(root, opts = {}) {
     }
     projects = removedProjects(raw.projects, { keepEnabled });
   } else {
-    projects = nextProjects(raw.projects, { autoAdd: opts.autoAdd, store: opts.store, autosync: opts.autosync });
+    projects = nextProjects(raw.projects, { autoAdd: opts.autoAdd, store: opts.store, autosync: opts.autosync, everywhere: opts.everywhere });
   }
   res.settings = projects;
   res.defaults = projects && Object.fromEntries(Object.entries(SAFE_DEFAULTS).map(([k, v]) => [k, projects[k] === v]));

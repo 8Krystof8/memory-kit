@@ -5,7 +5,9 @@
 // the runs of doctor --probe (MEMORY_KIT_PROBE=1 or "probe": true in the input), which leave no
 // trace at all: no session record, no hint, no project, no log entry, nothing reported as read.
 // Events:
-//   session-start  first, news for the user: a failed sync or failed hook runs since the last
+//   session-start  (projects.everywhere: outside a known project too, the start view of the core
+//                  sector with the vault named absolutely, after the hint of a new repository)
+//                  first, news for the user: a failed sync or failed hook runs since the last
 //                  session start (Claude Code shows them as a systemMessage, which reaches the
 //                  user; Codex has none, so the agent is asked to pass them on). Inside the vault:
 //                  nothing more for Claude Code (the vault has its own start hook), the start
@@ -181,6 +183,21 @@ async function sessionStart(cfg, agent, input, entry) {
   }
 }
 
+/**
+ * The start view outside known projects (projects.everywhere): the core sector and the rules,
+ * with the vault's command and paths named absolutely, after any hint for the agent.
+ */
+async function everywhereView(cfg, agent, notices, before = '') {
+  const { buildStartView, startNotice } = await import('../startview.mjs');
+  const command = vaultCommand(cfg);
+  const core = coreSector(cfg);
+  const built = await buildStartView(cfg, { sectors: core ? [core] : [], project: { command } });
+  logActivity(cfg, { via: 'hook', op: 'start', agent });
+  const loaded = agent === 'claude-code' ? startNotice(cfg, built, { command }) : null;
+  const update = updateLine(cfg, { command });
+  return emit(cfg, agent, { notices: [loaded, update, ...notices].filter(Boolean), context: [before, built.view.text].filter(Boolean).join('\n') });
+}
+
 async function sessionView(cfg, agent, input, entry, notices) {
   const cwd = cwdOf(input);
   const sid = safeId(input.session_id);
@@ -189,8 +206,11 @@ async function sessionView(cfg, agent, input, entry, notices) {
   // A compaction or a resume keeps when the session began (the 📎 saved check compares with it).
   const kept = readSession(cfg, sid)?.started;
   const keep = kept ? { started: kept } : {};
-  if (vault || !ident || insideVault(cfg, ident.top)) {
-    writeSession(cfg, sid, { top: ident?.top ?? null, sector: null, ...keep });
+  const inVault = vault || Boolean(ident && insideVault(cfg, ident.top));
+  if (inVault || !ident) {
+    writeSession(cfg, sid, { top: ident?.top ?? null, sector: null, ...(inVault ? { vault: true } : {}), ...keep });
+    // Outside any repository: the memory's start view only with projects.everywhere.
+    if (!inVault && projectSettings(cfg).everywhere) return everywhereView(cfg, agent, notices);
     // Claude Code runs the vault's own start hook there; Codex has none, so the view comes from here.
     if (agent === 'codex' && (vault || ident)) {
       const { renderStartView } = await import('../startview.mjs');
@@ -206,9 +226,11 @@ async function sessionView(cfg, agent, input, entry, notices) {
   if (!found) {
     writeSession(cfg, sid, { top: ident.top, sector: null, ...keep });
     // No lasting key yet (no commit): nothing to offer until there is one.
-    if (ident.unsettled || isIgnored(cfg, ident)) return emit(cfg, agent, { notices });
+    const everywhere = projectSettings(cfg).everywhere;
+    if (ident.unsettled || isIgnored(cfg, ident)) return everywhere ? everywhereView(cfg, agent, notices) : emit(cfg, agent, { notices });
     if (!projectSettings(cfg).auto_add) {
       const hint = hintOnce(cfg, agent, ident);
+      if (everywhere) return everywhereView(cfg, agent, [...(hint.notices ?? []), ...notices], hint.context);
       return emit(cfg, agent, { notices: [...(hint.notices ?? []), ...notices], context: hint.context });
     }
     const made = await ensureProject(cfg, ident, { force: false });
@@ -293,7 +315,7 @@ function captureReason(cfg, input, sid, s) {
   const cmd = vaultCommand(cfg);
   const project = s?.sector && sectorExists(cfg, s.sector);
   // In a project: the dev notes; in the vault: a decision note (AGENTS.md); elsewhere: the inbox.
-  const key = project ? 'hook.capture_project' : !s?.top ? 'hook.capture_vault' : 'hook.capture_inbox';
+  const key = project ? 'hook.capture_project' : s?.vault ? 'hook.capture_vault' : 'hook.capture_inbox';
   const save = say(cfg, key, { cmd, id: s?.sector ?? '' });
   return say(cfg, 'hook.capture', { quote: r.quote.replace(/"/g, "'"), save });
 }

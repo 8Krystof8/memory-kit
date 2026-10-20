@@ -27,6 +27,11 @@ Honest agents, and your memory as a living map in the browser.
   wrong"; Czech "rozhodli jsme", "od teď", "to je špatně") and no note changed since the session
   began, the Stop hook asks the agent once to save it in the owner's words, or to finish when it
   was nothing to keep. `projects.capture: false` turns it off.
+- **The memory in every folder, when you want it**: `connect claude-code --projects --everywhere`
+  (or `codex`) sets `projects.everywhere`, and a session outside a known project, in any folder or
+  a repository that is not a project, starts with the memory's start view (the core sector and the
+  rules, the vault named by its full path). Off by default: the hooks run in work and client
+  repositories too.
 - **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
   every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
   hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.

@@ -20,7 +20,7 @@ import {
 } from '../clients.mjs';
 import { ensureWorkDirIgnored, git, parseCli, usageError } from '../util.mjs';
 
-export const usage = 'connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json] | connect claude-code|codex --projects [--auto-add|--no-auto-add] [--store local|git] [--autosync|--no-autosync] [--form shell|exec] [--dry-run] [--remove] [--json] | connect --list [--json]';
+export const usage = 'connect <client> [--scope user|project] [--name memory-kit] [--read-only] [--dry-run] [--remove] [--force] [--json] | connect claude-code|codex --projects [--auto-add|--no-auto-add] [--store local|git] [--autosync|--no-autosync] [--everywhere|--no-everywhere] [--form shell|exec] [--dry-run] [--remove] [--json] | connect --list [--json]';
 
 export const BACKUP_DIR = '.memory-kit/backups/connect';
 const CLI_TIMEOUT_MS = 120000;
@@ -697,6 +697,8 @@ async function runProjects(argv, cfg, ctx) {
     store: { type: 'string' },
     autosync: { type: 'boolean' },
     'no-autosync': { type: 'boolean' },
+    everywhere: { type: 'boolean' },
+    'no-everywhere': { type: 'boolean' },
     form: { type: 'string' },
     'dry-run': { type: 'boolean' },
     remove: { type: 'boolean' },
@@ -711,8 +713,10 @@ async function runProjects(argv, cfg, ctx) {
   }
   const autoAdd = tri(values, 'auto-add');
   const autosync = tri(values, 'autosync');
-  if (autoAdd === null || autosync === null) {
-    usageError(`--${autoAdd === null ? 'auto-add' : 'autosync'} and --no-${autoAdd === null ? 'auto-add' : 'autosync'} contradict each other`, usage);
+  const everywhere = tri(values, 'everywhere');
+  const clash = autoAdd === null ? 'auto-add' : autosync === null ? 'autosync' : everywhere === null ? 'everywhere' : null;
+  if (clash) {
+    usageError(`--${clash} and --no-${clash} contradict each other`, usage);
     return 2;
   }
   if (values.store !== undefined && values.store !== 'local' && values.store !== 'git') {
@@ -723,7 +727,7 @@ async function runProjects(argv, cfg, ctx) {
     usageError(`--form must be shell or exec, got "${values.form}"`, usage);
     return 2;
   }
-  const choice = ['auto-add', 'no-auto-add', 'store', 'autosync', 'no-autosync', 'form'].find((k) => values[k] !== undefined);
+  const choice = ['auto-add', 'no-auto-add', 'store', 'autosync', 'no-autosync', 'everywhere', 'no-everywhere', 'form'].find((k) => values[k] !== undefined);
   if (values.remove && choice) {
     usageError(`--remove takes no --${choice}: it only takes the hooks out and keeps the settings`, usage);
     return 2;
@@ -737,7 +741,7 @@ async function runProjects(argv, cfg, ctx) {
   let res;
   try {
     res = await installProjects(path.resolve(root), {
-      agent, autoAdd, store: values.store, autosync, form: values.form, dryRun: values['dry-run'] === true,
+      agent, autoAdd, store: values.store, autosync, everywhere, form: values.form, dryRun: values['dry-run'] === true,
       remove: values.remove === true, t: cfg?.t ?? null,
     });
   } catch (err) {

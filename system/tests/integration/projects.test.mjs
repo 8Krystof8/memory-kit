@@ -1048,6 +1048,21 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.equal(hook(v, 'stop', { ...stopIn, session_id: 'k2' }).stdout, '', 'a note changed in the session');
   });
 
+  test('projects.everywhere: the start view outside known projects too, after the hint of a new repository', () => {
+    const v = vault('en', { projects: { enabled: true, everywhere: true } });
+    const plain = startOut(start(v, tmpDir('plain'), 'e1'));
+    assert.match(plain.context, /# Memory: start/, 'outside any repository');
+    assert.ok(plain.context.includes(v.root.replace(/\\/g, '/')), 'the vault named absolutely');
+    assert.match(plain.user, /memory-kit/);
+    const repo = codeRepo();
+    const fresh = startOut(start(v, repo, 'e2'));
+    assert.match(fresh.context, / project add\b[\s\S]*# Memory: start/, 'the hint first, then the view');
+    const codex = start(v, tmpDir('plain'), 'e3', 'codex').stdout;
+    assert.match(codex, /# Memory: start/);
+    const off = vault('en');
+    assert.equal(start(off, tmpDir('plain'), 'e4').stdout, '', 'off by default');
+  });
+
   test('stop and session start read the code repository without taking its index lock; a failed git status asks nothing', { skip: process.platform === 'win32' && 'index mtimes' }, () => {
     const v = vault('en');
     const repo = codeRepo();

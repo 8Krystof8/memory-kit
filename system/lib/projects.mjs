@@ -270,6 +270,7 @@ export function projectSettings(cfg) {
     checkpoint: p.checkpoint !== false,
     citations: p.citations !== false,
     capture: p.capture !== false,
+    everywhere: p.everywhere === true,
     error_lookup: p.error_lookup !== false,
     repos: isObj(p.repos) ? p.repos : {},
   };
