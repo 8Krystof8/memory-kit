@@ -1024,6 +1024,8 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.equal(JSON.parse(hook(v, 'stop', stopIn).stdout).decision, 'block');
     assert.equal(JSON.parse(hook(v, 'stop', stopIn).stdout).decision, 'block');
     assert.equal(hook(v, 'stop', stopIn).stdout, '', 'asked 3 times in this session: no more');
+    const h = JSON.parse(cli(v, ['activity', '--json']).stdout).honesty;
+    assert.deepEqual([h.checked, h.right, h.back], [4, 1, 3], 'three sent back, one right; neither the stop a block caused nor one after the third ask is checked');
     const off = vault('en', { projects: { enabled: true, citations: false } });
     assert.equal(projectJson(off, 'add', repo).code, 0);
     start(off, repo, 'q2');
@@ -1083,6 +1085,8 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     const mem = JSON.parse(fs.readFileSync(path.join(v.root, 'memory.json'), 'utf8'));
     fs.writeFileSync(path.join(v.root, 'memory.json'), JSON.stringify({ ...mem, feedback: { notice: false } }));
     assert.equal(hook(v, 'stop', stopIn).stdout, '', 'feedback.notice false');
+    const act = JSON.parse(cli(v, ['activity', '--json']).stdout);
+    assert.deepEqual(act.honesty, { checked: 0, right: 0, back: 0, asked: 0, used: 3, saved: 0 }, 'the three stops used one note each');
   });
 
   test('stop and session start read the code repository without taking its index lock; a failed git status asks nothing', { skip: process.platform === 'win32' && 'index mtimes' }, () => {

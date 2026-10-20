@@ -39,6 +39,10 @@ Honest agents, and your memory as a living map in the browser.
   notes, Claude Code shows the owner `memory-kit: notes used: 2 (price, stack) · saved: 1 (idea)`.
   It goes to the owner only, so it costs the agent no tokens. A note a search merely listed is not
   counted, nor a file a pull changed. `feedback.notice: false` turns it off with the other notices.
+- **An honesty score**: `activity` shows what the Stop hook found in the last days: 📎 lines
+  checked, right the first time and sent back, decisions the agent was asked to save, answers that
+  used the memory and notes saved, and the share of citations right the first time. The hook log
+  keeps only the outcomes, no names and no text.
 - **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
   every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
   hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.

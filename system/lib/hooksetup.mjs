@@ -102,6 +102,7 @@ const HOOKSETUP_DEFAULTS = {
   'connect.projects.autosync_on': 'at the end of a session the memory commits and pushes itself',
   'connect.projects.autosync_off': 'nothing is committed or pushed by itself',
   'connect.projects.privacy': 'privacy: the hooks run in every repository you open, so nothing is added to the memory or pushed unless you opt in (--auto-add, --store git, --autosync)',
+  'connect.projects.everywhere_on': 'every session outside a known project starts with the memory\'s start view (the core sector and the rules)',
   'connect.projects.privacy_on': 'privacy: the hooks run in every repository you open, work and client ones too; with {list} on, make sure their notes may go where this memory goes',
   'connect.projects.disabled': 'memory.json "projects": enabled is now false, the other settings stay',
   'connect.projects.still_enabled': '{agent} still has memory hooks, so memory.json "projects" stays enabled',
@@ -1195,10 +1196,12 @@ export function formatInstall(res, t) {
       ['auto_add', String(p.auto_add), s(p.auto_add ? 'connect.projects.auto_add_on' : 'connect.projects.auto_add_off')],
       ['store', p.store, store],
       ['autosync', String(p.autosync), s(p.autosync ? 'connect.projects.autosync_on' : 'connect.projects.autosync_off')],
+      // Shown only while on: off is how every memory before 0.2.0 behaved.
+      ...(p.everywhere === true ? [['everywhere', 'true', s('connect.projects.everywhere_on')]] : []),
     ]) {
       lines.push(`  ${k.padEnd(9)}${v}${mark(k)}: ${text}`);
     }
-    const on = [p.auto_add && '--auto-add', p.store === 'git' && '--store git', p.autosync && '--autosync'].filter(Boolean);
+    const on = [p.auto_add && '--auto-add', p.store === 'git' && '--store git', p.autosync && '--autosync', p.everywhere === true && '--everywhere'].filter(Boolean);
     lines.push(on.length ? s('connect.projects.privacy_on', { list: on.join(', ') }) : s('connect.projects.privacy'));
   }
   for (const w of res.warnings) lines.push(s('connect.projects.warning', { text: w }));

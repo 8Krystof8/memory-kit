@@ -46,6 +46,24 @@ describe('turnReport', () => {
     assert.equal(turnReport(cfg, { transcript: listed }), null, 'a search that only listed a note did not use it');
   });
 
+  test('exact files: two notes of one name, a code file through a folder named inbox, JSON escapes, subagents', () => {
+    for (const rel of ['sectors/dev-a/gotchas.md', 'sectors/dev-b/gotchas.md']) {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), 'x');
+      fs.utimesSync(path.join(root, rel), old, old);
+    }
+    const t = transcript([
+      owner('check both', asked),
+      tool('Bash', { command: `cat ${root}/sectors/dev-a/gotchas.md\ncat ${root}/sectors/dev-b/gotchas.md` }),
+      tool('Read', { file_path: '/code/shop/inbox/README.md' }),
+    ]);
+    assert.deepEqual(turnReport(cfg, { transcript: t }), { read: ['dev-a/gotchas', 'dev-b/gotchas'], saved: [] });
+    const sub = path.join(t.slice(0, -'.jsonl'.length), 'subagents');
+    fs.mkdirSync(sub, { recursive: true });
+    fs.writeFileSync(path.join(sub, 'agent-1.jsonl'), `${JSON.stringify({ ...tool('Read', { file_path: `${root}/sectors/core/stack.md` }), timestamp: new Date().toISOString() })}\n`);
+    assert.ok(turnReport(cfg, { transcript: t }).read.includes('stack'), 'read by a subagent');
+  });
+
   test('an answer that did not touch the memory reports nothing', () => {
     fs.utimesSync(path.join(root, 'inbox/idea.md'), old, old);
     const t = transcript([owner('hi', asked), tool('Bash', { command: 'ls' })]);

@@ -1,22 +1,60 @@
 // The report of one answer at Stop, for the owner (Claude Code shows it as a systemMessage, which
 // costs the agent no tokens): which notes the answer opened and which it saved, counted from the
-// transcript since the owner's last message: a note a tool call was given counts as used, a note
-// named by a call or its result that changed since the owner's message as saved. Read-only; nothing
-// here throws.
+// transcript since the owner's last message (and the transcripts of its subagents): a note file a
+// tool call was given counts as used, a note file named by a call or its result that changed
+// since the owner's message as saved. A path counts only when it leads to a note of the vault or a
+// local root: a file under sectors/, inbox/ or journal/ (their names in the vault's language).
+// Read-only; nothing here throws.
 
 import fs from 'node:fs';
-import { nameKey, noteFiles, readTranscript, toolTraces } from './citations.mjs';
+import path from 'node:path';
+import { readTranscript, subagentTranscripts, toolTraces } from './citations.mjs';
 import { ownerTexts } from './capture.mjs';
 
 const SHOWN = 3;
-// A path to a markdown file named in a tool call or result.
-const FILE_RE = /[^\s"'`=:([\]]*\.md\b/giu;
+const MAX_SUBAGENT = 4 * 1024 * 1024;
+// A path to a markdown file in a trace (after the escapes of JSON are undone).
+const FILE_RE = /[^\s"'`=:(),[\]]*\.md\b/giu;
+
+/** A trace as plain text: the escapes JSON.stringify left (\n, \t, \", \\) undone. */
+const plain = (trace) => trace.replace(/\\[nrt]/g, ' ').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+
+/**
+ * The roots of notes and a function from a path in a trace to the absolute note file it names
+ * (null when it names none).
+ */
+function noteResolver(cfg) {
+  const roots = [cfg.root, ...(cfg.roots ?? []).filter((r) => r.id !== 'main' && !r.foreign && r.path).map((r) => r.path)];
+  const kept = [cfg.dirs?.sectors ?? 'sectors', cfg.dirs?.inbox ?? 'inbox', cfg.dirs?.journal ?? 'journal'];
+  const inNotes = (abs) => roots.some((root) => {
+    const rel = path.relative(root, abs);
+    return rel && !rel.startsWith('..') && !path.isAbsolute(rel) && kept.includes(rel.split(path.sep)[0]);
+  });
+  const exists = (abs) => {
+    try {
+      return fs.statSync(abs).isFile();
+    } catch {
+      return false;
+    }
+  };
+  return (file) => {
+    const p = file.replace(/[\\/]+/g, path.sep);
+    const candidates = path.isAbsolute(p) || /^[A-Za-z]:/.test(file) ? [path.resolve(p)]
+      : roots.flatMap((root) => {
+        // A path relative to the vault (sectors/…) or one remember prints for a local root (../private/sectors/…).
+        const parts = p.split(path.sep);
+        const at = parts.findIndex((part) => kept.includes(part));
+        return at < 0 ? [] : [path.resolve(root, ...parts.slice(at)), path.resolve(cfg.root, p)];
+      });
+    return candidates.find((abs) => inNotes(abs) && exists(abs)) ?? null;
+  };
+}
 
 /**
  * { read: [names], saved: [names] } of the answer to the owner's last message; null when there is
- * no transcript or the answer touched no note.
+ * no transcript or the answer touched no note. Two notes of one name show their folder.
  */
-export function turnReport(cfg, { transcript, files } = {}) {
+export function turnReport(cfg, { transcript } = {}) {
   const { entries } = readTranscript(transcript);
   let start = -1;
   for (let i = entries.length - 1; i >= 0; i--) {
@@ -26,37 +64,39 @@ export function turnReport(cfg, { transcript, files } = {}) {
     }
   }
   if (start < 0) return null;
-  const turn = entries.slice(start + 1);
   const since = Date.parse(entries[start]?.timestamp ?? '') || 0;
-  const notes = files ?? noteFiles(cfg);
-  // Only the notes count, not README.md or a file of the code repository with the same name: a
-  // path read must go through a notes folder (sectors, inbox, journal in the vault's language).
-  const kept = [cfg.dirs?.sectors ?? 'sectors', cfg.dirs?.inbox ?? 'inbox', cfg.dirs?.journal ?? 'journal'];
-  const namedIn = (traces) => {
+  const after = (e) => !since || !(Date.parse(e?.timestamp ?? '') < since);
+  const sub = since ? subagentTranscripts(transcript).flatMap((f) => readTranscript(f, MAX_SUBAGENT).entries.filter(after)) : [];
+  const turn = [...entries.slice(start + 1), ...sub];
+  const resolve = noteResolver(cfg);
+  const filesIn = (traces) => {
     const out = new Set();
     for (const trace of traces) {
-      for (const [file] of trace.matchAll(FILE_RE)) {
-        const parts = file.split(/[\\/]+/);
-        const key = nameKey(parts.at(-1));
-        if (notes.has(key) && parts.slice(0, -1).some((part) => kept.includes(part))) out.add(key);
+      for (const [file] of plain(trace).matchAll(FILE_RE)) {
+        const abs = resolve(file);
+        if (abs) out.add(abs);
       }
     }
     return out;
   };
-  const changed = (key) => since > 0 && notes.get(key).some((abs) => {
+  const changed = (abs) => {
     try {
-      return fs.statSync(abs).mtimeMs > since;
+      return since > 0 && fs.statSync(abs).mtimeMs > since;
     } catch {
       return false;
     }
-  });
-  // Saved: a note named by a tool call or its result (a write, the path remember printed) that
-  // changed since the owner asked; a pull or a checkout changes files without naming them.
-  const saved = new Set([...namedIn(toolTraces(turn))].filter(changed));
-  // Used: a note a tool call was given (Read, cat, show), not one a search merely listed.
-  const read = new Set([...namedIn(toolTraces(turn, { results: false }))].filter((key) => !saved.has(key)));
-  if (!read.size && !saved.size) return null;
-  return { read: [...read], saved: [...saved] };
+  };
+  // Saved: named by a call or its result (a write, the path remember printed) and changed since
+  // the owner asked; a pull or a checkout changes files without naming them.
+  const saved = [...filesIn(toolTraces(turn))].filter(changed);
+  // Used: given to a tool call (Read, cat, show), not merely listed by a search.
+  const read = [...filesIn(toolTraces(turn, { results: false }))].filter((abs) => !saved.includes(abs));
+  if (!read.length && !saved.length) return null;
+  const names = (list) => {
+    const base = (abs) => path.basename(abs, '.md');
+    return list.map((abs) => (list.filter((o) => base(o) === base(abs)).length > 1 ? `${path.basename(path.dirname(abs))}/${base(abs)}` : base(abs)));
+  };
+  return { read: names(read), saved: names(saved) };
 }
 
 /** The names of a list for one line: the first SHOWN, then "+n". */

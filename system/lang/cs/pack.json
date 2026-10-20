@@ -1234,6 +1234,7 @@
     "connect.projects.autosync_on": "na konci session se paměť sama commitne a pushne",
     "connect.projects.autosync_off": "nic se samo necommituje ani nepushuje",
     "connect.projects.privacy": "soukromí: hooky běží v každém repozitáři, který otevřeš, proto se nic nepřidá do paměti ani nepushne, dokud to sám nezapneš (--auto-add, --store git, --autosync)",
+    "connect.projects.everywhere_on": "každá session mimo známý projekt začne startovním pohledem paměti (sektor core a pravidla)",
     "connect.projects.privacy_on": "soukromí: hooky běží v každém repozitáři, který otevřeš, i v pracovních a klientských; se zapnutým {list} si ohlídej, že jejich poznámky smějí tam, kam jde tahle paměť",
     "connect.projects.disabled": "memory.json \"projects\": enabled je teď false, ostatní nastavení zůstává",
     "connect.projects.still_enabled": "{agent} má hooky paměti dál, proto memory.json \"projects\" zůstává zapnuté",

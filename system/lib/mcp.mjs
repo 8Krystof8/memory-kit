@@ -369,7 +369,10 @@ async function runInbox(memory, args, ctx) {
   // where the text comes from follow after a middle dot.
   const writer = ctx.client ? `${ctx.client} (mcp)` : 'mcp';
   const given = typeof args.source === 'string' ? args.source.replace(/\s+/g, ' ').trim() : '';
-  const source = given ? `${writer} · ${given}` : writer;
+  // The whole value stays within the limit of a source (500 characters): the caller's part is cut.
+  const room = 500 - [...`${writer} · `].length;
+  const cut = [...given].length > room ? `${[...given].slice(0, room - 1).join('')}…` : given;
+  const source = given ? `${writer} · ${cut}` : writer;
   const saved = await memory.inbox(args.text, { title: args.title, source });
   return { text: say(memory, 'mcp.inbox_saved', { path: saved.path }), structured: saved };
 }

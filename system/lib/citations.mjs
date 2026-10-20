@@ -130,7 +130,7 @@ export function toolTraces(entries, { results = true } = {}) {
 }
 
 /** The transcripts of the session's subagents (Claude Code: <dir>/<session id>/subagents/*.jsonl). */
-function subagentTranscripts(transcript) {
+export function subagentTranscripts(transcript) {
   if (typeof transcript !== 'string' || !transcript.endsWith('.jsonl')) return [];
   const dir = path.join(transcript.slice(0, -'.jsonl'.length), 'subagents');
   try {

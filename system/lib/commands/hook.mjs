@@ -240,7 +240,7 @@ async function sessionView(cfg, agent, input, entry, notices) {
       return emit(cfg, agent, { notices: [...(hint.notices ?? []), ...notices], context: hint.context });
     }
     const made = await ensureProject(cfg, ident, { force: false });
-    if (!made.id) return emit(cfg, agent, { notices });
+    if (!made.id) return everywhere ? everywhereView(cfg, agent, notices) : emit(cfg, agent, { notices });
     found = { id: made.id, store: made.store, key: ident.key };
   }
   if (found.store === 'git') entry.repo = found.key;
@@ -284,7 +284,7 @@ const BRIEF_ROLES = ['handoff', 'conventions', 'gotchas', 'deadends'];
  * session did not read, or (📎 saved) that did not change in the session; '' when it is right or
  * there is none. Asked at most CITE_ASKS times per session (the count is in .memory-kit/capture).
  */
-function citeReason(cfg, input, sid, s) {
+function citeReason(cfg, input, sid, s, entry = {}) {
   if (!projectSettings(cfg).citations || !sid) return '';
   const counter = path.join(cfg.root, '.memory-kit', 'capture', 'cited', sid);
   let asked = 0;
@@ -297,6 +297,8 @@ function citeReason(cfg, input, sid, s) {
   // The project brief at the session start put these notes into the context: they count as read.
   const seen = s?.sector && sectorExists(cfg, s.sector) ? BRIEF_ROLES.map((role) => noteAbs(cfg, s.sector, role)) : [];
   const r = checkCitations(cfg, { transcript: input.transcript_path, last: input.last_assistant_message, since: Date.parse(s?.started ?? '') || 0, seen });
+  // The hook log keeps the outcome for `activity` (no names): ok, or bad when it is sent back.
+  if (r) entry.cite = hasProblems(r) ? 'bad' : 'ok';
   if (!hasProblems(r)) return '';
   writeAtomic(counter, `${asked + 1}\n`);
   const problems = [
@@ -311,13 +313,14 @@ function citeReason(cfg, input, sid, s) {
  * The reason to block when the owner said something that reads like a decision or a correction
  * and no note changed in the session (lib/capture.mjs); once per session (projects.capture).
  */
-function captureReason(cfg, input, sid, s) {
+function captureReason(cfg, input, sid, s, entry = {}) {
   if (!projectSettings(cfg).capture || !sid) return '';
   const marker = path.join(cfg.root, '.memory-kit', 'capture', 'captured', sid);
   if (fs.existsSync(marker)) return '';
   const r = checkCapture(cfg, { transcript: input.transcript_path, since: Date.parse(s?.started ?? '') || 0 });
   if (!r) return '';
   writeAtomic(marker, `${todayLocal()}\n`);
+  entry.capture = true;
   const cmd = vaultCommand(cfg);
   const project = s?.sector && sectorExists(cfg, s.sector);
   // In a project: the dev notes; in the vault: a decision note (AGENTS.md); elsewhere: the inbox.
@@ -326,31 +329,34 @@ function captureReason(cfg, input, sid, s) {
   return say(cfg, 'hook.capture', { quote: r.quote.replace(/"/g, "'"), save });
 }
 
-function stop(cfg, input, agent) {
+function stop(cfg, input, agent, entry = {}) {
   if (input.stop_hook_active === true || input.agent_id || input.permission_mode === 'plan') return '';
   if (headless(agent)) return '';
   const sid = safeId(input.session_id);
   const s = readSession(cfg, sid);
   let cite = '';
   try {
-    cite = citeReason(cfg, input, sid, s);
+    cite = citeReason(cfg, input, sid, s, entry);
   } catch (err) {
     // The new check never takes the checkpoint down with it.
     if (process.env.MEMORY_DEBUG) process.stderr.write(`memory hook: ${err?.stack ?? err}\n`);
   }
   let capture = '';
   try {
-    capture = captureReason(cfg, input, sid, s);
+    capture = captureReason(cfg, input, sid, s, entry);
   } catch (err) {
     if (process.env.MEMORY_DEBUG) process.stderr.write(`memory hook: ${err?.stack ?? err}\n`);
   }
   const reasons = [cite, capture, checkpointReason(cfg, sid, s)].filter(Boolean);
   if (reasons.length) return JSON.stringify({ decision: 'block', reason: reasons.join('\n\n') });
-  // Nothing to ask: one line for the owner on what the answer did with the memory.
-  if (agent !== 'claude-code' || cfg.feedback?.notice === false) return '';
+  // Nothing to ask: one line for the owner on what the answer did with the memory (the counts go
+  // to the hook log for `activity` also when the line is not shown).
   try {
     const r = turnReport(cfg, { transcript: input.transcript_path });
     if (!r) return '';
+    entry.used = r.read.length;
+    entry.saved = r.saved.length;
+    if (agent !== 'claude-code' || cfg.feedback?.notice === false) return '';
     const parts = [
       r.read.length ? say(cfg, 'hook.report_read', { n: r.read.length, names: shortList(r.read) }) : '',
       r.saved.length ? say(cfg, 'hook.report_saved', { n: r.saved.length, names: shortList(r.saved) }) : '',
@@ -612,7 +618,7 @@ export async function run(argv, cfg, ctx = {}) {
     if (isProbe(null, input)) return 0;
     let out = '';
     if (event === 'session-start') out = await sessionStart(cfg, agent, input, entry);
-    else if (event === 'stop') out = stop(cfg, input, agent);
+    else if (event === 'stop') out = stop(cfg, input, agent, entry);
     else if (event === 'tool-failure') out = toolFailure(cfg, input, entry, agent);
     else if (event === 'session-end') sessionEnd(cfg, agent);
     if (out) process.stdout.write(out.endsWith('\n') ? out : `${out}\n`);
