@@ -53,7 +53,7 @@ import { hookSummary, logHook } from '../hooklog.mjs';
 import { checkInBackground, updateLine } from '../updates.mjs';
 import { readHookInput, lookupCandidate, isProbe } from '../hookinput.mjs';
 import { writeAtomic } from '../fsafe.mjs';
-import { checkCitations, hasProblems } from '../citations.mjs';
+import { checkCitations, hasProblems, noteFiles, readTranscript } from '../citations.mjs';
 import { fastForward } from './sync.mjs';
 import { checkCapture } from '../capture.mjs';
 import { shortList, turnReport } from '../report.mjs';
@@ -310,7 +310,7 @@ const BRIEF_ROLES = ['handoff', 'conventions', 'gotchas', 'deadends'];
  * session did not read, or (📎 saved) that did not change in the session; '' when it is right or
  * there is none. Asked at most CITE_ASKS times per session (the count is in .memory-kit/capture).
  */
-function citeReason(cfg, input, sid, s, entry = {}) {
+function citeReason(cfg, input, sid, s, entry = {}, shared = {}) {
   if (!projectSettings(cfg).citations || !sid) return '';
   const counter = path.join(cfg.root, '.memory-kit', 'capture', 'cited', sid);
   let asked = 0;
@@ -322,7 +322,7 @@ function citeReason(cfg, input, sid, s, entry = {}) {
   if (asked >= CITE_ASKS) return '';
   // The project brief at the session start put these notes into the context: they count as read.
   const seen = s?.sector && sectorExists(cfg, s.sector) ? BRIEF_ROLES.map((role) => noteAbs(cfg, s.sector, role)) : [];
-  const r = checkCitations(cfg, { transcript: input.transcript_path, last: input.last_assistant_message, since: Date.parse(s?.started ?? '') || 0, seen });
+  const r = checkCitations(cfg, { transcript: input.transcript_path, last: input.last_assistant_message, since: Date.parse(s?.started ?? '') || 0, seen, loaded: shared.loaded?.(), files: shared.files });
   // The hook log keeps the outcome for `activity` (no names): ok, or bad when it is sent back.
   if (r) entry.cite = hasProblems(r) ? 'bad' : 'ok';
   if (!hasProblems(r)) return '';
@@ -339,11 +339,11 @@ function citeReason(cfg, input, sid, s, entry = {}) {
  * The reason to block when the owner said something that reads like a decision or a correction
  * and no note changed in the session (lib/capture.mjs); once per session (projects.capture).
  */
-function captureReason(cfg, input, sid, s, entry = {}) {
+function captureReason(cfg, input, sid, s, entry = {}, shared = {}) {
   if (!projectSettings(cfg).capture || !sid) return '';
   const marker = path.join(cfg.root, '.memory-kit', 'capture', 'captured', sid);
   if (fs.existsSync(marker)) return '';
-  const r = checkCapture(cfg, { transcript: input.transcript_path, since: Date.parse(s?.started ?? '') || 0 });
+  const r = checkCapture(cfg, { transcript: input.transcript_path, since: Date.parse(s?.started ?? '') || 0, loaded: shared.loaded?.(), files: shared.files });
   if (!r) return '';
   writeAtomic(marker, `${todayLocal()}\n`);
   entry.capture = true;
@@ -360,16 +360,24 @@ function stop(cfg, input, agent, entry = {}) {
   if (headless(agent)) return '';
   const sid = safeId(input.session_id);
   const s = readSession(cfg, sid);
+  // The transcript and the vault's note files are read at most once per Stop, and only when a
+  // check needs them.
+  let loaded;
+  let files;
+  const shared = {
+    loaded: () => (loaded ??= readTranscript(input.transcript_path)),
+    files: () => (files ??= noteFiles(cfg)),
+  };
   let cite = '';
   try {
-    cite = citeReason(cfg, input, sid, s, entry);
+    cite = citeReason(cfg, input, sid, s, entry, shared);
   } catch (err) {
     // The new check never takes the checkpoint down with it.
     if (process.env.MEMORY_DEBUG) process.stderr.write(`memory hook: ${err?.stack ?? err}\n`);
   }
   let capture = '';
   try {
-    capture = captureReason(cfg, input, sid, s, entry);
+    capture = captureReason(cfg, input, sid, s, entry, shared);
   } catch (err) {
     if (process.env.MEMORY_DEBUG) process.stderr.write(`memory hook: ${err?.stack ?? err}\n`);
   }
@@ -378,7 +386,7 @@ function stop(cfg, input, agent, entry = {}) {
   // Nothing to ask: one line for the owner on what the answer did with the memory (the counts go
   // to the hook log for `activity` also when the line is not shown).
   try {
-    const r = turnReport(cfg, { transcript: input.transcript_path });
+    const r = turnReport(cfg, { transcript: input.transcript_path, loaded: shared.loaded() });
     if (!r) return '';
     entry.used = r.read.length;
     entry.saved = r.saved.length;

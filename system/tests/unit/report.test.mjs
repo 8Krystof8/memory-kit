@@ -5,7 +5,7 @@ import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { shortList, turnReport } from '../../lib/report.mjs';
+import { mdPaths, shortList, turnReport } from '../../lib/report.mjs';
 import { removeTmpDirs, tmpDir } from '../helpers.mjs';
 
 after(removeTmpDirs);
@@ -69,6 +69,14 @@ describe('turnReport', () => {
     const t = transcript([owner('hi', asked), tool('Bash', { command: 'ls' })]);
     assert.equal(turnReport(cfg, { transcript: t }), null);
     assert.equal(turnReport(cfg, { transcript: '/nonexistent.jsonl' }), null);
+  });
+
+  test('mdPaths: every path to a .md file, linear even in a long token', () => {
+    assert.deepEqual(mdPaths('cat "sectors/a b/x.md" y.mdx z.MD,(w.md)'), ['b/x.md', 'z.MD', 'w.md']);
+    const long = `${'y'.repeat(200000)} sectors/core/a.md`;
+    const t0 = performance.now();
+    assert.deepEqual(mdPaths(long), ['sectors/core/a.md']);
+    assert.ok(performance.now() - t0 < 200, 'no quadratic scan');
   });
 
   test('shortList keeps the line short', () => {

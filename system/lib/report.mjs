@@ -13,8 +13,25 @@ import { ownerTexts } from './capture.mjs';
 
 const SHOWN = 3;
 const MAX_SUBAGENT = 4 * 1024 * 1024;
-// A path to a markdown file in a trace (after the escapes of JSON are undone).
-const FILE_RE = /[^\s"'`=:(),[\]]*\.md\b/giu;
+// What ends a path in a trace (after the escapes of JSON are undone).
+const SEPARATORS = new Set([' ', '\t', '\n', '\r', '"', "'", '`', '=', ':', '(', ')', ',', '[', ']']);
+
+/**
+ * The paths to markdown files in a text: each ".md" not followed by a letter or digit, with the
+ * characters before it up to a separator. Linear in the text (a regex that tries every start of a
+ * long token is quadratic, and tool inputs can be long).
+ */
+export function mdPaths(text) {
+  const out = [];
+  const lower = text.toLowerCase();
+  for (let i = lower.indexOf('.md'); i >= 0; i = lower.indexOf('.md', i + 3)) {
+    if (/[\p{L}\p{N}_]/u.test(text[i + 3] ?? '')) continue;
+    let start = i;
+    while (start > 0 && !SEPARATORS.has(text[start - 1])) start--;
+    if (start < i) out.push(text.slice(start, i + 3));
+  }
+  return out;
+}
 
 /** A trace as plain text: the escapes JSON.stringify left (\n, \t, \", \\) undone. */
 const plain = (trace) => trace.replace(/\\[nrt]/g, ' ').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
@@ -54,8 +71,8 @@ function noteResolver(cfg) {
  * { read: [names], saved: [names] } of the answer to the owner's last message; null when there is
  * no transcript or the answer touched no note. Two notes of one name show their folder.
  */
-export function turnReport(cfg, { transcript } = {}) {
-  const { entries } = readTranscript(transcript);
+export function turnReport(cfg, { transcript, loaded } = {}) {
+  const { entries } = loaded ?? readTranscript(transcript);
   let start = -1;
   for (let i = entries.length - 1; i >= 0; i--) {
     if (ownerTexts(entries[i]).length) {
@@ -72,7 +89,7 @@ export function turnReport(cfg, { transcript } = {}) {
   const filesIn = (traces) => {
     const out = new Set();
     for (const trace of traces) {
-      for (const [file] of plain(trace).matchAll(FILE_RE)) {
+      for (const file of mdPaths(plain(trace))) {
         const abs = resolve(file);
         if (abs) out.add(abs);
       }

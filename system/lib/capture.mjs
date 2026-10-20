@@ -76,12 +76,12 @@ export function signalIn(text) {
  * { quote } when an owner message of the session carries a decision or correction and no note
  * changed since `since` (ms); null otherwise (also without a transcript to read).
  */
-export function checkCapture(cfg, { transcript, since = 0, files } = {}) {
-  const { entries } = readTranscript(transcript);
+export function checkCapture(cfg, { transcript, since = 0, files, loaded } = {}) {
+  const { entries } = loaded ?? readTranscript(transcript);
   let quote = '';
   for (const text of ownerMessages(entries, since)) quote = signalIn(text) || quote;
   if (!quote) return null;
-  const notes = files ?? noteFiles(cfg);
+  const notes = (typeof files === 'function' ? files() : files) ?? noteFiles(cfg);
   // Only notes count: generated views and hub files (home.md) change without anything saved.
   const kept = [cfg.dirs?.sectors ?? 'sectors', cfg.dirs?.inbox ?? 'inbox', cfg.dirs?.journal ?? 'journal'];
   const roots = [cfg.root, ...(cfg.roots ?? []).filter((r) => r.id !== 'main' && !r.foreign && r.path).map((r) => r.path)];

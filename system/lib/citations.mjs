@@ -192,14 +192,15 @@ const mtimeOf = (abs) => {
  * agent passes it (Claude Code and Codex send last_assistant_message); only without it is the
  * transcript's last answer taken. seen: absolute paths of notes the context already holds.
  */
-export function checkCitations(cfg, { transcript, last, since = 0, seen = [], files } = {}) {
+export function checkCitations(cfg, { transcript, last, since = 0, seen = [], files, loaded } = {}) {
   const given = typeof last === 'string';
   let line = given ? citeLine(last) : null;
   if (given && !line) return null;
-  const main = readTranscript(transcript);
+  // loaded: the transcript the caller already read; files: the note map, or a function making it.
+  const main = loaded ?? readTranscript(transcript);
   if (!given) line = citeLine(lastAssistantText(main.entries));
   if (!line) return null;
-  const notes = files ?? noteFiles(cfg);
+  const notes = (typeof files === 'function' ? files() : files) ?? noteFiles(cfg);
   const out = { kind: line.kind, missing: [], unread: [], unsaved: [] };
   let traces = null;
   const seenSet = new Set(seen.map((p) => path.resolve(p)));

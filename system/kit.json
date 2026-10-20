@@ -160,7 +160,7 @@
       "group": "code"
     },
     "system/lib/capture.mjs": {
-      "sha256": "8c5651284875b1a64a15ae128ebd11fd668b5fd73ac9d114e1ca940b05094909",
+      "sha256": "18cfca28065b9d5836ead5749e3ab23ea732605f96bebb18b0ccc03d45b19b7b",
       "group": "code"
     },
     "system/lib/changelog.mjs": {
@@ -172,7 +172,7 @@
       "group": "code"
     },
     "system/lib/citations.mjs": {
-      "sha256": "3d6bffacc7cedf010790738706daad793305dd6c06efbb625667bb49859b3abf",
+      "sha256": "cdd6980cbc026a4b56168aac4b77191a1bf44ac213c5f1957c8d60a16c93fed2",
       "group": "code"
     },
     "system/lib/clients.mjs": {
@@ -204,7 +204,7 @@
       "group": "code"
     },
     "system/lib/commands/hook.mjs": {
-      "sha256": "bbb625729dfe5b4ae7343446455fdbbeae7c4dd6b39055bbc9fd1a16f8479896",
+      "sha256": "37faa2d97b8788c6a72feb7dbceb65bf2249c4235c2116891e27b7fa7fda6a38",
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
@@ -336,7 +336,7 @@
       "group": "code"
     },
     "system/lib/report.mjs": {
-      "sha256": "2c31672afc4e32dff5f070eaf116777a4591dbfbf37efd7b182f8567687bb81a",
+      "sha256": "371ce92f45393b7eda25df75779b475e4392df909263947916deac4f58e0c51c",
       "group": "code"
     },
     "system/lib/schema.mjs": {
@@ -1152,7 +1152,7 @@
       "group": "tests"
     },
     "system/tests/unit/report.test.mjs": {
-      "sha256": "a4f24162f2eacf57a06c68b041d5ccc96e6e9f42d33d86de0aa513550eac3099",
+      "sha256": "afff1701f3f76b8252d65258674297b9fe024287b75077ce950eb983123928e9",
       "group": "tests"
     },
     "system/tests/unit/review.test.mjs": {
