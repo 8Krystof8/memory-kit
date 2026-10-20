@@ -1384,6 +1384,8 @@
     "activity.kit_current": "Kit: {installed}, nejnovější (zjištěno {ago})",
     "activity.kit_unknown": "Kit: {installed} · novější verze se zatím nezjišťovala: {cmd} upgrade --check",
     "activity.channels": "Nové verze: {list}",
+    "activity.honesty": "Poctivost za posledních {days} dní: řádků 📎 zkontrolováno {checked} · správně napoprvé {right} · vráceno k opravě {back} · výzev k uložení rozhodnutí {asked} · odpovědí s pamětí {used} · uložených poznámek {saved}",
+    "activity.honesty_score": "Citace správně napoprvé: {pct} %",
     "graph.written": "Graf {notes} poznámek a {links} vazeb: {file}",
     "graph.opened": "Otevřeno v prohlížeči.",
     "graph.open_by_hand": "Otevři ho v prohlížeči: {url}",

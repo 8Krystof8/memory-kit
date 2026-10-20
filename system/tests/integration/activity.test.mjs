@@ -198,7 +198,8 @@ describe('activity', () => {
     const res = runCli(v.root, ['activity', '--json']);
     assert.equal(res.code, 0, res.stderr);
     const j = JSON.parse(res.stdout);
-    assert.deepEqual(Object.keys(j), ['days', 'entries', 'last', 'today', 'period', 'who', 'notes', 'latest', 'log', 'hooks', 'updates']);
+    assert.deepEqual(Object.keys(j), ['days', 'entries', 'last', 'today', 'period', 'who', 'notes', 'latest', 'log', 'hooks', 'honesty', 'updates']);
+    assert.deepEqual(j.honesty, { checked: 0, right: 0, back: 0, asked: 0, used: 0, saved: 0 });
     assert.deepEqual(Object.keys(j.updates), ['installed', 'latest', 'checked', 'available', 'channels']);
     assert.deepEqual(j.updates.channels, { github: 'none', check: false });
     assert.equal(j.days, 7);

@@ -132,7 +132,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "154bfc4e200c6646d7e65dc87dd854f4a079cd7f05b8d73f5d5b05bec0cf8b8f",
+      "sha256": "bd72a4511169426a0fb569866937d63c0270fff7230bf74ca09263d7dceaefe9",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -176,7 +176,7 @@
       "group": "code"
     },
     "system/lib/commands/activity.mjs": {
-      "sha256": "e408892410ea59f58a4cb15665a953c3541e14a21ba413b6b2afeb9c463de8b4",
+      "sha256": "9e419ace4097d8e6a47504361879b9cf322162979511913c2f6a028139203e51",
       "group": "code"
     },
     "system/lib/commands/check.mjs": {
@@ -976,7 +976,7 @@
       "group": "tests"
     },
     "system/tests/integration/activity.test.mjs": {
-      "sha256": "fbe91abbb60245074b6e897faa69343e5d165448785a269aee43c2802ecc7353",
+      "sha256": "918734eced572822d5ceaccee59b0cb0724cf826968dd36206a75ca32f05d35d",
       "group": "tests"
     },
     "system/tests/integration/graph.test.mjs": {

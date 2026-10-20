@@ -58,6 +58,8 @@ const DEFAULTS = {
   'activity.kit_current': 'Kit: {installed}, the newest (checked {ago})',
   'activity.kit_unknown': 'Kit: {installed} · not checked for a newer one yet: {cmd} upgrade --check',
   'activity.channels': 'New versions: {list}',
+  'activity.honesty': 'Honesty, last {days} days: 📎 lines checked {checked} · right the first time {right} · sent back {back} · decisions asked to save {asked} · answers that used the memory {used} · notes saved {saved}',
+  'activity.honesty_score': 'Citations right the first time: {pct} %',
 };
 
 // Product names are not translated.
@@ -117,6 +119,26 @@ function counts(cfg, byOp) {
   return list.length ? list.join(' · ') : say(cfg, 'activity.nothing');
 }
 
+/**
+ * What the Stop hook found in the last `days` (commands/hook.mjs logs it): 📎 lines checked, right
+ * the first time and sent back, decisions the agent was asked to save, answers that used the
+ * memory and notes saved.
+ */
+export function honestySummary(hooks, { now = new Date(), days = 7 } = {}) {
+  const since = new Date(now.getTime() - days * 86400000).toISOString();
+  const out = { checked: 0, right: 0, back: 0, asked: 0, used: 0, saved: 0 };
+  for (const e of hooks) {
+    if (e.event !== 'stop' || typeof e.t !== 'string' || e.t < since) continue;
+    if (e.cite === 'ok' || e.cite === 'bad') out.checked += 1;
+    if (e.cite === 'ok') out.right += 1;
+    if (e.cite === 'bad') out.back += 1;
+    if (e.capture === true) out.asked += 1;
+    if (Number.isInteger(e.used) && e.used > 0) out.used += 1;
+    if (Number.isInteger(e.saved) && e.saved > 0) out.saved += e.saved;
+  }
+  return out;
+}
+
 /** The report of `activity --json`: the summary, whether the log is on, and the project hooks. */
 export function activityReport(cfg, { days = 7, now = new Date() } = {}) {
   const summary = summarizeActivity(readActivity(cfg.root), { now, days });
@@ -130,6 +152,7 @@ export function activityReport(cfg, { days = 7, now = new Date() } = {}) {
       last: last ? { t: last.t, event: last.event ?? null, ok: last.ok !== false } : null,
       failures: hooks.filter((e) => e.ok === false && e.t >= since).length,
     },
+    honesty: honestySummary(hooks, { now, days }),
     updates: updateStatus(cfg),
   };
 }
@@ -157,6 +180,11 @@ export function formatActivity(cfg, report, { now = new Date(), cmd = 'node syst
     lines.push(say(cfg, 'activity.hooks', {
       ago: ago(cfg, h.t, now), event: h.event ?? '?', result: say(cfg, h.ok ? 'activity.hooks_ok' : 'activity.hooks_failed'), n: report.hooks.failures,
     }));
+  }
+  const h = report.honesty;
+  if (h && (h.checked || h.asked || h.used || h.saved)) {
+    lines.push(say(cfg, 'activity.honesty', { days: report.days, ...h }));
+    if (h.checked) lines.push(say(cfg, 'activity.honesty_score', { pct: Math.round((100 * h.right) / h.checked) }));
   }
   const u = report.updates;
   if (u?.installed) {
