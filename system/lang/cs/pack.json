@@ -785,6 +785,7 @@
     "hook.sync_failed": "Pozor: poslední synchronizace paměti selhala ({when}, krok {step}): {error}. Oprava: {fix}",
     "hook.errors": "Pozor: neúspěšné běhy hooků paměti od posledního upozornění: {n}; podrobnosti: {cmd} doctor",
     "hook.cite": "memory-kit zkontroloval řádek 📎 tvé odpovědi: {problems}. Otevři poznámky, které citeš, ulož, co píšeš, že je uložené, nebo ty názvy z řádku vyhoď; pak odpověď zakonči opraveným řádkem 📎. Nikdy necituj poznámku, kterou jsi v této session neotevřel.",
+    "hook.capture": "memory-kit: majitel v této session řekl něco, co vypadá jako rozhodnutí, oprava nebo trvalá preference („{quote}“), a do paměti se nic neuložilo. Pokud to stojí za zapamatování, ulož to hned jeho slovy: {save}. Pokud to nic k zapamatování nebylo, prostě skonči.",
     "hook.cite_missing": "taková poznámka neexistuje: {names}",
     "hook.cite_unread": "v této session nepřečteno: {names}",
     "hook.cite_unsaved": "v této session nezměněno: {names}",

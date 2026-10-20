@@ -1030,6 +1030,24 @@ describe('projects end to end', { skip: !HAS_GIT && 'git is missing' }, () => {
     assert.equal(hook(off, 'stop', { ...stopIn, session_id: 'q2' }).stdout, '', 'projects.citations false');
   });
 
+  test('stop asks once to save what the owner decided, and not when a note was saved', () => {
+    const v = vault('en');
+    const repo = codeRepo();
+    assert.equal(projectJson(v, 'add', repo).code, 0);
+    const t = path.join(tmpDir('capture-t'), 't.jsonl');
+    fs.writeFileSync(t, `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'From now on we deploy on Fridays only.' } })}\n`);
+    start(v, repo, 'k1');
+    const stopIn = { cwd: repo, session_id: 'k1', stop_hook_active: false, transcript_path: t };
+    const ask = JSON.parse(hook(v, 'stop', stopIn).stdout);
+    assert.equal(ask.decision, 'block');
+    assert.match(ask.reason, /reads like a decision.*From now on we deploy on Fridays only\./s);
+    assert.match(ask.reason, /remember --project dev --type decision/);
+    assert.equal(hook(v, 'stop', stopIn).stdout, '', 'asked once per session');
+    start(v, repo, 'k2');
+    assert.equal(cli(v, ['remember', '--type', 'decision', 'deploy on Fridays only'], { cwd: repo }).code, 0);
+    assert.equal(hook(v, 'stop', { ...stopIn, session_id: 'k2' }).stdout, '', 'a note changed in the session');
+  });
+
   test('stop and session start read the code repository without taking its index lock; a failed git status asks nothing', { skip: process.platform === 'win32' && 'index mtimes' }, () => {
     const v = vault('en');
     const repo = codeRepo();

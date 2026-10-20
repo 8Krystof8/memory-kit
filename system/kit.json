@@ -96,7 +96,7 @@
       "group": "docs"
     },
     "docs/projects.md": {
-      "sha256": "0a84cbaf6b931f7d39fe9ebe5393530dca3d6cd71b97b7df231271a576849d06",
+      "sha256": "2ea693ed50f68c4f4b4b6dea5667f2f6d8da1e02c1095a60487f27cf20c530de",
       "group": "docs"
     },
     "docs/search.md": {
@@ -132,7 +132,7 @@
       "group": "code"
     },
     "system/lang/cs/pack.json": {
-      "sha256": "d061d2b6f9e0e58475a0d63adf72083489f4dd860263a8087999429fd61eaa76",
+      "sha256": "7e8ea1ded0eedd2255ac931f971727540b5322dd3f582ec5b15d02fd4bf7bec7",
       "group": "code"
     },
     "system/lang/cs/stemmer.mjs": {
@@ -153,6 +153,10 @@
     },
     "system/lib/activity.mjs": {
       "sha256": "f07e26965e0ba479be7898a9eb0de8ae5e419239c8abc40e4dae9ea29a2357a4",
+      "group": "code"
+    },
+    "system/lib/capture.mjs": {
+      "sha256": "0be62b08df6ec63c247d8832447c2898c857ed7eaf020b8f7a46e70fd2068d5b",
       "group": "code"
     },
     "system/lib/changelog.mjs": {
@@ -196,7 +200,7 @@
       "group": "code"
     },
     "system/lib/commands/hook.mjs": {
-      "sha256": "999193e2faac32731c87d093796477b1641d98bfd56970dc295951fce4068c18",
+      "sha256": "d86e167247fab930c3b425f23d2ccf46fd9233388f6449809ab00bb69b9880e9",
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
@@ -312,7 +316,7 @@
       "group": "code"
     },
     "system/lib/projects.mjs": {
-      "sha256": "54151ea8d18f089119629394ba0a7cf33b770928af8e35eb435df1dcdb7662ad",
+      "sha256": "33c3c5d93e5bb88188ebed47cfeb6e4288c0fbf984f9b335ea78bcd5985bae75",
       "group": "code"
     },
     "system/lib/repofacts.mjs": {
@@ -992,7 +996,7 @@
       "group": "tests"
     },
     "system/tests/integration/projects.test.mjs": {
-      "sha256": "fb8cbb5b4796e3628616b14f3dbdd7b98c5f5efba7d823403f233387dbf07d5a",
+      "sha256": "a3cc7aafae414ba528b6bbf54e91f65f33a4235482c799eb652044dfd5b59130",
       "group": "tests"
     },
     "system/tests/integration/sync.test.mjs": {
@@ -1021,6 +1025,10 @@
     },
     "system/tests/unit/api.test.mjs": {
       "sha256": "7fbc3467b66ff71f153cfb70eae310d024164580d22f00c4a2df66057853010a",
+      "group": "tests"
+    },
+    "system/tests/unit/capture.test.mjs": {
+      "sha256": "255516af1bd85ea8000a67b9217177c771cc8dacea1678f2414293b6838adc64",
       "group": "tests"
     },
     "system/tests/unit/changelog.test.mjs": {
@@ -1108,7 +1116,7 @@
       "group": "tests"
     },
     "system/tests/unit/projects.test.mjs": {
-      "sha256": "7a184b939556cb5b85cc47b212b1f72e162c96a371831575cbc7461c18b357ca",
+      "sha256": "ed31c6cece09a70128dc9a1ea9d00f9632c14529a4a9e2610ff25cfb06a55684",
       "group": "tests"
     },
     "system/tests/unit/recovery.test.mjs": {

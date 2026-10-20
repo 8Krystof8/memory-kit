@@ -269,6 +269,7 @@ export function projectSettings(cfg) {
     autosync: p.autosync === true,
     checkpoint: p.checkpoint !== false,
     citations: p.citations !== false,
+    capture: p.capture !== false,
     error_lookup: p.error_lookup !== false,
     repos: isObj(p.repos) ? p.repos : {},
   };

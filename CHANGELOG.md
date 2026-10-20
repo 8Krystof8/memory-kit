@@ -22,6 +22,11 @@ Honest agents, and your memory as a living map in the browser.
   during the session. A wrong line goes back to the agent with what to fix, at most 3 times per
   session and never in the stop the check itself caused. `projects.citations: false` in
   `memory.json` turns it off.
+- **What the owner decided is not lost**: when the owner says something in a session that reads
+  like a decision, a correction or a lasting preference ("let's go with", "from now on", "that's
+  wrong"; Czech "rozhodli jsme", "od teď", "to je špatně") and no note changed since the session
+  began, the Stop hook asks the agent once to save it in the owner's words, or to finish when it
+  was nothing to keep. `projects.capture: false` turns it off.
 - **The memory as a graph in the browser** (`graph`, cs `graf`), like the graph view of Obsidian:
   every note a dot and every link a line, weighted by its kind (a relation of `## Related` pulls
   hardest, a link in the text less, a note's sector least) and coloured by sector, type or status.

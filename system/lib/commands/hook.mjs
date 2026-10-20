@@ -19,6 +19,9 @@
 //   stop           the 📎 line of the last answer is checked (lib/citations.mjs): a cited note
 //                  that does not exist, was not read in the session or (📎 saved) did not change
 //                  is sent back to the agent, at most 3 times per session (projects.citations);
+//                  when the owner said something that reads like a decision or a correction and
+//                  no note changed in the session, the agent is asked once to save it
+//                  (projects.capture, lib/capture.mjs);
 //                  once per session in a known project, when the code changed and the handoff did
 //                  not: ask the agent to record handoff, gotchas and dead ends (JSON or nothing);
 //                  never in a Claude Code run without a person (claude -p, the Agent SDK)
@@ -45,6 +48,7 @@ import { checkInBackground, updateLine } from '../updates.mjs';
 import { readHookInput, lookupCandidate, isProbe } from '../hookinput.mjs';
 import { writeAtomic } from '../fsafe.mjs';
 import { checkCitations, hasProblems } from '../citations.mjs';
+import { checkCapture } from '../capture.mjs';
 import { WORK_DIR, ensureWorkDirIgnored, todayLocal, workDirGit } from '../util.mjs';
 
 export const usage = 'hook claude-code|codex session-start|stop|tool-failure|session-end (run by the agent hooks; JSON on stdin)';
@@ -60,6 +64,7 @@ const DEFAULTS = {
   'hook.checkpoint': 'Project memory: the code changed in this session and the handoff did not. Before you finish, record briefly: 1) rewrite {handoff} (done, next steps, open questions, branch); 2) errors you fixed as gotchas: {cmd} remember --project {id} --type gotcha "symptom → cause → fix"; 3) what did not work: --type dead-end; 4) new decisions: --type decision. Only what really happened. Then finish.',
   'hook.checkpoint_shared': 'Project memory: the code in this repository changed since this session started (another session works here too, so not all of it may be yours) and the handoff did not. Before you finish, record briefly what this session did: 1) rewrite {handoff} (done, next steps, open questions, branch); 2) errors you fixed as gotchas: {cmd} remember --project {id} --type gotcha "symptom → cause → fix"; 3) what did not work: --type dead-end; 4) new decisions: --type decision. Only what really happened. Then finish.',
   'hook.cite': 'memory-kit checked the 📎 line of your answer: {problems}. Open the notes you cite, save what you say you saved, or drop those names from the line; then end with the corrected 📎 line. Never cite a note you did not open in this session.',
+  'hook.capture': 'memory-kit: in this session the owner said something that reads like a decision, a correction or a lasting preference ("{quote}"), and nothing was saved to the memory. If it is worth keeping, save it now in the owner\'s words: {save}. If it was nothing to keep, just finish.',
   'hook.cite_missing': 'no such note: {names}',
   'hook.cite_unread': 'not read in this session: {names}',
   'hook.cite_unsaved': 'not changed in this session: {names}',
@@ -271,6 +276,22 @@ function citeReason(cfg, input, sid, s) {
   return say(cfg, 'hook.cite', { problems });
 }
 
+/**
+ * The reason to block when the owner said something that reads like a decision or a correction
+ * and no note changed in the session (lib/capture.mjs); once per session (projects.capture).
+ */
+function captureReason(cfg, input, sid, s) {
+  if (!projectSettings(cfg).capture || !sid) return '';
+  const marker = path.join(cfg.root, '.memory-kit', 'capture', 'captured', sid);
+  if (fs.existsSync(marker)) return '';
+  const r = checkCapture(cfg, { transcript: input.transcript_path, since: Date.parse(s?.started ?? '') || 0 });
+  if (!r) return '';
+  writeAtomic(marker, `${todayLocal()}\n`);
+  const cmd = vaultCommand(cfg);
+  const save = s?.sector && sectorExists(cfg, s.sector) ? `${cmd} remember --project ${s.sector} --type decision "…"` : `${cmd} remember "…"`;
+  return say(cfg, 'hook.capture', { quote: r.quote.replace(/"/g, "'"), save });
+}
+
 function stop(cfg, input, agent) {
   if (input.stop_hook_active === true || input.agent_id || input.permission_mode === 'plan') return '';
   if (headless(agent)) return '';
@@ -283,7 +304,13 @@ function stop(cfg, input, agent) {
     // The new check never takes the checkpoint down with it.
     if (process.env.MEMORY_DEBUG) process.stderr.write(`memory hook: ${err?.stack ?? err}\n`);
   }
-  const reasons = [cite, checkpointReason(cfg, sid, s)].filter(Boolean);
+  let capture = '';
+  try {
+    capture = captureReason(cfg, input, sid, s);
+  } catch (err) {
+    if (process.env.MEMORY_DEBUG) process.stderr.write(`memory hook: ${err?.stack ?? err}\n`);
+  }
+  const reasons = [cite, capture, checkpointReason(cfg, sid, s)].filter(Boolean);
   return reasons.length ? JSON.stringify({ decision: 'block', reason: reasons.join('\n\n') }) : '';
 }
 
