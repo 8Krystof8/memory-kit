@@ -164,7 +164,7 @@
       "group": "code"
     },
     "system/lib/citations.mjs": {
-      "sha256": "c994715cf6ba93cbac7f92170f3d67f7f2458526f173c1f587bce0960107530f",
+      "sha256": "8abd87157221fd4eb3aed0c6f5656eb650b7439da29c9bb199afe4308e9f07f4",
       "group": "code"
     },
     "system/lib/clients.mjs": {
@@ -196,7 +196,7 @@
       "group": "code"
     },
     "system/lib/commands/hook.mjs": {
-      "sha256": "07d6f9f9cf9bf641e7a34e486022576f2d8acf049e01282bbeca15e8ce5319af",
+      "sha256": "999193e2faac32731c87d093796477b1641d98bfd56970dc295951fce4068c18",
       "group": "code"
     },
     "system/lib/commands/mcp.mjs": {
@@ -1032,7 +1032,7 @@
       "group": "tests"
     },
     "system/tests/unit/citations.test.mjs": {
-      "sha256": "6ea11f21e9d304ff2b1f1666153087972be4449b70091e7aa3e5da22ee3f3f66",
+      "sha256": "3c394cd9ce678c30689570441f073f7e7ce2d5aabb1895a5565db75e4119d805",
       "group": "tests"
     },
     "system/tests/unit/cli.test.mjs": {

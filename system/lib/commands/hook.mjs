@@ -178,8 +178,11 @@ async function sessionView(cfg, agent, input, entry, notices) {
   const sid = safeId(input.session_id);
   const vault = insideVault(cfg, cwd);
   const ident = vault ? null : identifyIn(cfg, cwd);
+  // A compaction or a resume keeps when the session began (the 📎 saved check compares with it).
+  const kept = readSession(cfg, sid)?.started;
+  const keep = kept ? { started: kept } : {};
   if (vault || !ident || insideVault(cfg, ident.top)) {
-    writeSession(cfg, sid, { top: ident?.top ?? null, sector: null });
+    writeSession(cfg, sid, { top: ident?.top ?? null, sector: null, ...keep });
     // Claude Code runs the vault's own start hook there; Codex has none, so the view comes from here.
     if (agent === 'codex' && (vault || ident)) {
       const { renderStartView } = await import('../startview.mjs');
@@ -193,7 +196,7 @@ async function sessionView(cfg, agent, input, entry, notices) {
   entry.repo = repoHash(ident.key);
   let found = findProject(cfg, ident);
   if (!found) {
-    writeSession(cfg, sid, { top: ident.top, sector: null });
+    writeSession(cfg, sid, { top: ident.top, sector: null, ...keep });
     // No lasting key yet (no commit): nothing to offer until there is one.
     if (ident.unsettled || isIgnored(cfg, ident)) return emit(cfg, agent, { notices });
     if (!projectSettings(cfg).auto_add) {
@@ -237,6 +240,8 @@ const headless = (agent, env = process.env) => agent === 'claude-code' && /^sdk-
 
 // At most this many 📎 corrections are asked in one session.
 const CITE_ASKS = 3;
+// The dev notes whose text the project brief carries (projectBrief).
+const BRIEF_ROLES = ['handoff', 'conventions', 'gotchas', 'deadends'];
 
 /**
  * The reason to block when the last answer's 📎 line names a note that does not exist, that the
@@ -253,7 +258,9 @@ function citeReason(cfg, input, sid, s) {
     /* not asked yet */
   }
   if (asked >= CITE_ASKS) return '';
-  const r = checkCitations(cfg, { transcript: input.transcript_path, last: input.last_assistant_message, since: Date.parse(s?.started ?? '') || 0 });
+  // The project brief at the session start put these notes into the context: they count as read.
+  const seen = s?.sector && sectorExists(cfg, s.sector) ? BRIEF_ROLES.map((role) => noteAbs(cfg, s.sector, role)) : [];
+  const r = checkCitations(cfg, { transcript: input.transcript_path, last: input.last_assistant_message, since: Date.parse(s?.started ?? '') || 0, seen });
   if (!hasProblems(r)) return '';
   writeAtomic(counter, `${asked + 1}\n`);
   const problems = [
@@ -269,7 +276,14 @@ function stop(cfg, input, agent) {
   if (headless(agent)) return '';
   const sid = safeId(input.session_id);
   const s = readSession(cfg, sid);
-  const reasons = [citeReason(cfg, input, sid, s), checkpointReason(cfg, sid, s)].filter(Boolean);
+  let cite = '';
+  try {
+    cite = citeReason(cfg, input, sid, s);
+  } catch (err) {
+    // The new check never takes the checkpoint down with it.
+    if (process.env.MEMORY_DEBUG) process.stderr.write(`memory hook: ${err?.stack ?? err}\n`);
+  }
+  const reasons = [cite, checkpointReason(cfg, sid, s)].filter(Boolean);
   return reasons.length ? JSON.stringify({ decision: 'block', reason: reasons.join('\n\n') }) : '';
 }
 

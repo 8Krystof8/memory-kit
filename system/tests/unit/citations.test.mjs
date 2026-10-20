@@ -6,7 +6,7 @@ import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { checkCitations, citeLine, hasProblems, lastAssistantText, noteFiles, readTranscript, toolInputs } from '../../lib/citations.mjs';
+import { checkCitations, citeLine, hasProblems, lastAssistantText, nameKey, noteFiles, readTranscript, toolTraces } from '../../lib/citations.mjs';
 import { removeTmpDirs, tmpDir } from '../helpers.mjs';
 
 after(removeTmpDirs);
@@ -40,17 +40,22 @@ describe('the 📎 line', () => {
     assert.deepEqual(citeLine('first 📎 memory: [[x]]\nlast **📎 memory:** [[y]]'), { kind: 'memory', names: ['y'] });
     assert.equal(citeLine('no line here'), null);
     assert.equal(citeLine('📎 without links'), null);
+    assert.equal(citeLine('The rule: end with `📎 memory: [[name]]`.'), null, 'a quoted example in inline code');
+    assert.equal(citeLine('```\n📎 memory: [[name]]\n```'), null, 'inside a fenced block');
+    assert.equal(nameKey(' Sectors/Core/Káva.MD '), 'káva'.normalize('NFC'));
   });
 
   test('transcripts of Claude Code and Codex: the last answer and the tool calls', () => {
     const t = transcript([claudeTool('Read', { file_path: '/v/sectors/core/a.md' }), claudeText('done\n📎 memory: [[a]]'), { type: 'user', message: { content: 'x' } }]);
-    const entries = readTranscript(t);
+    const { entries, cut } = readTranscript(t);
+    assert.equal(cut, false);
     assert.equal(lastAssistantText(entries), 'done\n📎 memory: [[a]]');
-    assert.match(toolInputs(entries)[0], /a\.md/);
-    const c = readTranscript(transcript([codexCall({ command: ['bash', '-lc', 'cat sectors/core/b.md'] }), codexText('📎 memory: [[b]]')]));
+    assert.match(toolTraces(entries)[0], /a\.md/);
+    const c = readTranscript(transcript([codexCall({ command: ['bash', '-lc', 'cat sectors/core/b.md'] }), codexText('📎 memory: [[b]]')])).entries;
     assert.equal(lastAssistantText(c), '📎 memory: [[b]]');
-    assert.match(toolInputs(c)[0], /b\.md/);
-    assert.deepEqual(readTranscript(path.join(tmpDir('none'), 'missing.jsonl')), []);
+    assert.match(toolTraces(c)[0], /b\.md/);
+    assert.deepEqual(readTranscript(path.join(tmpDir('none'), 'missing.jsonl')).entries, []);
+    assert.equal(readTranscript(t, 40).cut, true);
   });
 });
 
@@ -60,6 +65,7 @@ describe('checkCitations', () => {
   test('noteFiles finds notes by name and skips generated folders', () => {
     const files = noteFiles(cfg);
     assert.ok(files.has('a') && files.has('b-note'));
+    assert.equal(files.get('a').length, 1);
     assert.equal(files.has('start'), false);
   });
 
@@ -78,6 +84,30 @@ describe('checkCitations', () => {
     const t = transcript([claudeTool('Read', { file_path: '/v/sectors/work/xc.md' }), claudeText('📎 memory: [[a]]')]);
     const r = checkCitations(cfg, { transcript: t, last: 'Answer\n📎 memory: [[c]]' });
     assert.deepEqual(r.unread, ['c']);
+  });
+
+  test('read by a subagent, seen in a tool result, given by the session start, or cited by path and case', () => {
+    const t = transcript([claudeText('📎 memory: [[a]]')]);
+    const sub = path.join(t.slice(0, -'.jsonl'.length), 'subagents');
+    fs.mkdirSync(sub, { recursive: true });
+    fs.writeFileSync(path.join(sub, 'agent-1.jsonl'), `${JSON.stringify(claudeTool('Read', { file_path: '/v/sectors/core/a.md' }))}\n`);
+    assert.equal(hasProblems(checkCitations(cfg, { transcript: t })), false, 'the subagent read it');
+    const r = transcript([{ type: 'user', message: { content: [{ type: 'tool_result', content: 'sectors/work/c.md:3 — price 3 €' }] } }, claudeText('x')]);
+    assert.equal(hasProblems(checkCitations(cfg, { transcript: r, last: '📎 memory: [[C]], [[sectors/work/b-note.md]]', seen: [path.join(cfg.root, 'sectors/work/b-note.md')] })), false);
+  });
+
+  test('the last answer without a 📎 line checks nothing, even when an older one had one', () => {
+    const t = transcript([claudeText('📎 memory: [[c]]'), { type: 'user', message: { content: 'next' } }]);
+    assert.equal(checkCitations(cfg, { transcript: t, last: 'Plain answer.' }), null);
+  });
+
+  test('duplicate names (dev notes of two projects): saved looks at the newest of them', () => {
+    const dup = vaultWith({ 'sectors/dev-a/gotchas.md': 'a', 'sectors/dev-b/gotchas.md': 'b' });
+    const old = new Date(Date.now() - 3600000);
+    fs.utimesSync(path.join(dup.root, 'sectors/dev-b/gotchas.md'), old, old);
+    fs.utimesSync(path.join(dup.root, 'sectors/dev-a/gotchas.md'), new Date(), new Date());
+    const t = transcript([claudeText('📎 saved: [[gotchas]]')]);
+    assert.equal(hasProblems(checkCitations(dup, { transcript: t, since: Date.now() - 60000 })), false);
   });
 
   test('a saved note must have changed after the session started', () => {
